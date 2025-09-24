@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: robusta
+  labels:
+    app: prometheus-standalone
+
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets: ['alertmanager.robusta.svc.cluster.local:9093']
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+    scrape_configs:
+      - job_name: 'self'
+        static_configs:
+          - targets: ['localhost:9090']
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: robusta
+  labels:
+    app: prometheus-standalone
+
+data:
+  always-firing.yml: |
+    groups:
+    - name: test.rules
+      rules:
+      - alert: AlwaysFiring
+        expr: vector(1)
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'This is a test alert that always fires'
+          description: 'Standalone Prometheus firing test alert'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-standalone
+  namespace: robusta
+  labels:
+    app: prometheus-standalone
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-standalone
+  template:
+    metadata:
+      labels:
+        app: prometheus-standalone
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.53.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - --config.file=/etc/prometheus/prometheus.yml
+          - --storage.tsdb.path=/prometheus
+          - --web.enable-lifecycle
+        ports:
+          - name: web
+            containerPort: 9090
+        volumeMounts:
+          - name: config
+            mountPath: /etc/prometheus
+          - name: rules
+            mountPath: /etc/prometheus/rules
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: rules
+          configMap:
+            name: prometheus-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: robusta
+spec:
+  selector:
+    app: prometheus-standalone
+  ports:
+    - name: web
+      port: 9090
+      targetPort: 9090

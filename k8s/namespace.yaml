@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: robusta-central-hub
+  labels:
+    name: robusta-central-hub
+    app.kubernetes.io/name: robusta-central-hub
+    app.kubernetes.io/version: "1.0.0"

@@ -1,0 +1,8 @@
+{
+  "/page": "app/page.js",
+  "/alerts/page": "app/alerts/page.js",
+  "/clusters/page": "app/clusters/page.js",
+  "/alerts/[id]/page": "app/alerts/[id]/page.js",
+  "/reports/page": "app/reports/page.js",
+  "/clusters/[id]/page": "app/clusters/[id]/page.js"
+}

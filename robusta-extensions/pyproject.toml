@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "robusta-central-hub-extensions"
+version = "0.1.0"
+description = "Robusta extensions for Central Hub integration"
+authors = ["Robusta Central Hub Team"]
+packages = [
+  { include = "central_hub_extensions" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+requests = "^2.31.0"
+pydantic = "^2.0.0"
+
+[tool.poetry.dev-dependencies]
+robusta-api = "^0.14"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

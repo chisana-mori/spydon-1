@@ -1,0 +1,184 @@
+package db
+
+import (
+	"fmt"
+	"log"
+
+	"robusta-web/backend/internal/models"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+)
+
+// Database 数据库连接包装器
+type Database struct {
+	*gorm.DB
+}
+
+// Initialize 初始化数据库连接
+func Initialize(databaseURL string) (*Database, error) {
+	// 配置GORM日志
+	gormConfig := &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+		DisableForeignKeyConstraintWhenMigrating: true,
+	}
+
+	// 连接数据库
+	db, err := gorm.Open(postgres.Open(databaseURL), gormConfig)
+	if err != nil {
+		return nil, fmt.Errorf("连接数据库失败: %w", err)
+	}
+
+	// 测试连接
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("获取数据库实例失败: %w", err)
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		return nil, fmt.Errorf("数据库连接测试失败: %w", err)
+	}
+
+	// 设置连接池参数
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetMaxOpenConns(100)
+
+	log.Println("数据库连接成功")
+
+	return &Database{db}, nil
+}
+
+func (d *Database) AutoMigrate() error {
+	err := d.DB.AutoMigrate(
+		&models.Cluster{},
+		&models.Alert{},
+		&models.RCARun{},
+		&models.AuditLog{},
+		&models.User{},
+		&models.RefreshToken{},
+	)
+	if err != nil {
+		return err
+	}
+
+	log.Println("数据库表结构迁移完成，正在手动创建外键...")
+
+	// Manually create foreign key for: alerts -> clusters
+	if !d.Migrator().HasConstraint("alerts", "fk_alerts_cluster") {
+		err = d.Exec(`
+			ALTER TABLE "alerts"
+			ADD CONSTRAINT "fk_alerts_cluster"
+			FOREIGN KEY ("cluster_id")
+			REFERENCES "clusters"("cluster_id")
+			ON UPDATE CASCADE
+			ON DELETE RESTRICT;
+		`).Error
+		if err != nil {
+			return fmt.Errorf("手动创建alerts -> clusters外键失败: %w", err)
+		}
+	}
+
+	// Manually create foreign key for: rca_runs -> alerts
+	if !d.Migrator().HasConstraint("rca_runs", "fk_rca_runs_alert") {
+		err = d.Exec(`
+			ALTER TABLE "rca_runs"
+			ADD CONSTRAINT "fk_rca_runs_alert"
+			FOREIGN KEY ("alert_id")
+			REFERENCES "alerts"("id")
+			ON UPDATE CASCADE
+			ON DELETE CASCADE;
+		`).Error
+		if err != nil {
+			return fmt.Errorf("手动创建rca_runs -> alerts外键失败: %w", err)
+		}
+	}
+
+	// Manually create foreign key for: refresh_tokens -> users
+	if !d.Migrator().HasConstraint("refresh_tokens", "fk_refresh_tokens_user") {
+		err = d.Exec(`
+			ALTER TABLE "refresh_tokens"
+			ADD CONSTRAINT "fk_refresh_tokens_user"
+			FOREIGN KEY ("user_id")
+			REFERENCES "users"("id")
+			ON UPDATE CASCADE
+			ON DELETE CASCADE;
+		`).Error
+		if err != nil {
+			return fmt.Errorf("手动创建refresh_tokens -> users外键失败: %w", err)
+		}
+	}
+
+	log.Println("手动创建外键完成")
+	return nil
+}
+
+// Close 关闭数据库连接
+func (d *Database) Close() error {
+	sqlDB, err := d.DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
+// CreateIndexes 创建数据库索引
+func (d *Database) CreateIndexes() error {
+	// 为alerts表创建复合唯一索引
+	if err := d.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_fingerprint_cluster 
+		ON alerts(fingerprint, cluster_id)
+	`).Error; err != nil {
+		return fmt.Errorf("创建alerts复合索引失败: %w", err)
+	}
+
+	// 为alerts表创建查询索引
+	if err := d.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_alerts_cluster_severity 
+		ON alerts(cluster_id, severity)
+	`).Error; err != nil {
+		return fmt.Errorf("创建alerts查询索引失败: %w", err)
+	}
+
+	if err := d.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_alerts_status_created 
+		ON alerts(status, created_at DESC)
+	`).Error; err != nil {
+		return fmt.Errorf("创建alerts状态索引失败: %w", err)
+	}
+
+	// 为rca_runs表创建索引
+	if err := d.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_rca_runs_alert_status 
+		ON rca_runs(alert_id, status)
+	`).Error; err != nil {
+		return fmt.Errorf("创建rca_runs索引失败: %w", err)
+	}
+
+	// 为audit_logs表创建索引
+	if err := d.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_action 
+		ON audit_logs(user_id, action, created_at DESC)
+	`).Error; err != nil {
+		return fmt.Errorf("创建audit_logs索引失败: %w", err)
+	}
+
+	log.Println("数据库索引创建完成")
+	return nil
+}
+
+// EnableExtensions 启用PostgreSQL扩展
+func (d *Database) EnableExtensions() error {
+	// 启用UUID扩展
+	if err := d.Exec(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`).Error; err != nil {
+		return fmt.Errorf("启用uuid-ossp扩展失败: %w", err)
+	}
+
+	// 启用pgcrypto扩展（用于gen_random_uuid）
+	if err := d.Exec(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`).Error; err != nil {
+		return fmt.Errorf("启用pgcrypto扩展失败: %w", err)
+	}
+
+	log.Println("PostgreSQL扩展启用完成")
+	return nil
+}

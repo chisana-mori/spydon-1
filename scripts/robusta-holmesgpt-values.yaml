@@ -1,0 +1,122 @@
+nameOverride: robusta
+fullnameOverride: robusta
+clusterName: robusta-kind
+
+runner:
+  log_level: DEBUG
+
+prometheusStack:
+  enabled: true
+
+# 启用 HolmesGPT
+enableHolmesGPT: true
+
+# HolmesGPT 配置
+holmes:
+  # 配置 DeepSeek API
+  additionalEnvVars:
+    - name: MODEL
+      value: "deepseek/deepseek-chat"  # 使用 DeepSeek 模型
+    - name: DEEPSEEK_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: holmes-secrets
+          key: deepseekApiKey
+  
+  # 启用内置工具集
+  toolsets:
+    # Robusta 核心工具集（用于获取告警元数据和启用 Ask HolmesGPT）
+    robusta:
+      enabled: true
+
+    # Kubernetes 核心工具集（默认启用）
+    kubernetes/core:
+      enabled: true
+
+    # Kubernetes 日志工具集
+    kubernetes/logs:
+      enabled: true
+
+    # Helm 工具集
+    helm/core:
+      enabled: true
+
+    # 互联网工具集（用于访问文档）
+    internet/core:
+      enabled: true
+
+# 邮件通知配置
+sinksConfig:
+  # 保留原有的 webhook 配置
+  - webhook_sink:
+      name: hub_webhook
+      url: "http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook"
+      headers:
+        X-API-Key: "dev-api-key-123"
+        Authorization: "Bearer dev-api-key-123"
+        X-Robusta-Cluster-ID: "robusta-kind"
+  
+  # 添加邮件通知配置
+  - mail_sink:
+      name: holmes_email_sink
+      # 使用 126 邮箱 SMTP 配置
+      mailto: "mailtos://heningyu21@gmail.com:YOUR_GMAIL_APP_PASSWORD@smtp.gmail.com:465?from=heningyu21@gmail.com&to=heningyu21@126.com"
+      with_header: true
+
+# 简化的自定义 Playbooks - 只保留基本的告警转发
+customPlaybooks:
+  # 转发所有 Prometheus 告警到 Hub
+  - name: ForwardAllPromAlerts
+    triggers:
+      - on_prometheus_alert: {}
+    actions:
+      - create_finding:
+          title: "Prometheus Alert: $alert_name ($fingerprint)"
+          severity: HIGH
+          aggregation_key: "PromAlert-$alertname-$fingerprint"
+    sinks:
+      - "hub_webhook"
+
+  # 发送 Prometheus 告警到邮件（HolmesGPT 会自动分析）
+  - name: PrometheusAlertsToEmail
+    triggers:
+      - on_prometheus_alert: {}
+    actions:
+      - create_finding:
+          title: "🚨 Kubernetes 告警: $alert_name"
+          description: |
+            告警详情:
+            - 告警名称: $alert_name
+            - 集群: $cluster_name
+            - 命名空间: $namespace
+            - 严重程度: $severity
+            - 描述: $description
+
+            HolmesGPT 将自动分析此告警并提供根因分析。
+          severity: HIGH
+          aggregation_key: "Alert-$alertname-$fingerprint"
+    sinks:
+      - "holmes_email_sink"
+
+  # ImagePullBackOff 告警通知
+  - name: ImagePullBackoffNotification
+    triggers:
+      - on_image_pull_backoff:
+          rate_limit: 5
+    actions:
+      - create_finding:
+          title: "🔍 镜像拉取失败: $name ($namespace)"
+          description: |
+            Pod 详情:
+            - Pod 名称: $name
+            - 命名空间: $namespace
+            - 集群: $cluster_name
+
+            HolmesGPT 将自动分析此问题并提供解决方案。
+          severity: HIGH
+          aggregation_key: "ImgPullBackoff-$namespace-$name"
+    sinks:
+      - "holmes_email_sink"
+
+playbookRepos: {}
+playbooksPersistentVolume: true

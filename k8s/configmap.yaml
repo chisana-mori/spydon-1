@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: robusta-central-hub-config
+  namespace: robusta-central-hub
+data:
+  # 应用配置
+  ENVIRONMENT: "production"
+  PORT: "8080"
+  LOG_LEVEL: "info"
+  
+  # 数据库配置
+  DATABASE_URL: "postgres://postgres:password@postgres:5432/robusta_hub?sslmode=disable"
+  
+  # MinIO配置
+  MINIO_ENDPOINT: "minio:9000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"
+  MINIO_BUCKET_NAME: "robusta-artifacts"
+  MINIO_USE_SSL: "false"
+  
+  # HolmesGPT配置
+  HOLMES_GPT_URL: "http://holmesgpt:8081"
+  HOLMES_GPT_TIMEOUT: "300"
+  HOLMES_GPT_ENABLED: "true"
+  HOLMES_GPT_DEFAULT_DEPTH: "standard"
+  
+  # OIDC配置
+  OIDC_ISSUER: "https://your-oidc-provider.example.com"
+  OIDC_CLIENT_ID: "robusta-central-hub"
+  
+  # 限流配置
+  RATE_LIMIT_RPS: "100"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: robusta-central-hub-secrets
+  namespace: robusta-central-hub
+type: Opaque
+stringData:
+  # JWT密钥
+  JWT_SECRET: "your-jwt-secret-key-change-in-production"
+  
+  # HMAC密钥
+  HMAC_SECRET: "your-hmac-secret-key-change-in-production"
+  
+  # OIDC客户端密钥
+  OIDC_CLIENT_SECRET: "your-oidc-client-secret"
+  
+  # HolmesGPT API密钥
+  HOLMES_GPT_API_KEY: "your-holmes-api-key"
+  
+  # OpenAI API密钥（用于HolmesGPT）
+  OPENAI_API_KEY: "your-openai-api-key"

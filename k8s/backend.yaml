@@ -1,0 +1,186 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: robusta-backend
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: robusta-backend
+  template:
+    metadata:
+      labels:
+        app: robusta-backend
+    spec:
+      containers:
+      - name: backend
+        image: robusta-central-hub/backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: ENVIRONMENT
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: PORT
+        - name: DATABASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: DATABASE_URL
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: robusta-central-hub-secrets
+              key: JWT_SECRET
+        - name: HMAC_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: robusta-central-hub-secrets
+              key: HMAC_SECRET
+        - name: OIDC_ISSUER
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: OIDC_ISSUER
+        - name: OIDC_CLIENT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: OIDC_CLIENT_ID
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: robusta-central-hub-secrets
+              key: OIDC_CLIENT_SECRET
+        - name: MINIO_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: MINIO_ENDPOINT
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: MINIO_ACCESS_KEY
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: MINIO_SECRET_KEY
+        - name: MINIO_BUCKET_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: MINIO_BUCKET_NAME
+        - name: MINIO_USE_SSL
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: MINIO_USE_SSL
+        - name: HOLMES_GPT_URL
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: HOLMES_GPT_URL
+        - name: HOLMES_GPT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: robusta-central-hub-secrets
+              key: HOLMES_GPT_API_KEY
+        - name: HOLMES_GPT_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: HOLMES_GPT_TIMEOUT
+        - name: HOLMES_GPT_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: HOLMES_GPT_ENABLED
+        - name: HOLMES_GPT_DEFAULT_DEPTH
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: HOLMES_GPT_DEFAULT_DEPTH
+        - name: RATE_LIMIT_RPS
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: RATE_LIMIT_RPS
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: robusta-central-hub-config
+              key: LOG_LEVEL
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: robusta-backend
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-backend
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: robusta-backend
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: robusta-backend-ingress
+  namespace: robusta-central-hub
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.robusta-hub.example.com
+    secretName: robusta-backend-tls
+  rules:
+  - host: api.robusta-hub.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: robusta-backend
+            port:
+              number: 8080

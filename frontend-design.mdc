@@ -1,0 +1,252 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Frontend Design Rules for Nest Project
+
+## 🎯 Mandatory Design Patterns
+
+When creating or updating any frontend component, STRICTLY follow these established patterns from our trading dialog optimization:
+
+### 1. Dialog/Modal Structure (REQUIRED)
+```tsx
+// ALWAYS use this exact structure for all dialogs
+<DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+  <DialogHeader className="space-y-3 pb-6">
+    <DialogTitle className="text-2xl font-bold flex items-center gap-3">
+      <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+        <Icon className="w-4 h-4 text-primary" />
+      </div>
+      Dialog Title
+    </DialogTitle>
+    <DialogDescription className="text-base">
+      Detailed description text
+    </DialogDescription>
+  </DialogHeader>
+  
+  <div className="space-y-8">
+    {/* Progress indicator for multi-step flows */}
+    <div className="flex items-center justify-center">
+      <div className="flex items-center space-x-2">
+        <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-medium">1</div>
+        <div className="h-1 w-16 bg-primary"></div>
+        <div className="w-8 h-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium">2</div>
+      </div>
+    </div>
+    
+    {/* Content sections */}
+  </div>
+  
+  {/* Action buttons */}
+  <div className="flex flex-col sm:flex-row justify-between gap-4 pt-6 border-t">
+    <Button variant="outline" className="h-11">Cancel</Button>
+    <div className="flex flex-col sm:flex-row gap-3">
+      <Button variant="outline" className="h-11">Secondary</Button>
+      <Button className="h-11">
+        Primary Action
+      </Button>
+    </div>
+  </div>
+</DialogContent>
+```
+
+### 2. Card Layouts (MANDATORY)
+```tsx
+// Standard action card with dashed border
+<Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
+  <CardHeader className="text-center pb-4">
+    <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center justify-center mx-auto mb-3">
+      <Icon className="w-6 h-6 text-blue-600" />
+    </div>
+    <CardTitle className="text-lg">Section Title</CardTitle>
+    <CardDescription>Brief description</CardDescription>
+  </CardHeader>
+  <CardContent>{/* Content */}</CardContent>
+</Card>
+
+// Important information card
+<Card className="bg-muted/30 border-blue-200 dark:border-blue-800">
+  <CardHeader className="pb-3">
+    <CardTitle className="text-lg flex items-center gap-2">
+      <Icon className="w-5 h-5 text-blue-600" />
+      Information Title
+    </CardTitle>
+  </CardHeader>
+  <CardContent>{/* Grid or info display */}</CardContent>
+</Card>
+```
+
+### 3. Form Elements (STRICT REQUIREMENTS)
+```tsx
+// ALL form elements MUST use h-11 height
+<Input className="h-11" />
+<Select><SelectTrigger className="h-11" /></Select>
+<Button className="h-11" />
+
+// Labels MUST include icons
+<Label className="text-sm font-medium flex items-center gap-2">
+  <Icon className="w-4 h-4 text-{color}-600" />
+  Field Name
+</Label>
+```
+
+### 4. Enhanced Select Items (REQUIRED)
+```tsx
+// ALWAYS structure select items this way
+<SelectItem value="option">
+  <div className="flex items-center gap-3 py-1">
+    <div className="w-8 h-8 bg-{color}-50 dark:bg-{color}-900/20 rounded-lg flex items-center justify-center">
+      <Icon className="w-4 h-4 text-{color}-600" />
+    </div>
+    <div className="flex flex-col">
+      <span className="font-medium">Primary Text</span>
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="text-xs">Type</Badge>
+        <span className="text-xs text-muted-foreground">Secondary info</span>
+      </div>
+    </div>
+  </div>
+</SelectItem>
+
+// Simple select with color dots
+<SelectItem value="option">
+  <div className="flex items-center gap-2">
+    <div className="w-2 h-2 bg-{color}-500 rounded-full"></div>
+    Option Name
+  </div>
+</SelectItem>
+```
+
+### 5. Information Grid Display (MANDATORY)
+```tsx
+<div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+  <div className="flex items-center gap-3">
+    <div className="w-8 h-8 bg-{color}-100 dark:bg-{color}-900/30 rounded-lg flex items-center justify-center">
+      <Icon className="w-4 h-4 text-{color}-600" />
+    </div>
+    <div>
+      <p className="text-sm text-muted-foreground">Label</p>
+      <p className="font-medium">Value</p>
+    </div>
+  </div>
+</div>
+```
+
+### 6. Status Indicators (REQUIRED)
+```tsx
+// Real-time status with animation
+<div className="flex items-center gap-1 text-green-600">
+  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+  <span className="text-xs">Connected</span>
+</div>
+
+// Status badges
+<Badge variant={status === 'active' ? 'default' : 'secondary'}>
+  {statusLabel}
+</Badge>
+```
+
+### 7. Color System (ENFORCE CONSISTENTLY)
+```tsx
+const DESIGN_COLORS = {
+  crypto: 'orange-500',
+  stock: 'blue-500',
+  etf: 'green-500', 
+  forex: 'purple-500',
+  commodity: 'yellow-500',
+  index: 'red-500',
+  success: 'green-500',
+  warning: 'yellow-500',
+  error: 'red-500',
+  info: 'blue-500'
+}
+```
+
+### 8. Table Enhancements (MANDATORY)
+```tsx
+<TableRow className="hover:bg-muted/50">
+  <TableCell>
+    <div className="flex items-center gap-3">
+      <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+        <Icon className="w-4 h-4 text-primary" />
+      </div>
+      <div>
+        <div className="font-medium">Primary Information</div>
+        <div className="text-sm text-muted-foreground">Secondary information</div>
+      </div>
+    </div>
+  </TableCell>
+</TableRow>
+
+<TableHead className="w-[100px]">
+  <div className="flex items-center gap-2">
+    <Icon className="w-4 h-4" />
+    Column Name
+  </div>
+</TableHead>
+```
+
+### 9. Responsive Design (NON-NEGOTIABLE)
+```tsx
+// ALWAYS start mobile-first
+<div className="flex flex-col sm:flex-row gap-4">
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+// Button groups responsive
+<div className="flex flex-col sm:flex-row gap-3">
+```
+
+### 10. Animation & Transitions (REQUIRED)
+```tsx
+className="transition-colors hover:border-primary/50"
+className="transition-all hover:shadow-lg"
+className="animate-pulse" // for loading states
+className="animate-spin" // for loading spinners
+```
+
+## 🚨 Enforcement Rules
+
+1. **NO EXCEPTIONS**: Every dialog MUST use the standard header with icon
+2. **MANDATORY**: All form elements use h-11 height
+3. **REQUIRED**: Icons in all labels and select items
+4. **ESSENTIAL**: Card components for all section divisions
+5. **CRITICAL**: Responsive layouts for all components
+6. **OBLIGATORY**: Hover states and transitions
+7. **COMPULSORY**: Consistent color system usage
+
+## 📋 Component Creation Checklist
+
+Before submitting any component, verify:
+- [ ] Dialog uses standard header structure with icon
+- [ ] Form elements are h-11 height
+- [ ] Labels include appropriate icons
+- [ ] Select items have enhanced layout with icons
+- [ ] Cards used for section separation
+- [ ] Responsive design implemented
+- [ ] Hover states added
+- [ ] Color system followed
+- [ ] Proper spacing (space-y-6/8)
+- [ ] Icons from lucide-react
+
+## 🎨 Quick Reference
+
+### Icon Sizes
+- Small: `w-4 h-4` (16px)
+- Medium: `w-5 h-5` (20px)  
+- Large: `w-6 h-6` (24px)
+
+### Common Spacing
+- Section gaps: `space-y-8`
+- Content gaps: `space-y-6`
+- Element gaps: `gap-4`
+- Icon gaps: `gap-2` or `gap-3`
+
+### Standard Heights
+- Form elements: `h-11`
+- Large buttons: `h-12`
+- Icon containers: `w-8 h-8`
+
+---
+
+**CRITICAL**: These rules are MANDATORY for all frontend development. No component should be created or modified without following these patterns. 

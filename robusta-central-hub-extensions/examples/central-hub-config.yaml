@@ -1,0 +1,135 @@
+# Robusta配置示例 - Central Hub集成
+# 将此配置添加到你的Robusta values.yaml文件中
+
+# 全局配置
+globalConfig:
+  cluster_name: "production-cluster-1"
+  central_hub_url: "https://your-central-hub.example.com"
+  central_hub_hmac_secret: "your-hmac-secret-key"
+
+# Sink配置 - 发送告警到Central Hub
+sinksConfig:
+  - central_webhook:
+      name: "central_hub_sink"
+      url: "https://your-central-hub.example.com/api/v1/ingest/alert"
+      cluster_id: "production-cluster-1"
+      hmac_secret: "your-hmac-secret-key"
+      timeout: 30
+      retry_attempts: 3
+
+# 自定义Playbooks
+customPlaybooks:
+  # 自动触发Holmes分析 - 严重告警
+  - name: "AutoHolmesAnalysis"
+    triggers:
+      - on_prometheus_alert:
+          alert_name: "KubePodCrashLooping"
+      - on_prometheus_alert:
+          alert_name: "KubeContainerOOMKilled"
+      - on_prometheus_alert:
+          alert_name: "KubeNodeNotReady"
+      - on_prometheus_alert:
+          severity: "critical"
+    actions:
+      - holmes_analyze:
+          central_hub_url: "https://your-central-hub.example.com"
+          hmac_secret: "your-hmac-secret-key"
+          cluster_id: "production-cluster-1"
+          depth: "standard"
+          timeout_seconds: 300
+          cooldown_minutes: 10
+          auto_trigger_severities: ["critical", "high"]
+    sinks:
+      - "central_hub_sink"
+
+  # 手动Holmes分析触发器
+  - name: "ManualHolmesAnalysis"
+    triggers:
+      - on_prometheus_alert: {}
+    actions:
+      - holmes_analyze:
+          central_hub_url: "https://your-central-hub.example.com"
+          hmac_secret: "your-hmac-secret-key"
+          cluster_id: "production-cluster-1"
+          depth: "deep"
+          timeout_seconds: 600
+          cooldown_minutes: 5
+          enabled: false  # 仅手动触发
+    sinks:
+      - "central_hub_sink"
+
+  # Pod事件监控
+  - name: "PodEventAnalysis"
+    triggers:
+      - on_pod_crash_loop:
+          restart_count: 3
+      - on_pod_oom_killed: {}
+    actions:
+      - create_finding:
+          title: "Pod Issue Detected: $name"
+          aggregation_key: "PodIssue"
+          severity: HIGH
+      - logs_enricher: {}
+      - pod_events_enricher: {}
+      - holmes_analyze:
+          central_hub_url: "https://your-central-hub.example.com"
+          hmac_secret: "your-hmac-secret-key"
+          cluster_id: "production-cluster-1"
+          depth: "standard"
+          auto_trigger_severities: ["high", "critical"]
+    sinks:
+      - "central_hub_sink"
+
+  # 节点问题分析
+  - name: "NodeIssueAnalysis"
+    triggers:
+      - on_kubernetes_warning_event_create:
+          include: ["NodeNotReady", "NodeMemoryPressure", "NodeDiskPressure"]
+    actions:
+      - create_finding:
+          title: "Node Issue: $name"
+          aggregation_key: "NodeIssue"
+          severity: HIGH
+      - node_status_enricher: {}
+      - holmes_analyze:
+          central_hub_url: "https://your-central-hub.example.com"
+          hmac_secret: "your-hmac-secret-key"
+          cluster_id: "production-cluster-1"
+          depth: "deep"
+          timeout_seconds: 300
+    sinks:
+      - "central_hub_sink"
+
+  # 部署问题监控
+  - name: "DeploymentIssueAnalysis"
+    triggers:
+      - on_deployment_update:
+          change_filters: ["status.replicas", "status.readyReplicas"]
+    actions:
+      - create_finding:
+          title: "Deployment Update: $name"
+          aggregation_key: "DeploymentUpdate"
+      - deployment_status_enricher: {}
+      - holmes_analyze:
+          central_hub_url: "https://your-central-hub.example.com"
+          hmac_secret: "your-hmac-secret-key"
+          cluster_id: "production-cluster-1"
+          depth: "quick"
+          enabled: true
+    sinks:
+      - "central_hub_sink"
+
+# 外部Playbook仓库配置
+playbookRepos:
+  central_hub_extensions:
+    url: "https://github.com/your-org/robusta-central-hub-extensions.git"
+    # 或者使用本地路径进行开发
+    # url: "file:///path/to/robusta-extensions"
+    pip_install: true
+
+# 启用持久化存储（用于自定义playbooks）
+playbooksPersistentVolume: true
+
+# 可选：禁用默认的一些playbooks以避免重复
+disabledPlaybooks:
+  - "DefaultPrometheusAlert"  # 如果你想完全自定义告警处理

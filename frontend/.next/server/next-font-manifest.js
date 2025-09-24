@@ -1,0 +1,1 @@
+self.__NEXT_FONT_MANIFEST="{\"pages\":{},\"app\":{\"/Users/ny/Documents/robusta-web/frontend/src/app/layout\":[\"static/media/4990941d6def1e3f-s.p.woff2\",\"static/media/75dc86395c24eff6-s.p.woff2\"]},\"appUsingSizeAdjust\":true,\"pagesUsingSizeAdjust\":false}"
