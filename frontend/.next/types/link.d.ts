@@ -32,8 +32,8 @@ declare namespace __next_route_internal_types__ {
     | `/`
     | `/alerts`
     | `/clusters`
-    | `/reports`
     | `/users`
+    | `/reports`
   type DynamicRoutes<T extends string = string> = 
     | `/alerts/${SafeSlug<T>}`
     | `/clusters/${SafeSlug<T>}`
