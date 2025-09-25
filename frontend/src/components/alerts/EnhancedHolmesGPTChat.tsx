@@ -1,0 +1,1360 @@
+'use client'
+
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
+import { 
+  Brain, 
+  Play, 
+  Square, 
+  RotateCcw, 
+  Download,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  MessageSquare,
+  Settings,
+  Volume2,
+  VolumeX
+} from 'lucide-react'
+import { Alert } from '@/types/api'
+import { ChatMessage, HolmesStructuredData, HolmesTaskItem, HolmesTaskSection } from './ChatMessage'
+import { format } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
+
+interface EnhancedHolmesGPTChatProps {
+  alert: Alert
+  showCard?: boolean  // 控制是否显示外层Card
+}
+
+interface AnalysisMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  timestamp: string
+  isStreaming?: boolean
+  toolCalls?: Array<{
+    name: string
+    input: any
+    output?: any
+    status: 'pending' | 'success' | 'error'
+    command?: string
+  }>
+  structuredData?: HolmesStructuredData
+}
+
+interface AnalysisState {
+  status: 'idle' | 'analyzing' | 'completed' | 'error'
+  messages: AnalysisMessage[]
+  error?: string
+  totalSteps?: number
+  completedSteps?: number
+}
+
+interface ChatSettings {
+  autoScroll: boolean
+  soundEnabled: boolean
+  showToolCalls: boolean
+  language: 'zh-CN' | 'en-US'
+}
+
+export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({ 
+  alert, 
+  showCard = true 
+}) => {
+  const [analysisState, setAnalysisState] = useState<AnalysisState>({
+    status: 'idle',
+    messages: []
+  })
+  const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [settings, setSettings] = useState<ChatSettings>({
+    autoScroll: true,
+    soundEnabled: false,
+    showToolCalls: true,
+    language: 'zh-CN'
+  })
+  const [showSettings, setShowSettings] = useState(false)
+  
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // 自动滚动到底部
+  const scrollToBottom = useCallback(() => {
+    if (settings.autoScroll) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [settings.autoScroll])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [analysisState.messages, settings.autoScroll, scrollToBottom])
+
+  // 构建 HolmesGPT 调查请求
+  const buildInvestigateRequest = () => {
+    return {
+      source: 'robusta',
+      title: `${alert.title}`,
+      description: `${alert.description || ''}
+
+🚨 重要指令 - CRITICAL INSTRUCTION:
+你必须使用中文回答所有问题！You MUST respond in Chinese for all questions!
+请用中文提供详细的根因分析、解决方案和预防措施。
+Please provide detailed root cause analysis, solutions, and preventive measures in Chinese.
+
+分析要求：
+1. 使用中文描述问题现象
+2. 使用中文分析根本原因
+3. 使用中文提供解决步骤
+4. 使用中文给出预防建议
+5. 所有技术术语请用中文解释
+
+Analysis Requirements:
+1. Describe the problem in Chinese
+2. Analyze root causes in Chinese  
+3. Provide solution steps in Chinese
+4. Give prevention suggestions in Chinese
+5. Explain all technical terms in Chinese`,
+      subject: {
+        alert_id: alert.id,
+        fingerprint: alert.fingerprint,
+        cluster_id: alert.cluster_id,
+        severity: alert.severity,
+        status: alert.status,
+        labels: alert.labels || {},
+        annotations: alert.annotations || {},
+        created_at: alert.created_at,
+        starts_at: alert.starts_at,
+        ends_at: alert.ends_at
+      },
+      context: {
+        cluster_name: alert.cluster_id,
+        alert_fingerprint: alert.fingerprint,
+        alert_severity: alert.severity,
+        alert_status: alert.status,
+        alert_labels: alert.labels || {},
+        alert_annotations: alert.annotations || {},
+        language_requirement: '必须使用中文 - MUST USE CHINESE',
+        response_language: 'zh-CN',
+        instruction: '请用中文回答所有问题，包括技术分析、解决方案和建议。Please respond in Chinese for all technical analysis, solutions and recommendations.'
+      },
+      source_instance_id: 'WebUI-Chinese-Enhanced',
+      include_tool_calls: settings.showToolCalls,
+      include_tool_call_results: settings.showToolCalls,
+      prompt_template: 'builtin://generic_investigation.jinja2'
+    }
+  }
+
+  // 解析任务进度
+  const parseProgress = (structuredData?: HolmesStructuredData) => {
+    if (!structuredData) return { total: 0, completed: 0 }
+    
+    const allTasks = [
+      ...(structuredData.tasks || []),
+      ...(structuredData.taskSections?.flatMap(section => section.tasks) || [])
+    ]
+    
+    const completed = allTasks.filter(task => task.status === 'completed').length
+    const total = allTasks.length
+    
+    return { total, completed }
+  }
+
+  // 音效播放
+  const playNotificationSound = () => {
+    if (settings.soundEnabled && typeof window !== 'undefined') {
+      try {
+        const audio = new Audio('/notification.mp3')
+        audio.volume = 0.3
+        audio.play().catch(() => {
+          // 忽略播放失败
+        })
+      } catch (error) {
+        // 忽略音频错误
+      }
+    }
+  }
+
+  // JSON解析逻辑（复用原有逻辑）
+  const normalizeTaskStatus = (status: any): HolmesTaskItem['status'] => {
+    const value = String(status ?? '').toLowerCase()
+    if (value.includes('progress') || value.includes('running')) return 'in_progress'
+    if (value.includes('complete') || value.includes('done') || value.includes('success')) return 'completed'
+    return 'pending'
+  }
+
+  const parseJsonObjectSequence = (raw: string): any[] => {
+    const trimmed = raw.trim()
+    if (!trimmed) return []
+
+    const result: any[] = []
+    let buffer = ''
+    let depth = 0
+    let inString = false
+    let escape = false
+
+    const flushBuffer = () => {
+      const candidate = buffer.trim()
+      if (!candidate) {
+        buffer = ''
+        return
+      }
+      try {
+        result.push(JSON.parse(candidate))
+      } catch {
+        // 忽略无法解析的片段
+      }
+      buffer = ''
+    }
+
+    for (let i = 0; i < trimmed.length; i += 1) {
+      const char = trimmed[i]
+      buffer += char
+
+      if (escape) {
+        escape = false
+        continue
+      }
+
+      if (char === '\\') {
+        escape = true
+        continue
+      }
+
+      if (char === '"') {
+        inString = !inString
+        continue
+      }
+
+      if (!inString) {
+        if (char === '{' || char === '[') depth += 1
+        if (char === '}' || char === ']') depth -= 1
+      }
+
+      if (depth === 0 && !inString) {
+        flushBuffer()
+      }
+    }
+
+    flushBuffer()
+    return result
+  }
+
+  const extractTodos = (payload: any): HolmesTaskItem[] | undefined => {
+    console.log('Extracting todos from payload:', payload)
+    
+    // 支持多种数据结构，包括最新的JSON格式
+    const candidates = [
+      payload?.todos,
+      payload?.params?.todos,
+      payload?.data?.todos,
+      payload?.result?.params?.todos,
+      // 新增：直接从result.data解析任务状态文本
+      payload?.result?.data ? parseTasksFromStatusText(payload.result.data) : null
+    ].filter(item => item && (Array.isArray(item) || typeof item === 'string'))
+
+    console.log('Todo candidates found:', candidates)
+
+    if (!candidates.length) return undefined
+
+    const seen = new Map<string, HolmesTaskItem>()
+
+    candidates.forEach(candidate => {
+      if (Array.isArray(candidate)) {
+        candidate.forEach((item: any, index: number) => {
+          if (!item) return
+          const content = typeof item.content === 'string' ? item.content.trim() : undefined
+          if (!content) return
+          const id = String(item.id ?? index)
+          const note = typeof item.note === 'string' ? item.note : undefined
+          seen.set(id || content, {
+            id,
+            content,
+            status: normalizeTaskStatus(item.status),
+            note
+          })
+        })
+      } else if (typeof candidate === 'string') {
+        // 从状态文本中解析任务
+        const tasks = parseTasksFromStatusText(candidate)
+        if (tasks) {
+          tasks.forEach(task => {
+            seen.set(task.id, task)
+          })
+        }
+      }
+    })
+
+    return Array.from(seen.values())
+  }
+
+  // 新增：从状态文本解析任务列表
+  const parseTasksFromStatusText = (statusText: string): HolmesTaskItem[] | null => {
+    if (typeof statusText !== 'string') return null
+    
+    const tasks: HolmesTaskItem[] = []
+    const lines = statusText.split('\n')
+    
+    console.log('Parsing status text lines:', lines)
+    
+    for (const line of lines) {
+      // 匹配格式：[✓] [1] 任务内容 或 [ ] [2] 任务内容 或 [~] [3] 任务内容
+      const taskMatch = line.match(/\[(.*?)\]\s*\[(\d+)\]\s*(.*)/)
+      if (taskMatch) {
+        const [, statusSymbol, id, content] = taskMatch
+        let status: HolmesTaskItem['status'] = 'pending'
+        
+        if (statusSymbol.includes('✓')) {
+          status = 'completed'
+        } else if (statusSymbol.includes('~') || statusSymbol.includes('▶')) {
+          status = 'in_progress'
+        } else {
+          status = 'pending'
+        }
+        
+        const task = {
+          id,
+          content: content.trim(),
+          status
+        }
+        
+        console.log('Parsed task:', task)
+        tasks.push(task)
+      } else {
+        console.log('Line did not match task pattern:', line)
+      }
+    }
+    
+    console.log('Final parsed tasks:', tasks)
+    return tasks.length > 0 ? tasks : null
+  }
+
+  const deriveStatusText = (payload: any): string | undefined => {
+    const direct = [payload?.status_text, payload?.status, payload?.message]
+      .find((value) => typeof value === 'string' && value.trim())
+    if (direct) return (direct as string).trim()
+
+    const resultText = typeof payload?.result?.data === 'string' ? payload.result.data : undefined
+    if (!resultText) return undefined
+    const taskLine = resultText.split('\n').find((line: string) => line.includes('Task Status'))
+    return (taskLine || resultText.split('\n')[0]).trim()
+  }
+
+  const extractTaskStatus = (text?: string): string | undefined => {
+    if (typeof text !== 'string') return undefined
+    const match = text.match(/Task Status\*\*:?\s*(\d+)\s*completed,\s*(\d+)\s*in progress,\s*(\d+)\s*pending/i)
+    if (!match) return undefined
+    const [, completed, inProgress, pending] = match
+    return `完成 ${completed} · 进行中 ${inProgress} · 待处理 ${pending}`
+  }
+
+  const extractHolmesStructuredDataFromObject = (payload: any): HolmesStructuredData | undefined => {
+    if (!payload || typeof payload !== 'object') return undefined
+
+    console.log('Extracting structured data from object:', payload)
+
+    const planTextCandidates = [payload.content, payload.result?.message]
+      .filter((value) => typeof value === 'string' && value.trim()) as string[]
+    let planText: string | undefined = planTextCandidates[0]?.trim()
+
+    const toolName = typeof payload.tool_name === 'string'
+      ? payload.tool_name
+      : typeof payload.name === 'string'
+        ? payload.name
+        : undefined
+
+    console.log('Tool name:', toolName)
+
+    const tasks = extractTodos(payload)
+    console.log('Extracted tasks:', tasks)
+    const statusText = deriveStatusText(payload)
+    let summary: string | undefined
+
+    // 检测是否为最终分析报告
+    const isFinalReport = payload.content && typeof payload.content === 'string' && 
+      (payload.content.includes('# 问题分析报告') || 
+       payload.content.includes('## 问题描述') ||
+       payload.content.includes('## 根本原因分析') ||
+       payload.content.includes('## 解决方案'))
+
+    if (isFinalReport) {
+      summary = payload.content
+      planText = undefined
+    } else {
+      if ((!planText || /^write\s*\[/i.test(planText)) && tasks && tasks.length) {
+        planText = 'HolmesGPT 已生成调查任务清单，以下为建议的调查步骤。'
+      }
+      if (!planText && typeof payload.content === 'string') {
+        planText = payload.content.trim()
+      }
+
+      if ((!tasks || tasks.length === 0) && planText && !isFinalReport) {
+        summary = planText
+        planText = undefined
+      }
+    }
+
+    const commands = collectCommands(payload)
+
+    const hasInfo = Boolean(planText || (tasks && tasks.length) || commands.length || toolName || statusText || summary)
+
+    if (!hasInfo) {
+      return undefined
+    }
+
+    // 为同一个工具调用生成稳定的ID，避免重复创建卡片
+    const canonicalToolNameRaw = typeof payload.tool_name === 'string'
+      ? payload.tool_name
+      : typeof payload.name === 'string'
+        ? payload.name
+        : undefined
+    const canonicalToolName = canonicalToolNameRaw?.trim()
+
+    const isTodoWrite = canonicalToolName ? canonicalToolName.toLowerCase().includes('todo') : false
+
+    const sectionId = (() => {
+      if (isTodoWrite) {
+        return 'todo-write-main'
+      }
+
+      if (payload.tool_call_id) return String(payload.tool_call_id)
+      if (payload.id) return String(payload.id)
+      if (payload.call_id) return String(payload.call_id)
+
+      if (canonicalToolName) {
+        return `section-${canonicalToolName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`
+      }
+
+      return 'section-default'
+    })()
+
+    const statusSummary = extractTaskStatus(payload.result?.data)
+    const sectionTitle = (() => {
+      if (isTodoWrite) {
+        return statusSummary ? `任务更新 · ${statusSummary}` : '任务更新'
+      }
+      if (canonicalToolName) {
+        return `${canonicalToolName} 调用`
+      }
+      return 'HolmesGPT 调用'
+    })()
+
+    const result = {
+      planText,
+      tasks,
+      toolName,
+      statusText: statusSummary || statusText || undefined,
+      summary,
+      taskSections: ((tasks && tasks.length) || commands.length) ? [{
+        id: sectionId,
+        title: sectionTitle,
+        toolName: toolName || 'HolmesGPT',
+        tasks: tasks || [],
+        statusText: statusSummary || statusText || undefined,
+        commands: commands.length ? commands : undefined,
+      }] : undefined,
+      raw: payload
+    }
+
+    console.log('Extracted structured data result:', result)
+    return result
+  }
+
+  const extractHolmesStructuredData = (payload: any): HolmesStructuredData | undefined => {
+    if (!payload) return undefined
+
+    if (typeof payload === 'string') {
+      const objects = parseJsonObjectSequence(payload)
+      if (!objects.length) {
+        return {
+          summary: payload,
+        }
+      }
+      return objects.reduce<HolmesStructuredData | undefined>((acc, item) => {
+        const structured = extractHolmesStructuredData(item)
+        return mergeHolmesStructuredData(acc, structured)
+      }, undefined)
+    }
+
+    if (Array.isArray(payload)) {
+      return payload.reduce<HolmesStructuredData | undefined>((acc, item) => {
+        const structured = extractHolmesStructuredData(item)
+        return mergeHolmesStructuredData(acc, structured)
+      }, undefined)
+    }
+
+    return extractHolmesStructuredDataFromObject(payload)
+  }
+
+  const mergeHolmesStructuredData = (
+    previous?: HolmesStructuredData,
+    next?: HolmesStructuredData
+  ): HolmesStructuredData | undefined => {
+    if (!previous && !next) return undefined
+    if (!previous) return next
+    if (!next) return previous
+
+    const merged: HolmesStructuredData = {
+      planText: next.planText || previous.planText,
+      toolName: next.toolName || previous.toolName,
+      statusText: next.statusText || previous.statusText,
+      raw: undefined,
+      tasks: []
+    }
+
+    const collectRaw = (value?: any) => {
+      if (value === undefined) return []
+      return Array.isArray(value) ? value : [value]
+    }
+
+    const rawCombined = [...collectRaw(previous.raw), ...collectRaw(next.raw)]
+    if (rawCombined.length) {
+      merged.raw = rawCombined
+    }
+
+    const order: string[] = []
+    const taskMap = new Map<string, HolmesTaskItem>()
+
+    const registerTask = (task?: HolmesTaskItem) => {
+      if (!task) return
+      const key = task.id || task.content
+      if (!taskMap.has(key)) {
+        order.push(key)
+      }
+      taskMap.set(key, task)
+    }
+
+    previous.tasks?.forEach(registerTask)
+    next.tasks?.forEach(registerTask)
+
+    merged.tasks = order.map(key => taskMap.get(key)!).filter(Boolean)
+
+    let summaryText = previous.summary || ''
+    if (next.summary) {
+      summaryText = appendTextChunk(summaryText, next.summary)
+    }
+    if (summaryText.trim()) {
+      merged.summary = summaryText
+    }
+
+    const sectionMap = new Map<string, HolmesTaskSection>()
+    const sectionOrder: string[] = []
+
+    const registerSection = (section?: HolmesTaskSection) => {
+      if (!section) return
+       
+      if (!sectionMap.has(section.id)) {
+        sectionOrder.push(section.id)
+        sectionMap.set(section.id, section)
+        } else {
+          // 合并相同ID的section，主要是合并任务列表
+          const existing = sectionMap.get(section.id)!
+          const mergedSection: HolmesTaskSection = {
+            id: section.id,
+            // 保留现有的基本信息，只更新可变的状态信息
+            title: section.title || existing.title, // 优先使用新标题
+            statusText: section.statusText || existing.statusText, // 更新状态文本
+            toolName: section.toolName || existing.toolName,
+            tasks: [],
+            commands: appendCommands(existing.commands, section.commands),
+          }
+        
+        // 合并任务：以ID或content为键，新状态覆盖旧状态
+        const taskMap = new Map()
+        const taskOrder: string[] = []
+        
+        const addTask = (task: any) => {
+          if (!task) return
+          const key = task.id || task.content
+          if (!taskMap.has(key)) {
+            taskOrder.push(key)
+          }
+          // 新的任务状态覆盖旧的（例如：pending -> completed）
+          taskMap.set(key, task)
+        }
+        
+        // 先添加现有任务，再添加新任务（新任务会覆盖相同ID的旧任务）
+        existing.tasks?.forEach(addTask)
+        section.tasks?.forEach(addTask)
+        
+        mergedSection.tasks = taskOrder.map(key => taskMap.get(key)!).filter(Boolean)
+        sectionMap.set(section.id, mergedSection)
+      }
+    }
+
+    previous.taskSections?.forEach(registerSection)
+    next.taskSections?.forEach(section => {
+      if (!section) return
+      if (!section.tasks?.length) return
+
+      // 如果是 TodoWrite 且新增任务，与现有段 ID 合并
+      if (section.id === 'todo-write-main' && sectionMap.has('todo-write-main')) {
+        registerSection(section)
+        return
+      }
+
+      registerSection(section)
+    })
+
+    const sections = sectionOrder.map(id => sectionMap.get(id)!).filter(Boolean)
+    if (sections.length > 0) {
+      merged.taskSections = sections
+    }
+
+    if (!merged.tasks?.length) {
+      delete merged.tasks
+    }
+
+    return merged
+  }
+
+  function appendTextChunk(base: string, chunk: string): string {
+    if (!chunk) return base
+    const trimmedChunk = chunk.trim()
+    if (!trimmedChunk) return base
+    const normalizedChunk = trimmedChunk.replace(/\s+/g, ' ')
+    const normalizedBase = base.replace(/\s+/g, ' ')
+    if (normalizedBase.includes(normalizedChunk)) return base
+    return base ? `${base}\n\n${trimmedChunk}` : trimmedChunk
+  }
+
+  function appendCommands(existing?: string[], incoming?: string[]): string[] | undefined {
+    const merged = new Set<string>()
+    existing?.forEach(cmd => {
+      if (cmd && cmd.trim()) merged.add(cmd.trim())
+    })
+    incoming?.forEach(cmd => {
+      if (cmd && cmd.trim()) merged.add(cmd.trim())
+    })
+    return merged.size ? Array.from(merged) : undefined
+  }
+
+  function collectCommands(payload: any): string[] {
+    const commands: string[] = []
+
+    const tryAdd = (value?: any) => {
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed && !commands.includes(trimmed)) {
+          commands.push(trimmed)
+        }
+      }
+    }
+
+    tryAdd(payload?.invocation)
+    tryAdd(payload?.description)
+    tryAdd(payload?.command)
+    tryAdd(payload?.result?.invocation)
+    tryAdd(payload?.result?.description)
+
+    return commands
+  }
+
+  // 开始分析
+  const startAnalysis = async () => {
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    // 添加用户消息
+    const userMessage: AnalysisMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
+      timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN })
+    }
+
+    setAnalysisState({
+      status: 'analyzing',
+      messages: [userMessage],
+      totalSteps: 0,
+      completedSteps: 0
+    })
+
+    try {
+      const response = await fetch('/api/holmesgpt/stream/investigate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(buildInvestigateRequest()),
+        signal: controller.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('无法读取响应流')
+      }
+
+      let currentAssistantMessage: AnalysisMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: '',
+        timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
+        isStreaming: true,
+        toolCalls: []
+      }
+
+      setAnalysisState(prev => ({
+        ...prev,
+        messages: [...prev.messages, currentAssistantMessage]
+      }))
+      
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      // 处理单个数据项的函数
+      const processDataItem = (item: any) => {
+        console.log('Processing data item:', item)
+        
+        // 0. 优先检查是否为工具调用结果 - 创建独立的工具调用消息
+        if (item.role === 'tool' && item.tool_call_id) {
+          // 对于 TodoWrite，不创建独立消息，直接更新任务卡片
+          if (item.name === 'TodoWrite') {
+            console.log('TodoWrite tool result received (early branch) - update structured data only')
+            const structured = extractHolmesStructuredData(item)
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergedStructured,
+              isStreaming: true,
+            }
+
+            updateMessageState()
+            return
+          }
+          const toolCall = {
+            name: item.name,
+            input: item.description,
+            output: item.result,
+            status: (item.result?.status === 'success' ? 'success' : item.result?.status === 'error' ? 'error' : 'pending') as 'pending' | 'success' | 'error',
+            command: item.result?.invocation || item.description || ''
+          }
+          
+          console.log('=== CREATING TOOL CALL MESSAGE ===')
+          console.log('Tool call data:', toolCall)
+          
+          // 创建独立的工具调用消息，插入时间线
+          const toolCallMessage: AnalysisMessage = {
+            id: `tool-${item.tool_call_id || Date.now()}`,
+            role: 'assistant',
+            content: '', // 工具调用消息没有文本内容
+            timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
+            isStreaming: false,
+            toolCalls: [toolCall]
+          }
+          
+          // 先完成当前的助手消息（如果有内容的话）
+          if (currentAssistantMessage.content.trim()) {
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              isStreaming: false
+            }
+            
+            setAnalysisState(prev => ({
+              ...prev,
+              messages: [
+                ...prev.messages.map(msg => 
+                  msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+                ),
+                toolCallMessage // 添加工具调用消息
+              ]
+            }))
+            
+            // 创建新的助手消息用于后续内容
+            currentAssistantMessage = {
+              id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              role: 'assistant',
+              content: '',
+              timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
+              isStreaming: true,
+              toolCalls: []
+            }
+          } else {
+            // 如果当前助手消息没有内容，直接添加工具调用消息
+            setAnalysisState(prev => ({
+              ...prev,
+              messages: [...prev.messages, toolCallMessage]
+            }))
+          }
+          
+          console.log('Tool call message created:', toolCallMessage)
+          console.log('=== END TOOL CALL MESSAGE CREATION ===')
+        }
+        
+        // 1. 处理文本内容
+        else if (item.content && typeof item.content === 'string') {
+          const structured = extractHolmesStructuredData(item)
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+          
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            structuredData: mergedStructured,
+            content: appendTextChunk(currentAssistantMessage.content, item.content),
+            isStreaming: true
+          }
+          
+          updateMessageState()
+        }
+        
+        // 2. 处理工具调用开始（tool_name + id）
+        else if (item.tool_name && item.id && !item.role) {
+          console.log('Tool call started:', item.tool_name, item.id)
+          // 可以在这里显示工具调用开始的状态
+        }
+        
+        // 3. 处理结构化数据或任务更新
+        else if (item.type === 'analysis' || item.type === 'analysis_chunk') {
+          const payload = item.data ?? item.content
+
+          if (payload && typeof payload === 'object') {
+            const structured = extractHolmesStructuredData(payload)
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+            
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergedStructured,
+              isStreaming: true
+            }
+            
+            updateMessageState()
+          }
+        }
+      }
+      
+      // 更新消息状态的辅助函数
+      const updateMessageState = () => {
+        const progress = parseProgress(currentAssistantMessage.structuredData)
+        
+        setAnalysisState(prev => ({
+          ...prev,
+          messages: prev.messages.map(msg =>
+            msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+          ),
+          totalSteps: progress.total || prev.totalSteps,
+          completedSteps: progress.completed || prev.completedSteps
+        }))
+      }
+
+      // 处理SSE格式的分析数据
+      const processAnalysisData = (analysisData: any) => {
+        console.log('Processing analysis data:', analysisData)
+        
+        // 1. 处理AI消息内容
+        if (analysisData.content && typeof analysisData.content === 'string') {
+          console.log('Processing AI message content:', analysisData.content)
+          const structured = extractHolmesStructuredData(analysisData)
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+          
+          console.log('Structured data extracted:', structured)
+          console.log('Merged structured data:', mergedStructured)
+          
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            structuredData: mergedStructured,
+            content: appendTextChunk(currentAssistantMessage.content, analysisData.content),
+            isStreaming: true
+          }
+          
+          updateMessageState()
+        }
+        
+        // 2. 处理工具调用开始
+        else if (analysisData.tool_name && analysisData.id) {
+          console.log('Tool call started:', analysisData.tool_name, analysisData.id)
+          // 可以在这里显示工具调用开始的状态
+        }
+        
+        // 3. 处理工具调用结果
+        else if (analysisData.role === 'tool' && analysisData.tool_call_id) {
+          const toolCall = {
+            name: analysisData.name,
+            input: analysisData.description,
+            output: analysisData.result,
+            status: (analysisData.result?.status === 'success' ? 'success' : analysisData.result?.status === 'error' ? 'error' : 'pending') as 'pending' | 'success' | 'error',
+            command: analysisData.result?.invocation || analysisData.description || ''
+          }
+          
+          console.log('=== CREATING TOOL CALL MESSAGE ===')
+          console.log('Tool call data:', toolCall)
+          console.log('Tool name:', analysisData.name)
+          
+          // 对于TodoWrite工具，只更新结构化数据，不创建独立的工具调用消息
+          if (analysisData.name === 'TodoWrite') {
+            console.log('Processing TodoWrite result - updating structured data only')
+            const structured = extractHolmesStructuredData(analysisData)
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+            
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergedStructured,
+              isStreaming: true
+            }
+            
+            updateMessageState()
+            return // 直接返回，不创建工具调用消息
+          }
+          
+          // 对于其他工具，创建独立的工具调用消息，插入时间线
+          const toolCallMessage: AnalysisMessage = {
+            id: `tool-${analysisData.tool_call_id || Date.now()}`,
+            role: 'assistant',
+            content: '', // 工具调用消息没有文本内容
+            timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
+            isStreaming: false,
+            toolCalls: [toolCall]
+          }
+          
+          // 先完成当前的助手消息（如果有内容的话）
+          if (currentAssistantMessage.content.trim()) {
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              isStreaming: false
+            }
+            
+            setAnalysisState(prev => ({
+              ...prev,
+              messages: [
+                ...prev.messages.map(msg => 
+                  msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+                ),
+                toolCallMessage // 添加工具调用消息
+              ]
+            }))
+            
+            // 创建新的助手消息用于后续内容
+            currentAssistantMessage = {
+              id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              role: 'assistant',
+              content: '',
+              timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
+              isStreaming: true,
+              toolCalls: []
+            }
+          } else {
+            // 如果当前助手消息没有内容，直接添加工具调用消息
+            setAnalysisState(prev => ({
+              ...prev,
+              messages: [...prev.messages, toolCallMessage]
+            }))
+          }
+          
+          console.log('Tool call message created:', toolCallMessage)
+          console.log('=== END TOOL CALL MESSAGE CREATION ===')
+        }
+        
+        // 4. 处理最终分析结论（ai_answer_end的data是字符串）
+        else if (typeof analysisData === 'string') {
+          console.log('Final analysis conclusion received')
+          
+          // 先完成当前消息
+          if (currentAssistantMessage.content.trim()) {
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              isStreaming: false
+            }
+            
+            setAnalysisState(prev => ({
+              ...prev,
+              messages: prev.messages.map(msg => 
+                msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+              )
+            }))
+            
+            // 创建新的消息用于最终结论
+            currentAssistantMessage = {
+              id: `assistant-conclusion-${Date.now()}`,
+              role: 'assistant',
+              content: '',
+              timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
+              isStreaming: true,
+              toolCalls: []
+            }
+          }
+          
+          // 添加最终分析结论
+          const structured = extractHolmesStructuredData({ content: analysisData })
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+          
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            structuredData: mergedStructured,
+            content: appendTextChunk(currentAssistantMessage.content, analysisData),
+            isStreaming: true
+          }
+          
+          setAnalysisState(prev => ({
+            ...prev,
+            messages: [...prev.messages, currentAssistantMessage]
+          }))
+          
+          updateMessageState()
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            // 处理 SSE 事件类型（忽略，下一行是数据）
+            continue
+          } else if (line.startsWith('data: ')) {
+            try {
+              const rawData = line.slice(6)
+              
+              // 处理特殊的结束标记
+              if (rawData === '{"type":"complete","data":{}}') {
+                console.log('Analysis complete signal received')
+                // 完成分析
+                currentAssistantMessage = {
+                  ...currentAssistantMessage,
+                  isStreaming: false
+                }
+                setAnalysisState(prev => ({
+                  status: 'completed',
+                  messages: prev.messages.map(msg => 
+                    msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+                  ),
+                  totalSteps: prev.totalSteps,
+                  completedSteps: prev.completedSteps
+                }))
+                break
+              }
+              
+              const data = JSON.parse(rawData)
+              
+              // 处理SSE格式的数据 {"type":"analysis","data":{...}}
+              if (data.type === 'analysis' && data.data) {
+                processAnalysisData(data.data)
+              }
+              // 处理数组格式的数据流（向后兼容）
+              else if (Array.isArray(data)) {
+                data.forEach(item => processDataItem(item))
+              } 
+              // 处理直接的数据项
+              else {
+                processDataItem(data)
+              }
+              
+            } catch (error) {
+              console.error('JSON parse error:', error, 'Line:', line)
+            }
+          }
+        }
+      }
+      
+      // 正常结束时，确保最后的消息被标记为完成
+      if (currentAssistantMessage.content.trim()) {
+        currentAssistantMessage = {
+          ...currentAssistantMessage,
+          isStreaming: false
+        }
+        
+        setAnalysisState(prev => ({
+          status: 'completed',
+          messages: prev.messages.map(msg => 
+            msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+          ),
+          totalSteps: prev.totalSteps,
+          completedSteps: prev.completedSteps
+        }))
+      }
+      
+      playNotificationSound()
+      
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        setAnalysisState(prev => ({
+          status: 'idle',
+          messages: prev.messages.slice(0, -1) // 移除未完成的助手消息
+        }))
+      } else {
+        console.error('分析失败:', error)
+        setAnalysisState(prev => ({
+          status: 'error',
+          messages: prev.messages,
+          error: error.message || '分析过程中发生错误'
+        }))
+      }
+    } finally {
+      setAbortController(null)
+    }
+  }
+
+  // 停止分析
+  const stopAnalysis = () => {
+    if (abortController) {
+      abortController.abort()
+    }
+  }
+
+  // 重新分析
+  const restartAnalysis = () => {
+    setAnalysisState({
+      status: 'idle',
+      messages: [],
+      totalSteps: 0,
+      completedSteps: 0
+    })
+  }
+
+  // 下载分析结果
+  const downloadAnalysis = () => {
+    const analysisText = analysisState.messages
+      .map(msg => `[${msg.timestamp}] ${msg.role === 'user' ? '用户' : 'HolmesGPT'}: ${msg.content}`)
+      .join('\n\n')
+    
+    const blob = new Blob([analysisText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `holmesgpt-analysis-${alert.id}-${Date.now()}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const getStatusIcon = () => {
+    switch (analysisState.status) {
+      case 'analyzing':
+        return <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+      case 'completed':
+        return <CheckCircle2 className="h-5 w-5 text-green-600" />
+      case 'error':
+        return <AlertCircle className="h-5 w-5 text-red-600" />
+      default:
+        return <Brain className="h-5 w-5 text-gray-600" />
+    }
+  }
+
+  const getStatusText = () => {
+    switch (analysisState.status) {
+      case 'analyzing':
+        return '正在分析中...'
+      case 'completed':
+        return '分析完成'
+      case 'error':
+        return '分析失败'
+      default:
+        return 'HolmesGPT 智能分析'
+    }
+  }
+
+  const getProgressText = () => {
+    if (analysisState.totalSteps && analysisState.completedSteps !== undefined) {
+      return `${analysisState.completedSteps}/${analysisState.totalSteps} 步骤`
+    }
+    return null
+  }
+
+  // 内容区域组件
+  const ContentArea = () => (
+    <div className="flex-1 flex flex-col min-h-0">
+      {analysisState.messages.length === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 text-center p-8">
+          <div className="relative mb-6">
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+              <Brain className="h-8 w-8 text-blue-600" />
+            </div>
+            <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+              <MessageSquare className="h-3 w-3 text-white" />
+            </div>
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">准备开始智能分析</h3>
+          <p className="text-sm text-gray-500 max-w-md leading-relaxed">
+            点击触发RCA分析按钮，HolmesGPT 将为您分析告警的根本原因，并提供详细的解决方案和预防措施。
+            分析过程包括任务规划、并行调查和结论总结。
+          </p>
+          <div className="mt-6 grid grid-cols-3 gap-4 text-center">
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <div className="text-blue-600 font-semibold text-lg">📋</div>
+              <div className="text-xs text-blue-700 mt-1">任务规划</div>
+            </div>
+            <div className="p-3 bg-green-50 rounded-lg">
+              <div className="text-green-600 font-semibold text-lg">🔍</div>
+              <div className="text-xs text-green-700 mt-1">并行调查</div>
+            </div>
+            <div className="p-3 bg-purple-50 rounded-lg">
+              <div className="text-purple-600 font-semibold text-lg">📝</div>
+              <div className="text-xs text-purple-700 mt-1">结论总结</div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 space-y-0">
+          {analysisState.messages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              role={message.role}
+              content={message.content}
+              timestamp={message.timestamp}
+              isStreaming={message.isStreaming}
+              toolCalls={message.toolCalls || []}
+              structuredData={message.structuredData}
+            />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
+      
+      {analysisState.status === 'error' && analysisState.error && (
+        <div className="p-4 border-t bg-red-50">
+          <div className="flex items-center space-x-2 text-red-600">
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-sm font-medium">分析失败</span>
+          </div>
+          <p className="text-sm text-red-600 mt-1">{analysisState.error}</p>
+          <Button 
+            onClick={restartAnalysis} 
+            variant="outline" 
+            size="sm" 
+            className="mt-2 border-red-200 text-red-600 hover:bg-red-50"
+          >
+            重试分析
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+
+  // 控制栏组件
+  const ControlBar = () => (
+    <div className="flex-shrink-0 border-b bg-white px-6 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          {getStatusIcon()}
+          <div>
+            <div className="text-lg font-semibold flex items-center space-x-2">
+              <span>{getStatusText()}</span>
+              {getProgressText() && (
+                <Badge variant="outline" className="text-xs">
+                  {getProgressText()}
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              基于 Kubernetes 专业知识的智能故障分析
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSettings(!showSettings)}
+            className="h-8 w-8 p-0"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+          
+          {analysisState.status === 'idle' && (
+            <Button onClick={startAnalysis} size="sm">
+              <Play className="h-4 w-4 mr-2" />
+              触发RCA分析
+            </Button>
+          )}
+          {analysisState.status === 'analyzing' && (
+            <Button onClick={stopAnalysis} variant="outline" size="sm">
+              <Square className="h-4 w-4 mr-2" />
+              停止分析
+            </Button>
+          )}
+          {(analysisState.status === 'completed' || analysisState.status === 'error') && (
+            <>
+              <Button onClick={restartAnalysis} variant="outline" size="sm">
+                <RotateCcw className="h-4 w-4 mr-2" />
+                重新分析
+              </Button>
+              {analysisState.messages.length > 0 && (
+                <Button onClick={downloadAnalysis} variant="outline" size="sm">
+                  <Download className="h-4 w-4 mr-2" />
+                  下载结果
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 设置面板 */}
+      {showSettings && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+          <h4 className="text-sm font-medium mb-3">聊天设置</h4>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm">自动滚动</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSettings(prev => ({ ...prev, autoScroll: !prev.autoScroll }))}
+                className={settings.autoScroll ? 'bg-blue-50 border-blue-200' : ''}
+              >
+                {settings.autoScroll ? '已启用' : '已禁用'}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">完成提示音</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
+                className={settings.soundEnabled ? 'bg-blue-50 border-blue-200' : ''}
+              >
+                {settings.soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">显示工具调用</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSettings(prev => ({ ...prev, showToolCalls: !prev.showToolCalls }))}
+                className={settings.showToolCalls ? 'bg-blue-50 border-blue-200' : ''}
+              >
+                {settings.showToolCalls ? '已启用' : '已禁用'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  // 根据showCard决定返回结构
+  if (!showCard) {
+    return (
+      <div className="w-full h-full flex flex-col bg-white border rounded-lg overflow-hidden">
+        <ControlBar />
+        <ContentArea />
+      </div>
+    )
+  }
+
+  return (
+    <Card className="w-full h-full flex flex-col">
+      <CardHeader className="pb-3 flex-shrink-0">
+        <ControlBar />
+      </CardHeader>
+
+      <Separator className="flex-shrink-0" />
+
+      <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+        <ContentArea />
+      </CardContent>
+    </Card>
+  )
+}
