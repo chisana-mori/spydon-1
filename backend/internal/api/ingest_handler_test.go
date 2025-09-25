@@ -74,10 +74,22 @@ type TestRCARun struct {
 
 func (TestRCARun) TableName() string { return "rca_runs" }
 
-type fakeStorage struct{}
+type fakeStorage struct {
+	data map[string][]byte
+}
+
+func newFakeStorage() *fakeStorage {
+	return &fakeStorage{data: make(map[string][]byte)}
+}
 
 func (f *fakeStorage) Save(ctx context.Context, prefix string, data []byte, contentType string) (string, error) {
-	return "test-object-key", nil
+	key := "test-object-key"
+	f.data[key] = append([]byte(nil), data...)
+	return key, nil
+}
+
+func (f *fakeStorage) Get(ctx context.Context, key string) ([]byte, error) {
+	return append([]byte(nil), f.data[key]...), nil
 }
 
 func setupTestDB() *db.Database {
@@ -110,7 +122,7 @@ func setupTestHandler() (*IngestHandler, *gin.Engine) {
 	clusterService := services.NewClusterService(database)
 	auditService := services.NewAuditService(database)
 
-	storage := &fakeStorage{}
+	storage := newFakeStorage()
 	handler := NewIngestHandler(alertService, rcaService, clusterService, auditService, storage)
 
 	gin.SetMode(gin.TestMode)

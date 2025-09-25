@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -72,6 +73,9 @@ func (h *IngestHandler) IngestAlert(c *gin.Context) {
 	}
 
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
+	if len(rawBody) > 0 {
+		log.Printf("[Webhook] /ingest/alert 接收到原始数据: %s", string(rawBody))
+	}
 	var req IngestAlertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -163,6 +167,9 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 	raw, _ := io.ReadAll(c.Request.Body)
 	// 恢复Body供后续使用
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(raw))
+	if len(raw) > 0 {
+		log.Printf("[Webhook] /ingest/robusta-webhook 接收到原始数据: %s", string(raw))
+	}
 
 	// 优先按JSON解析；否则按纯文本处理
 	body := map[string]interface{}{}

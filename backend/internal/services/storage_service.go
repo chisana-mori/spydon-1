@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 // PayloadStorage 用于存储原始大文本或JSON数据的抽象接口
 type PayloadStorage interface {
 	Save(ctx context.Context, prefix string, data []byte, contentType string) (string, error)
+	Get(ctx context.Context, key string) ([]byte, error)
 }
 
 // ObjectStorageService 基于MinIO的对象存储实现
@@ -28,7 +30,20 @@ type ObjectStorageService struct {
 
 // NewObjectStorageService 创建对象存储服务实例并确保目标Bucket存在
 func NewObjectStorageService(cfg *config.Config) (*ObjectStorageService, error) {
-	client, err := minio.New(cfg.MinIOEndpoint, &minio.Options{
+	endpoint := strings.TrimSpace(cfg.MinIOEndpoint)
+	if endpoint == "" {
+		return nil, fmt.Errorf("MinIO服务未配置，请设置 MINIO_ENDPOINT")
+	}
+
+	if strings.Contains(endpoint, "://") {
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("解析MinIO地址失败: %w", err)
+		}
+		endpoint = parsed.Host
+	}
+
+	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.MinIOAccessKey, cfg.MinIOSecretKey, ""),
 		Secure: cfg.MinIOUseSSL,
 	})
@@ -87,4 +102,29 @@ func (s *ObjectStorageService) Save(ctx context.Context, prefix string, data []b
 	}
 
 	return objectKey, nil
+}
+
+// Get 从MinIO获取对象数据
+func (s *ObjectStorageService) Get(ctx context.Context, key string) ([]byte, error) {
+	if key == "" {
+		return nil, fmt.Errorf("对象键不能为空")
+	}
+
+	getCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	object, err := s.client.GetObject(getCtx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("从MinIO获取对象失败: %w", err)
+	}
+	defer object.Close()
+
+	// 读取对象内容
+	var buffer bytes.Buffer
+	_, err = buffer.ReadFrom(object)
+	if err != nil {
+		return nil, fmt.Errorf("读取对象内容失败: %w", err)
+	}
+
+	return buffer.Bytes(), nil
 }

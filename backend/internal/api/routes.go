@@ -25,7 +25,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 
 	// 创建处理器实例
 	ingestHandler := NewIngestHandler(alertService, rcaService, clusterService, auditService, objectStorage)
-	queryHandler := NewQueryHandler(alertService, rcaService, clusterService)
+	queryHandler := NewQueryHandler(alertService, rcaService, clusterService, objectStorage)
 	rcaHandler := NewRCAHandler(holmesService)
 	authHandler := NewAuthHandler(authService)
 	healthHandler := NewHealthHandler(database)
@@ -86,6 +86,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		// 告警相关
 		queryGroup.GET("/alerts", queryHandler.GetAlerts)
 		queryGroup.GET("/alerts/:id", queryHandler.GetAlert)
+		queryGroup.GET("/alerts/:id/raw-payload", queryHandler.GetAlertRawPayload)
 
 		// RCA相关
 		queryGroup.GET("/rca/:alert_id", queryHandler.GetRCAByAlertID)

@@ -1,24 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { 
-  ArrowLeft, 
-  Clock, 
-  Server, 
+import {
+  ArrowLeft,
+  Server,
   AlertTriangle,
-  Play,
-  CheckCircle,
-  XCircle,
-  Loader2
+  Clock
 } from 'lucide-react'
 import RobustaAPI from '@/lib/api'
 import { formatDistanceToNow, format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
+import { RawPayloadViewer } from '@/components/alerts/RawPayloadViewer'
+import { ChatStyleHolmesGPTAnalysis } from '@/components/alerts/ChatStyleHolmesGPTAnalysis'
 
 interface AlertDetailPageProps {
   params: {
@@ -28,7 +26,6 @@ interface AlertDetailPageProps {
 
 export default function AlertDetailPage({ params }: AlertDetailPageProps) {
   const id = params.id
-  const queryClient = useQueryClient()
 
   // 获取告警详情
   const { data: alertData, isLoading } = useQuery({
@@ -37,27 +34,9 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
     enabled: !!id,
   })
 
-  // 获取RCA结果
-  const { data: rcaData, isLoading: rcaLoading } = useQuery({
-    queryKey: ['rca', id],
-    queryFn: () => RobustaAPI.getRCAByAlertId(id!),
-    enabled: !!id,
-  })
 
-  // 触发RCA分析
-  const triggerRCAMutation = useMutation({
-    mutationFn: () => RobustaAPI.triggerRCA(id!),
-    onSuccess: () => {
-      toast.success('RCA分析已触发')
-      queryClient.invalidateQueries({ queryKey: ['rca', id] })
-    },
-    onError: (error: any) => {
-      toast.error(`触发RCA失败: ${error.response?.data?.error || error.message}`)
-    },
-  })
 
   const alert = alertData?.data
-  const rcaRuns = rcaData?.data || []
 
   if (isLoading) {
     return (
@@ -131,23 +110,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
     }
   }
 
-  // 获取RCA状态配置
-  const getRCAStatusConfig = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return { variant: 'secondary' as const, label: '已完成', icon: CheckCircle }
-      case 'running':
-        return { variant: 'default' as const, label: '运行中', icon: Loader2 }
-      case 'failed':
-        return { variant: 'destructive' as const, label: '失败', icon: XCircle }
-      case 'timeout':
-        return { variant: 'destructive' as const, label: '超时', icon: Clock }
-      case 'pending':
-        return { variant: 'outline' as const, label: '等待中', icon: Clock }
-      default:
-        return { variant: 'outline' as const, label: status, icon: AlertTriangle }
-    }
-  }
+
 
   const severityConfig = getSeverityConfig(alert.severity)
   const statusConfig = getStatusConfig(alert.status)
@@ -163,17 +126,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
           </Link>
         </Button>
         
-        <Button 
-          onClick={() => triggerRCAMutation.mutate()}
-          disabled={triggerRCAMutation.isPending}
-        >
-          {triggerRCAMutation.isPending ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Play className="h-4 w-4 mr-2" />
-          )}
-          触发RCA分析
-        </Button>
+
       </div>
 
       {/* 告警基本信息 - 精美设计 */}
@@ -368,93 +321,21 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
         )}
       </div>
 
-      {/* RCA分析结果 */}
-      <div className="bg-gradient-to-br from-white to-gray-50/50 border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="bg-white border-b border-gray-100 px-6 py-4">
-          <h3 className="text-lg font-semibold text-gray-900">根因分析 (RCA)</h3>
-          <p className="text-sm text-gray-600 mt-1">自动根因分析结果和建议</p>
-        </div>
-        <div className="px-6 py-4">
-          {rcaLoading ? (
-            <div className="text-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-              <p className="text-gray-600">加载RCA数据中...</p>
-            </div>
-          ) : rcaRuns.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="h-8 w-8 text-gray-400" />
-              </div>
-              <p className="text-gray-900 font-medium mb-2">暂无RCA分析结果</p>
-              <p className="text-sm text-gray-600">点击上方按钮触发分析</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {rcaRuns.map((rca) => {
-                const rcaStatusConfig = getRCAStatusConfig(rca.status)
-                const StatusIcon = rcaStatusConfig.icon
-
-                return (
-                  <div key={rca.id} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                          rca.status === 'completed'
-                            ? 'bg-green-100 text-green-600'
-                            : rca.status === 'running'
-                            ? 'bg-blue-100 text-blue-600'
-                            : rca.status === 'failed'
-                            ? 'bg-red-100 text-red-600'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          <StatusIcon className={`h-4 w-4 ${
-                            rca.status === 'running' ? 'animate-spin' : ''
-                          }`} />
-                        </div>
-                        <Badge
-                          variant={rcaStatusConfig.variant}
-                          className={`px-3 py-1 text-sm font-medium ${
-                            rca.status === 'completed'
-                              ? 'bg-green-100 text-green-800 border-green-200'
-                              : rca.status === 'running'
-                              ? 'bg-blue-100 text-blue-800 border-blue-200'
-                              : rca.status === 'failed'
-                              ? 'bg-red-100 text-red-800 border-red-200'
-                              : 'bg-gray-100 text-gray-800 border-gray-200'
-                          }`}
-                        >
-                          {rcaStatusConfig.label}
-                        </Badge>
-                      </div>
-                      <span className="text-sm text-gray-500 font-mono">
-                        {format(new Date(rca.started_at), 'yyyy-MM-dd HH:mm:ss')}
-                      </span>
-                    </div>
-
-                    {rca.summary && (
-                      <div className="mb-3">
-                        <h5 className="font-medium text-gray-900 mb-2">分析摘要</h5>
-                        <div className="bg-blue-50 p-3 rounded-lg">
-                          <p className="text-gray-700 text-sm leading-relaxed">{rca.summary}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {rca.error_message && (
-                      <div className="mb-3">
-                        <h5 className="font-medium text-red-900 mb-2">错误信息</h5>
-                        <div className="bg-red-50 p-3 rounded-lg">
-                          <p className="text-red-700 text-sm leading-relaxed">{rca.error_message}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+      {/* HolmesGPT 智能分析 - 占用剩余空间 */}
+      <div className="flex-1 min-h-0">
+        <ChatStyleHolmesGPTAnalysis alert={alert} />
       </div>
+
+
+
+      {/* 原始数据查看器 */}
+      {alert.raw_payload_key && (
+        <RawPayloadViewer
+          rawPayloadKey={alert.raw_payload_key}
+          alertId={alert.id}
+          alertTitle={alert.title}
+        />
+      )}
     </div>
   )
 }

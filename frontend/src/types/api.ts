@@ -63,6 +63,7 @@ export interface Alert {
   annotations?: Record<string, any>
   starts_at?: string
   ends_at?: string
+  raw_payload_key?: string
   created_at: string
   updated_at: string
   cluster?: Cluster

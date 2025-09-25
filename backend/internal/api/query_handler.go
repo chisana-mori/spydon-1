@@ -16,6 +16,7 @@ type QueryHandler struct {
 	alertService   *services.AlertService
 	rcaService     *services.RCAService
 	clusterService *services.ClusterService
+	storageService services.PayloadStorage
 }
 
 // NewQueryHandler 创建新的查询处理器
@@ -23,11 +24,13 @@ func NewQueryHandler(
 	alertService *services.AlertService,
 	rcaService *services.RCAService,
 	clusterService *services.ClusterService,
+	storageService services.PayloadStorage,
 ) *QueryHandler {
 	return &QueryHandler{
 		alertService:   alertService,
 		rcaService:     rcaService,
 		clusterService: clusterService,
+		storageService: storageService,
 	}
 }
 
@@ -76,7 +79,7 @@ func (h *QueryHandler) GetClusters(c *gin.Context) {
 // GetCluster 获取单个集群详情
 func (h *QueryHandler) GetCluster(c *gin.Context) {
 	clusterID := c.Param("id")
-	
+
 	cluster, err := h.clusterService.GetClusterByID(clusterID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -100,7 +103,7 @@ func (h *QueryHandler) GetAlerts(c *gin.Context) {
 	severity := c.Query("severity")
 	status := c.Query("status")
 	keyword := c.Query("keyword")
-	
+
 	// 解析时间范围
 	var since *time.Time
 	if sinceStr := c.Query("since"); sinceStr != "" {
@@ -160,6 +163,56 @@ func (h *QueryHandler) GetAlert(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": alert,
 	})
+}
+
+// GetAlertRawPayload 获取告警的原始数据
+func (h *QueryHandler) GetAlertRawPayload(c *gin.Context) {
+	alertIDStr := c.Param("id")
+	alertID, err := uuid.Parse(alertIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "无效的告警ID",
+			"code":  "INVALID_ALERT_ID",
+		})
+		return
+	}
+
+	// 获取告警信息
+	alert, err := h.alertService.GetAlertByID(alertID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "告警不存在",
+			"code":  "ALERT_NOT_FOUND",
+		})
+		return
+	}
+
+	// 检查是否有原始数据
+	if alert.RawPayloadKey == "" {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "该告警没有原始数据",
+			"code":  "NO_RAW_PAYLOAD",
+		})
+		return
+	}
+
+	// 从存储服务获取原始数据
+	rawData, err := h.storageService.Get(c.Request.Context(), alert.RawPayloadKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "获取原始数据失败",
+			"code":    "GET_RAW_PAYLOAD_ERROR",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// 设置响应头
+	c.Header("Content-Type", "application/json")
+	c.Header("X-Raw-Payload-Key", alert.RawPayloadKey)
+
+	// 返回原始数据
+	c.Data(http.StatusOK, "application/json", rawData)
 }
 
 // GetRCAByAlertID 根据告警ID获取RCA报告
@@ -243,7 +296,7 @@ func (h *QueryHandler) EventStream(c *gin.Context) {
 	// 启动事件监听器（这里应该实现实际的事件监听逻辑）
 	go func() {
 		defer close(eventChan)
-		
+
 		// 模拟事件推送
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -271,7 +324,7 @@ func (h *QueryHandler) EventStream(c *gin.Context) {
 			if !ok {
 				return
 			}
-			
+
 			c.SSEvent("message", event)
 			c.Writer.Flush()
 		}
@@ -308,7 +361,7 @@ func (h *QueryHandler) GetAuditLogs(c *gin.Context) {
 // DeleteCluster 删除集群（管理员功能）
 func (h *QueryHandler) DeleteCluster(c *gin.Context) {
 	clusterID := c.Param("id")
-	
+
 	if err := h.clusterService.DeleteCluster(clusterID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "删除集群失败",

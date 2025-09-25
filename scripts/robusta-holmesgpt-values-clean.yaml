@@ -1,0 +1,228 @@
+nameOverride: robusta
+fullnameOverride: robusta
+clusterName: robusta-kind
+
+# runner:
+#   log_level: DEBUG
+#   image:
+#     repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/robusta-runner
+#     tag: "0.28.1"
+#     pullPolicy: IfNotPresent
+
+# prometheusStack:
+#   enabled: true
+
+# # Forwarder 配置
+# forwarder:
+#   image:
+#     repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/robusta-forwarder
+#     tag: "0.28.1"
+#     pullPolicy: IfNotPresent
+
+# # Kubewatch 配置
+# kubewatch:
+#   image:
+#     repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/kubewatch
+#     tag: "0.28.1"
+#     pullPolicy: IfNotPresent
+
+# 全局 Prometheus 配置
+globalConfig:
+  prometheus_url: http://prometheus.robusta.svc.cluster.local:9090
+  investigation_type: "PrometheusAlert"
+  context: {}
+  cluster_name: robusta-kind
+
+# 启用 HolmesGPT
+enableHolmesGPT: true
+
+# HolmesGPT 配置
+holmes:
+  enablePostProcessing: true
+  # 配置 DeepSeek API
+  additionalEnvVars:
+    - name: MODEL
+      value: "deepseek/deepseek-chat"
+    - name: DEEPSEEK_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: holmes-secrets
+          key: deepseekApiKey
+  
+  # 启用内置工具集
+  toolsets:
+    robusta:
+      enabled: true
+    kubernetes/core:
+      enabled: true
+    kubernetes/logs:
+      enabled: true
+    helm/core:
+      enabled: true
+    internet/core:
+      enabled: true
+    prometheus/metrics:
+      enabled: true
+      config:
+        prometheus_url: http://prometheus.robusta.svc.cluster.local:9090
+
+# 邮件通知配置
+sinksConfig:
+  - webhook_sink:
+      size_limit: 100000000
+      name: hub_webhook
+      url: "http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook"
+      headers:
+        X-API-Key: "dev-api-key-123"
+        Authorization: "Bearer dev-api-key-123"
+        X-Robusta-Cluster-ID: "robusta-kind"
+      aggregation_key: "$finding_title-$finding_severity"
+  
+  # - mail_sink:
+  #     name: holmes_email_sink
+  #     mailto: "mailtos://heningyu21%40126.com:Wangy241008%2A@smtp.126.com:465?from=heningyu21%40126.com&to=heningyu21@gmail.com"
+  #     with_header: true
+
+# 自定义 Playbooks
+customPlaybooks:
+  # 转发所有 Prometheus 告警到 Hub
+  - name: ForwardAllPromAlerts
+    triggers:
+      - on_prometheus_alert: {}
+    actions:
+      - create_finding:
+          title: "Prometheus Alert: $alert_name ($fingerprint)"
+          severity: HIGH
+          aggregation_key: "PromAlert-$alertname-$fingerprint"
+    sinks:
+      - "hub_webhook"
+
+  # 发送 Prometheus 告警到邮件（HolmesGPT 会自动分析）
+  - name: PrometheusAlertsToEmail
+    triggers:
+      - on_prometheus_alert: {}
+    actions:
+      - create_finding:
+          title: "🚨 Kubernetes 告警: $alert_name"
+          description: |
+            告警详情:
+            - 告警名称: $alert_name
+            - 集群: $cluster_name
+            - 命名空间: $namespace
+            - 严重程度: $severity
+            - 描述: $description
+
+            HolmesGPT 将自动分析此告警并提供根因分析。
+          severity: HIGH
+          aggregation_key: "Alert-$alertname-$fingerprint"
+      - default_enricher: {}
+      - alert_definition_enricher: {}
+      - logs_enricher: {}
+      - ask_holmes:
+          investigation_type: "analyze_problems"  # 必需字段  
+          ask: "Please analyze this Kubernetes issue and provide root cause analysis"
+          context: {}
+          aggregation_key: "Alert-$alertname-$fingerprint"
+    sinks:
+      - "hub_webhook"
+
+  # ImagePullBackOff 告警通知
+  - name: ImagePullBackoffNotification
+    triggers:
+      - on_image_pull_backoff:
+          rate_limit: 5
+    actions:
+      - create_finding:
+          title: "🔍 镜像拉取失败: $name ($namespace)"
+          description: |
+            Pod 详情:
+            - Pod 名称: $name
+            - 命名空间: $namespace
+            - 集群: $cluster_name
+
+            HolmesGPT 将自动分析此问题并提供解决方案。
+          severity: HIGH
+          aggregation_key: "ImgPullBackoff-$namespace-$name"
+    sinks:
+      - "hub_webhook"
+
+  # 通用 Kubernetes Warning 事件 -> 邮件（HolmesGPT 自动分析）
+  - name: KubernetesWarningsToEmail
+    triggers:
+      - on_kubernetes_warning_event_create: {}
+    actions:
+      - create_finding:
+          title: "⚠️ Kubernetes Warning: $reason ($namespace/$name)"
+          description: |
+            事件详情:
+            - 类型: $type
+            - 原因: $reason
+            - 对象: $namespace/$name
+            - 信息: $message
+          severity: MEDIUM
+          aggregation_key: "K8sWarning-$namespace-$name-$reason"
+      - event_resource_events: {}
+      # - ask_holmes:
+      #     investigation_type: "analyze_problems"  # 必需字段  
+      #     ask: "Please analyze this Kubernetes issue and provide root cause analysis"
+      #     context: {}
+      #     aggregation_key: "K8sWarning-$namespace-$name-$reason"
+    sinks:
+      - "hub_webhook"
+
+  # 常见 Pod 故障 -> 邮件（HolmesGPT 自动分析）
+  - name: KubernetesPodFailuresToEmail
+    triggers:
+      - on_pod_crash_loop: {}
+      - on_image_pull_backoff: {}
+      - on_pod_oom_killed: {}
+      - on_container_oom_killed: {}
+      - on_pod_evicted: {}
+    actions:
+      - create_finding:
+          title: "❗ Pod 故障: $name ($namespace)"
+          description: |
+            事件详情:
+            - 类型: $type
+            - 原因: $reason
+            - 对象: $namespace/$name
+            - 消息: $message
+          severity: HIGH
+          aggregation_key: "K8sPodFailure-$namespace-$name-$reason"
+      - logs_enricher: {}
+      - pod_events_enricher: {}
+      # - ask_holmes:
+      #     investigation_type: "analyze_problems"  # 必需字段  
+      #     ask: "Please analyze this Kubernetes issue and provide root cause analysis"
+      #     context: {}
+      #     aggregation_key: "K8sPodFailure-$namespace-$name-$reason"
+    sinks:
+      - "hub_webhook"
+
+  # 常见 Job 故障 -> 邮件（HolmesGPT 自动分析）
+  - name: KubernetesJobFailuresToEmail
+    triggers:
+      - on_job_failure: {}
+    actions:
+      - create_finding:
+          title: "❗ Job 失败: $name ($namespace)"
+          description: |
+            事件详情:
+            - 类型: $type
+            - 对象: $namespace/$name
+            - 消息: $message
+          severity: HIGH
+          aggregation_key: "K8sJobFailure-$namespace-$name"
+      - job_info_enricher: {}
+      - job_events_enricher: {}
+      - job_pod_enricher: {}
+      # - ask_holmes:
+      #     investigation_type: "analyze_problems"  # 必需字段  
+      #     ask: "Please analyze this Kubernetes issue and provide root cause analysis"
+      #     context: {}
+      #     aggregation_key: "K8sJobFailure-$namespace-$name"
+    sinks:
+      - "hub_webhook"
+
+playbookRepos: {}
+playbooksPersistentVolume: false

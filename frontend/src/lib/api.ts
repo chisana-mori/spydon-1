@@ -108,6 +108,11 @@ export class RobustaAPI {
     return response.data
   }
 
+  static async getAlertRawPayload(alertId: string): Promise<any> {
+    const response = await apiClient.get(`/alerts/${alertId}/raw-payload`)
+    return response.data
+  }
+
   static async getAlertStats(clusterId?: string): Promise<ApiResponse<AlertStats>> {
     const params = clusterId ? `?cluster_id=${clusterId}` : ''
     const response = await apiClient.get(`/alerts/stats${params}`)
