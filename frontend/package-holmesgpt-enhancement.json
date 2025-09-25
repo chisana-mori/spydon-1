@@ -1,0 +1,181 @@
+{
+  "name": "holmesgpt-analysis-enhancement",
+  "description": "HolmesGPT 分析组件增强包依赖配置",
+  "version": "1.0.0",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "typescript": "^5.0.0",
+    "next": "^14.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.0.0",
+    "react-markdown": "^9.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0",
+    "react-syntax-highlighter": "^15.5.0",
+    "@types/react-syntax-highlighter": "^15.5.0",
+    "date-fns": "^3.0.0",
+    "lucide-react": "^0.400.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.10",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "^14.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "peerDependencies": {
+    "@radix-ui/react-accordion": "*",
+    "@radix-ui/react-alert-dialog": "*",
+    "@radix-ui/react-badge": "*",
+    "@radix-ui/react-button": "*",
+    "@radix-ui/react-card": "*",
+    "@radix-ui/react-dialog": "*",
+    "@radix-ui/react-dropdown-menu": "*",
+    "@radix-ui/react-input": "*",
+    "@radix-ui/react-label": "*",
+    "@radix-ui/react-popover": "*",
+    "@radix-ui/react-progress": "*",
+    "@radix-ui/react-scroll-area": "*",
+    "@radix-ui/react-select": "*",
+    "@radix-ui/react-separator": "*",
+    "@radix-ui/react-sheet": "*",
+    "@radix-ui/react-tabs": "*",
+    "@radix-ui/react-textarea": "*"
+  },
+  "installation": {
+    "steps": [
+      {
+        "step": 1,
+        "description": "安装基础依赖",
+        "command": "npm install react-markdown remark-gfm remark-math react-syntax-highlighter @types/react-syntax-highlighter date-fns"
+      },
+      {
+        "step": 2,
+        "description": "安装 shadcn/ui 组件 (如果尚未安装)",
+        "commands": [
+          "npx shadcn-ui@latest init",
+          "npx shadcn-ui@latest add button",
+          "npx shadcn-ui@latest add card", 
+          "npx shadcn-ui@latest add badge",
+          "npx shadcn-ui@latest add tabs",
+          "npx shadcn-ui@latest add scroll-area",
+          "npx shadcn-ui@latest add separator",
+          "npx shadcn-ui@latest add dialog",
+          "npx shadcn-ui@latest add input",
+          "npx shadcn-ui@latest add label",
+          "npx shadcn-ui@latest add textarea"
+        ]
+      },
+      {
+        "step": 3,
+        "description": "配置 Tailwind CSS",
+        "note": "确保 tailwind.config.js 包含 @tailwindcss/typography 插件",
+        "config": {
+          "plugins": ["@tailwindcss/typography"],
+          "content": [
+            "./src/**/*.{js,ts,jsx,tsx,mdx}",
+            "./components/**/*.{js,ts,jsx,tsx,mdx}"
+          ],
+          "theme": {
+            "extend": {
+              "colors": {
+                "shiki": {
+                  "light": "var(--shiki-light)",
+                  "light-bg": "var(--shiki-light-bg)", 
+                  "dark": "var(--shiki-dark)",
+                  "dark-bg": "var(--shiki-dark-bg)"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "step": 4,
+        "description": "设置类型定义",
+        "note": "确保 tsconfig.json 包含正确的路径映射",
+        "config": {
+          "compilerOptions": {
+            "baseUrl": ".",
+            "paths": {
+              "@/*": ["./src/*"],
+              "@/components/*": ["./src/components/*"],
+              "@/lib/*": ["./src/lib/*"],
+              "@/types/*": ["./src/types/*"],
+              "@/hooks/*": ["./src/hooks/*"]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "features": {
+    "basic_analysis": {
+      "description": "基础 HolmesGPT 分析功能",
+      "components": ["ChatStyleHolmesGPTAnalysis", "ChatMessage"],
+      "features": [
+        "实时流式分析",
+        "任务进度显示",
+        "Markdown 渲染",
+        "代码高亮",
+        "JSON 数据解析"
+      ]
+    },
+    "enhanced_chat": {
+      "description": "增强聊天界面",
+      "components": ["EnhancedHolmesGPTChat"],
+      "features": [
+        "设置面板",
+        "音效提示",
+        "进度统计",
+        "视觉优化",
+        "响应式设计"
+      ]
+    },
+    "integration": {
+      "description": "完整集成示例",
+      "components": ["AlertAnalysisIntegration"],
+      "features": [
+        "告警概览",
+        "多选项卡界面",
+        "历史记录",
+        "快捷操作"
+      ]
+    }
+  },
+  "troubleshooting": {
+    "common_issues": [
+      {
+        "issue": "Markdown 渲染异常",
+        "solution": "检查 react-markdown 和 remark-gfm 版本兼容性"
+      },
+      {
+        "issue": "代码高亮不显示",
+        "solution": "确认 react-syntax-highlighter 正确导入和配置"
+      },
+      {
+        "issue": "样式不生效",
+        "solution": "检查 Tailwind CSS 配置和类名拼写"
+      },
+      {
+        "issue": "TypeScript 类型错误",
+        "solution": "更新 @types 包版本或添加类型声明"
+      }
+    ]
+  },
+  "performance": {
+    "optimization_tips": [
+      "使用 React.memo 包装频繁渲染的组件",
+      "对大量消息使用虚拟滚动",
+      "延迟加载非关键组件",
+      "优化 JSON 解析性能",
+      "使用 useMemo 缓存计算结果"
+    ]
+  }
+}

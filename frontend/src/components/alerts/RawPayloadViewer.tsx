@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -79,7 +79,7 @@ export function RawPayloadViewer({
   };
 
   // 加载原始数据
-  const loadRawData = async () => {
+  const loadRawData = useCallback(async () => {
     if (!rawPayloadKey && !alertId) return;
 
     setLoading(true);
@@ -114,13 +114,13 @@ export function RawPayloadViewer({
     } finally {
       setLoading(false);
     }
-  };
+  }, [alertId, rawPayloadKey]);
 
   useEffect(() => {
     if (alertId) {
       loadRawData();
     }
-  }, [alertId, rawPayloadKey]);
+  }, [alertId, loadRawData]);
 
   // 复制到剪贴板
   const copyToClipboard = async () => {

@@ -34,18 +34,21 @@ export interface HolmesTaskItem {
   note?: string
 }
 
+export interface HolmesTaskSection {
+  id: string
+  title: string
+  toolName: string
+  tasks: HolmesTaskItem[]
+  statusText?: string
+  commands?: string[]
+}
+
 export interface HolmesStructuredData {
   planText?: string
   tasks?: HolmesTaskItem[]
   toolName?: string
   statusText?: string
-  taskSections?: Array<{
-    id: string
-    title: string
-    toolName: string
-    tasks: HolmesTaskItem[]
-    statusText?: string
-  }>
+  taskSections?: HolmesTaskSection[]
   summary?: string
   raw?: any
 }
@@ -60,6 +63,7 @@ interface ChatMessageProps {
     input: any
     output?: any
     status: 'pending' | 'success' | 'error'
+    command?: string
   }>
   structuredData?: HolmesStructuredData
 }
@@ -473,24 +477,49 @@ export const ChatMessage: FC<ChatMessageProps> = ({
     } = data
 
     const copyText = buildStructuredCopyText(data)
-    const hasActiveTasks = taskSections.some(section => 
-      section.tasks.some(task => task.status === 'in_progress')
-    ) || tasks.some(task => task.status === 'in_progress')
+  const hasActiveTasks = taskSections.some(section => 
+    section.tasks.some(task => task.status === 'in_progress')
+  ) || tasks.some(task => task.status === 'in_progress')
 
-    return (
-      <div className="space-y-4">
-        {(planText || toolName) && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 shadow-sm">
-            <div className="flex items-center space-x-2 text-blue-800 mb-2">
-              <ListChecks className="h-4 w-4" />
-              <span className="text-sm font-semibold">分析计划</span>
+  const hasPendingTasks = taskSections.some(section => 
+    section.tasks.some(task => task.status === 'pending')
+  ) || tasks.some(task => task.status === 'pending')
+
+  const allTasksFlattened = (
+    taskSections.flatMap(section => section.tasks) 
+      .concat(tasks)
+  )
+
+  const completedCount = allTasksFlattened.filter(task => task.status === 'completed').length
+  const totalCount = allTasksFlattened.length
+  const progressText = totalCount > 0 ? `${completedCount}/${totalCount} 完成` : undefined
+
+  return (
+    <div className="space-y-4">
+      {(planText || toolName) && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 shadow-sm">
+          <div className="flex items-center space-x-2 text-blue-800 mb-2">
+            <ListChecks className="h-4 w-4" />
+            <span className="text-sm font-semibold">分析计划</span>
+            <div className="flex items-center space-x-2 ml-auto">
+              {progressText && (
+                <Badge variant="secondary" className="text-xs">
+                  {progressText}
+                </Badge>
+              )}
               {hasActiveTasks && (
-                <div className="flex items-center space-x-1 ml-auto">
-                  <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
-                  <span className="text-xs text-blue-600">执行中</span>
-                </div>
+                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  执行中
+                </Badge>
+              )}
+              {hasPendingTasks && !hasActiveTasks && completedCount < totalCount && (
+                <Badge variant="secondary" className="text-xs">
+                  待执行 {totalCount - completedCount}
+                </Badge>
               )}
             </div>
+          </div>
             {planText ? (
               <div className="prose prose-sm max-w-none text-blue-900">
                 <ReactMarkdown 
@@ -524,9 +553,29 @@ export const ChatMessage: FC<ChatMessageProps> = ({
               const sectionActiveTasks = section.tasks.filter(task => task.status === 'in_progress').length
               const sectionCompletedTasks = section.tasks.filter(task => task.status === 'completed').length
               const sectionTotalTasks = section.tasks.length
-              const relatedCommands = toolCalls
-                ?.filter(call => call.command && (section.title?.includes(call.name || '') || section.id === 'todo-write-main'))
-                ?.map(call => call.command!) || []
+                // 从工具调用中提取相关命令
+                const relatedCommands = toolCalls
+                  ?.filter(call => 
+                    call.status === 'success' && 
+                    (section.title?.includes(call.name || '') || 
+                     call.name?.toLowerCase().includes('kubectl') ||
+                     call.name?.toLowerCase().includes('describe') ||
+                     call.name?.toLowerCase().includes('get'))
+                  )
+                  ?.map(call => {
+                    // 优先使用预处理的命令字段
+                    if (call.command) {
+                      return call.command
+                    }
+                    if (typeof call.input === 'string') {
+                      return call.input
+                    } else if (call.input?.command) {
+                      return call.input.command
+                    } else if (call.input?.args) {
+                      return `${call.name} ${call.input.args.join(' ')}`
+                    }
+                    return `${call.name} 调用`
+                  }) || []
 
               return (
                 <div key={section.id} className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -777,64 +826,88 @@ export const ChatMessage: FC<ChatMessageProps> = ({
             </div>
           )}
 
-          {/* 工具调用结果显示 */}
+          {/* 工具调用结果显示 - 时间线风格，简洁展示 */}
           {toolCalls && toolCalls.length > 0 && (
-            <div className="space-y-3 mt-4 border-t pt-4">
-              <div className="flex items-center space-x-2 mb-3">
-                <div className="w-5 h-5 bg-purple-100 rounded flex items-center justify-center">
-                  <span className="text-purple-600 text-xs">🔧</span>
-                </div>
-                <span className="text-sm font-medium text-gray-700">工具调用记录</span>
-                <Badge variant="secondary" className="text-xs">
-                  {toolCalls.length}
-                </Badge>
-              </div>
-              
+            <div className="space-y-2">
               {toolCalls.map((tool, index) => (
-                <div key={index} className="bg-gray-900 rounded-lg overflow-hidden">
-                  {/* 工具头部 */}
+                <div key={index} className="bg-gray-900 rounded-lg overflow-hidden shadow-sm">
+                  {/* 工具头部 - 更简洁的设计 */}
                   <div className="bg-gray-800 px-4 py-2 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <span className="text-green-400 font-mono text-sm">$</span>
                       <span className="text-white text-sm font-medium">{tool.name}</span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Badge 
-                        variant={tool.status === 'success' ? 'default' : tool.status === 'error' ? 'destructive' : 'secondary'}
-                        className="text-xs"
-                      >
-                        {tool.status === 'success' ? '成功' : tool.status === 'error' ? '失败' : '执行中'}
-                      </Badge>
-                    </div>
+                    <Badge 
+                      variant={tool.status === 'success' ? 'default' : tool.status === 'error' ? 'destructive' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {tool.status === 'success' ? '成功' : tool.status === 'error' ? '失败' : '执行中'}
+                    </Badge>
                   </div>
                   
-                  {/* 输入命令 */}
-                  {tool.input && (
-                    <div className="px-4 py-2 border-b border-gray-700">
-                      <div className="text-green-400 text-xs font-medium mb-1">执行命令:</div>
-                      <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap">
-                        {typeof tool.input === 'string' 
-                          ? tool.input 
-                          : typeof tool.input === 'object' && tool.input.command
-                            ? tool.input.command
-                            : JSON.stringify(tool.input, null, 2)
-                        }
-                      </pre>
-                    </div>
-                  )}
+                  {/* 执行命令 */}
+                  {(() => {
+                    let command = tool.command || ''
+                    if (!command) {
+                      if (typeof tool.input === 'string') {
+                        command = tool.input
+                      } else if (tool.input?.command) {
+                        command = tool.input.command
+                      } else if (tool.input?.description) {
+                        command = tool.input.description
+                      } else if (tool.output?.result?.invocation) {
+                        command = tool.output.result.invocation
+                      } else if (tool.output?.invocation) {
+                        command = tool.output.invocation
+                      }
+                    }
+                    
+                    return command ? (
+                      <div className="px-4 py-2 border-b border-gray-700">
+                        <div className="text-green-400 text-xs font-medium mb-1">执行命令:</div>
+                        <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap">
+                          {command}
+                        </pre>
+                      </div>
+                    ) : null
+                  })()}
                   
                   {/* 输出结果 */}
-                  {tool.output && (
-                    <div className="px-4 py-3">
-                      <div className="text-blue-400 text-xs font-medium mb-2">执行结果:</div>
-                      <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
-                        {typeof tool.output === 'string' 
-                          ? tool.output 
-                          : JSON.stringify(tool.output, null, 2)
-                        }
-                      </pre>
-                    </div>
-                  )}
+                  {(() => {
+                    let output = ''
+                    let returnCode = null
+                    
+                    if (tool.output?.result?.data) {
+                      output = tool.output.result.data
+                      returnCode = tool.output.result.return_code
+                    } else if (tool.output?.data) {
+                      output = tool.output.data
+                    } else if (typeof tool.output === 'string') {
+                      output = tool.output
+                    } else if (tool.output) {
+                      output = JSON.stringify(tool.output, null, 2)
+                    }
+                    
+                    return output ? (
+                      <div className="px-4 py-3">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <div className="text-blue-400 text-xs font-medium">执行结果:</div>
+                          {returnCode !== null && (
+                            <div className={`text-xs px-2 py-0.5 rounded ${
+                              returnCode === 0 
+                                ? 'bg-green-600 text-green-100' 
+                                : 'bg-red-600 text-red-100'
+                            }`}>
+                              退出码: {returnCode}
+                            </div>
+                          )}
+                        </div>
+                        <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
+                          {output}
+                        </pre>
+                      </div>
+                    ) : null
+                  })()}
                 </div>
               ))}
             </div>
@@ -860,11 +933,18 @@ const buildStructuredCopyText = (data: HolmesStructuredData): string => {
 
   if (allSections.length) {
     const blocks = allSections.map(section => {
-      const tasksText = section.tasks
-        .map(task => `- [${statusSymbol(task.status)}] ${task.content}`)
-        .join('\n')
       const header = section.title || section.toolName || '调查任务'
-      return `${header}:\n${tasksText}`
+      const parts: string[] = [`${header}:`]
+      if (section.commands && section.commands.length) {
+        parts.push(section.commands.map(cmd => `  • ${cmd}`).join('\n'))
+      }
+      if (section.tasks && section.tasks.length) {
+        const tasksText = section.tasks
+          .map(task => `  - [${statusSymbol(task.status)}] ${task.content}`)
+          .join('\n')
+        parts.push(tasksText)
+      }
+      return parts.join('\n')
     })
     sections.push(blocks.join('\n\n'))
   }

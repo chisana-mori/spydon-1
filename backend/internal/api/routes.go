@@ -85,6 +85,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 
 		// 告警相关
 		queryGroup.GET("/alerts", queryHandler.GetAlerts)
+		queryGroup.GET("/alerts/trend", queryHandler.GetAlertTrend)
 		queryGroup.GET("/alerts/:id", queryHandler.GetAlert)
 		queryGroup.GET("/alerts/:id/raw-payload", queryHandler.GetAlertRawPayload)
 

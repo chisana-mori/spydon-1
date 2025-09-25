@@ -39,15 +39,31 @@ enableHolmesGPT: true
 # HolmesGPT 配置
 holmes:
   enablePostProcessing: true
+  additionalEnvVars:  
+  - name: OVERRIDE_MAX_CONTENT_SIZE
+    value: "200000"
+  - name: OVERRIDE_MAX_OUTPUT_TOKEN
+    value: "18192"
+  modelList:
+    # openrouter_deepseek:
+    #   model: openrouter/deepseek/deepseek-v3.1-terminus
+    #   api_key: "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"
+    #   api_base: https://openrouter.ai/api/v1
+    #   temperature: 0
+    deepseek:  
+      model: deepseek/deepseek-chat 
+      api_key: "sk-d8a509507c05475aa65956c50866d63d"  
+      api_base: https://api.deepseek.com/v1
+      temperature: 0
   # 配置 DeepSeek API
-  additionalEnvVars:
-    - name: MODEL
-      value: "deepseek/deepseek-chat"
-    - name: DEEPSEEK_API_KEY
-      valueFrom:
-        secretKeyRef:
-          name: holmes-secrets
-          key: deepseekApiKey
+  # additionalEnvVars:
+  #   - name: MODEL
+  #     value: "deepseek/deepseek-chat"
+  #   - name: DEEPSEEK_API_KEY
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: holmes-secrets
+  #         key: deepseekApiKey
   
   # 启用内置工具集
   toolsets:
@@ -143,6 +159,13 @@ customPlaybooks:
             HolmesGPT 将自动分析此问题并提供解决方案。
           severity: HIGH
           aggregation_key: "ImgPullBackoff-$namespace-$name"
+      - logs_enricher: {}
+      - pod_events_enricher: {}
+      # - ask_holmes:
+      #     investigation_type: "analyze_problems"  # 必需字段
+      #     ask: "Please analyze this Kubernetes ImagePullBackOff issue and provide root cause analysis"
+      #     context: {}
+      #     aggregation_key: "ImgPullBackoff-$namespace-$name"
     sinks:
       - "hub_webhook"
 

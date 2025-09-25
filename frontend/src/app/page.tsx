@@ -24,8 +24,17 @@ import {
 import { cn } from '@/lib/utils'
 import RobustaAPI from '@/lib/api'
 import Link from 'next/link'
-import { formatDistanceToNow } from 'date-fns'
+import { format, formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from 'recharts'
 
 export default function Dashboard() {
   // 获取集群概览数据
@@ -44,6 +53,19 @@ export default function Dashboard() {
 
   const summaryData = summary?.data
   const alertsData = recentAlerts?.data || []
+
+  // 获取告警趋势数据
+  const { data: alertTrend, isLoading: trendLoading } = useQuery({
+    queryKey: ['alert-trend'],
+    queryFn: () => RobustaAPI.getAlertTrend(30),
+    refetchInterval: 60000,
+  })
+
+  const trendData = alertTrend?.data || []
+  const trendChartData = trendData.map((point) => ({
+    date: format(new Date(point.date), 'MM-dd', { locale: zhCN }),
+    count: point.count,
+  }))
 
   // 获取严重级别对应的颜色和图标
   const getSeverityConfig = (severity: string) => {
@@ -217,19 +239,47 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="h-80 flex items-center justify-center bg-muted/20 rounded-lg border-2 border-dashed border-muted">
-                <div className="text-center">
-                  <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-muted-foreground text-sm">图表组件占位</p>
-                  <p className="text-xs text-muted-foreground">图表将在此显示</p>
-                </div>
+              <div className="h-80">
+                {trendLoading ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="w-full h-48 bg-muted/30 rounded-lg animate-pulse" />
+                  </div>
+                ) : trendChartData.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={trendChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="alertTrend" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.05} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} interval={4} />
+                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} allowDecimals={false} width={40} />
+                      <Tooltip
+                        contentStyle={{ borderRadius: 8, border: '1px solid #E5E7EB' }}
+                        formatter={(value: number) => [`${value} 条`, '告警量']}
+                        labelFormatter={(label: string) => `日期：${label}`}
+                      />
+                      <Area type="monotone" dataKey="count" stroke="#4F46E5" strokeWidth={2} fill="url(#alertTrend)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center bg-muted/20 rounded-lg border-2 border-dashed border-muted">
+                    <div className="text-center">
+                      <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-muted-foreground text-sm">暂无告警数据</p>
+                      <p className="text-xs text-muted-foreground">最近30天未记录到新的告警</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Recent Alerts - Extended to full height */}
-        <Card className="flex flex-col border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
+        <Card className="flex flex-col h-full border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <div className="w-8 h-8 bg-red-50 dark:bg-red-900/20 rounded-lg flex items-center justify-center">
@@ -242,10 +292,10 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col">
-            <div className="space-y-3 flex-1 min-h-0">
+            <div className="space-y-3 flex-1">
               {alertsLoading ? (
                 <div className="space-y-4">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                  {[1, 2, 3, 4, 5].map((i) => (
                     <div key={i} className="animate-pulse">
                       <div className="flex items-start space-x-3">
                         <div className="h-5 w-5 bg-muted rounded mt-0.5"></div>
@@ -261,8 +311,8 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : alertsData.length ? (
-                <div className="space-y-3 overflow-y-auto">
-                  {alertsData.slice(0, 10).map((alert) => {
+                <div className="space-y-3 grid grid-cols-1">
+                  {alertsData.slice(0, Math.min(alertsData.length, Math.ceil(360 / 70))).map((alert) => {
                     const severityConfig = getSeverityConfig(alert.severity)
                     const SeverityIcon = severityConfig.icon
 

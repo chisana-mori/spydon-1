@@ -41,7 +41,7 @@ export function AIAnalysisDisplay({
 
     // 简单的关键词匹配来分类内容
     const lines = text.split('\n')
-    let currentSection = 'other'
+    let currentSection: keyof typeof sections = 'other'
     
     lines.forEach(line => {
       const lowerLine = line.toLowerCase()
@@ -75,7 +75,7 @@ export function AIAnalysisDisplay({
           </div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">AI 智能分析</h3>
           <p className="text-gray-600 text-center max-w-md">
-            点击"触发RCA分析"按钮，让 HolmesGPT 为您提供智能的根因分析和解决方案
+            点击触发RCA分析按钮，让 HolmesGPT 为您提供智能的根因分析和解决方案
           </p>
         </CardContent>
       </Card>

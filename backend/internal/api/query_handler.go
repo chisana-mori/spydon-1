@@ -139,6 +139,28 @@ func (h *QueryHandler) GetAlerts(c *gin.Context) {
 	})
 }
 
+// GetAlertTrend 获取告警趋势数据
+func (h *QueryHandler) GetAlertTrend(c *gin.Context) {
+	daysStr := c.DefaultQuery("days", "30")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil {
+		days = 30
+	}
+
+	trend, err := h.alertService.GetAlertTrend(days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "获取告警趋势失败",
+			"code":  "GET_ALERT_TREND_ERROR",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": trend,
+	})
+}
+
 // GetAlert 获取单个告警详情
 func (h *QueryHandler) GetAlert(c *gin.Context) {
 	alertIDStr := c.Param("id")

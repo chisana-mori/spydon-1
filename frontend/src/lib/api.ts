@@ -11,6 +11,7 @@ import type {
   AuditLog,
   AlertStats,
   RCAStats,
+  AlertTrendData,
 } from '@/types/api'
 
 // 创建axios实例
@@ -116,6 +117,12 @@ export class RobustaAPI {
   static async getAlertStats(clusterId?: string): Promise<ApiResponse<AlertStats>> {
     const params = clusterId ? `?cluster_id=${clusterId}` : ''
     const response = await apiClient.get(`/alerts/stats${params}`)
+    return response.data
+  }
+
+  static async getAlertTrend(days = 30): Promise<ApiResponse<AlertTrendData[]>> {
+    const params = new URLSearchParams({ days: days.toString() })
+    const response = await apiClient.get(`/alerts/trend?${params}`)
     return response.data
   }
 

@@ -32,6 +32,12 @@ type AlertFilters struct {
 	Since     *time.Time
 }
 
+// AlertTrendPoint 告警趋势点
+type AlertTrendPoint struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
 // CreateOrUpdateAlert 创建或更新告警
 func (s *AlertService) CreateOrUpdateAlert(alert *models.Alert) error {
 	// 使用fingerprint和cluster_id作为唯一标识
@@ -189,6 +195,51 @@ func (s *AlertService) GetAlertStats(clusterID string) (map[string]interface{}, 
 	stats["recent_24h"] = recentCount
 
 	return stats, nil
+}
+
+// GetAlertTrend 获取指定天数的告警趋势（按日统计）
+func (s *AlertService) GetAlertTrend(days int) ([]AlertTrendPoint, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if days > 365 {
+		days = 365
+	}
+
+	today := time.Now().Truncate(24 * time.Hour)
+	startDate := today.AddDate(0, 0, -(days - 1))
+
+	var rawResults []struct {
+		Date  time.Time
+		Count int
+	}
+
+	if err := s.db.Model(&models.Alert{}).
+		Select("DATE(created_at) as date, COUNT(*) as count").
+		Where("created_at >= ?", startDate).
+		Group("DATE(created_at)").
+		Order("DATE(created_at)").
+		Scan(&rawResults).Error; err != nil {
+		return nil, fmt.Errorf("获取告警趋势失败: %w", err)
+	}
+
+	countMap := make(map[string]int)
+	for _, result := range rawResults {
+		key := result.Date.Format("2006-01-02")
+		countMap[key] = result.Count
+	}
+
+	trend := make([]AlertTrendPoint, 0, days)
+	for i := 0; i < days; i++ {
+		date := startDate.AddDate(0, 0, i)
+		key := date.Format("2006-01-02")
+		trend = append(trend, AlertTrendPoint{
+			Date:  key,
+			Count: countMap[key],
+		})
+	}
+
+	return trend, nil
 }
 
 // DeleteAlert 删除告警

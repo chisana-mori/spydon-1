@@ -1,5 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const parseJsonSequence = (raw: string): any[] => {
+  const trimmed = raw.trim()
+  if (!trimmed) return []
+
+  const result: any[] = []
+  let buffer = ''
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  const flush = () => {
+    const candidate = buffer.trim()
+    if (!candidate) {
+      buffer = ''
+      return
+    }
+    try {
+      result.push(JSON.parse(candidate))
+    } catch {
+      // 忽略无法解析的片段
+    }
+    buffer = ''
+  }
+
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i]
+    buffer += char
+
+    if (escape) {
+      escape = false
+      continue
+    }
+
+    if (char === '\\') {
+      escape = true
+      continue
+    }
+
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+
+    if (!inString) {
+      if (char === '{' || char === '[') depth += 1
+      if (char === '}' || char === ']') depth -= 1
+    }
+
+    if (depth === 0 && !inString) {
+      flush()
+    }
+  }
+
+  flush()
+  return result
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -99,46 +156,66 @@ MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
 
                   // 尝试解析 JSON 数据
                   let parsedData
-                  try {
-                    parsedData = JSON.parse(eventData)
-                  } catch (parseError) {
-                    // 如果不是 JSON，当作纯文本处理
-                    const textEvent = {
-                      type: 'analysis',
-                      data: eventData
-                    }
-                    controller.enqueue(
-                      new TextEncoder().encode(`data: ${JSON.stringify(textEvent)}\n\n`)
-                    )
-                    continue
-                  }
+      try {
+        parsedData = JSON.parse(eventData)
+      } catch (parseError) {
+        const sequence = parseJsonSequence(eventData)
+        if (sequence.length) {
+          sequence.forEach((item) => {
+            const structuredEvent = {
+              type: 'analysis',
+              data: item,
+            }
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify(structuredEvent)}\n\n`)
+            )
+          })
+          continue
+        }
+
+        const textEvent = {
+          type: 'analysis',
+          data: eventData,
+        }
+        controller.enqueue(
+          new TextEncoder().encode(`data: ${JSON.stringify(textEvent)}\n\n`)
+        )
+        continue
+      }
 
                   // 根据 HolmesGPT 的响应格式转换事件类型
                   let transformedEvent
-                  
+
                   if (parsedData.analysis) {
-                    // 分析结果
                     transformedEvent = {
                       type: 'analysis',
-                      data: parsedData.analysis
+                      data: parsedData.analysis,
                     }
                   } else if (parsedData.tool_calls) {
-                    // 工具调用
                     transformedEvent = {
                       type: 'tool_call',
-                      data: parsedData.tool_calls
+                      data: parsedData.tool_calls,
                     }
                   } else if (parsedData.error) {
-                    // 错误信息
                     transformedEvent = {
                       type: 'error',
-                      data: { message: parsedData.error }
+                      data: { message: parsedData.error },
                     }
-                  } else {
-                    // 其他数据，当作分析结果处理
+                  } else if (
+                    parsedData.content ||
+                    parsedData.tool_name ||
+                    parsedData.todos ||
+                    parsedData.params?.todos ||
+                    parsedData.result?.data
+                  ) {
                     transformedEvent = {
                       type: 'analysis',
-                      data: JSON.stringify(parsedData)
+                      data: parsedData,
+                    }
+                  } else {
+                    transformedEvent = {
+                      type: 'analysis',
+                      data: parsedData,
                     }
                   }
 

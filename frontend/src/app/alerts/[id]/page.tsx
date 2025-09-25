@@ -16,7 +16,7 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
 import { RawPayloadViewer } from '@/components/alerts/RawPayloadViewer'
-import { ChatStyleHolmesGPTAnalysis } from '@/components/alerts/ChatStyleHolmesGPTAnalysis'
+import { AlertAnalysisIntegration } from '@/components/alerts/AlertAnalysisIntegration'
 
 interface AlertDetailPageProps {
   params: {
@@ -125,8 +125,6 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
             返回告警列表
           </Link>
         </Button>
-        
-
       </div>
 
       {/* 告警基本信息 - 精美设计 */}
@@ -321,21 +319,11 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
         )}
       </div>
 
-      {/* HolmesGPT 智能分析 - 占用剩余空间 */}
-      <div className="flex-1 min-h-0">
-        <ChatStyleHolmesGPTAnalysis alert={alert} />
-      </div>
-
-
-
-      {/* 原始数据查看器 */}
-      {alert.raw_payload_key && (
-        <RawPayloadViewer
-          rawPayloadKey={alert.raw_payload_key}
-          alertId={alert.id}
-          alertTitle={alert.title}
-        />
-      )}
+      {/* HolmesGPT 智能分析 */}
+      <AlertAnalysisIntegration 
+        alert={alert} 
+        defaultTab="enhanced" 
+      />
     </div>
   )
 }
