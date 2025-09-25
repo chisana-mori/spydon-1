@@ -192,9 +192,26 @@ MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
                       data: parsedData.analysis,
                     }
                   } else if (parsedData.tool_calls) {
-                    transformedEvent = {
-                      type: 'tool_call',
-                      data: parsedData.tool_calls,
+                    // 将 tool_calls 数组拆分为多个 analysis 事件，便于前端按顺序消费
+                    try {
+                      const calls: any[] = Array.isArray(parsedData.tool_calls) ? parsedData.tool_calls : []
+                      for (const call of calls) {
+                        const perCallEvent = {
+                          type: 'analysis',
+                          data: call,
+                        }
+                        controller.enqueue(
+                          new TextEncoder().encode(`data: ${JSON.stringify(perCallEvent)}\n\n`)
+                        )
+                      }
+                      // 已逐条发送，跳过默认 transformedEvent 入队
+                      continue
+                    } catch {
+                      // 兜底逻辑：若拆分失败，仍按 analysis 整体发送
+                      transformedEvent = {
+                        type: 'analysis',
+                        data: parsedData.tool_calls,
+                      }
                     }
                   } else if (parsedData.error) {
                     transformedEvent = {

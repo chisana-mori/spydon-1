@@ -49,6 +49,8 @@ export interface HolmesStructuredData {
   toolName?: string
   statusText?: string
   taskSections?: HolmesTaskSection[]
+  // 新增：用于展示中间过程的排查进度（而非最终结论）
+  progressText?: string
   summary?: string
   raw?: any
 }
@@ -472,6 +474,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
       tasks = [],
       toolName,
       statusText,
+      progressText,
       summary,
       taskSections = [],
     } = data
@@ -492,7 +495,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
 
   const completedCount = allTasksFlattened.filter(task => task.status === 'completed').length
   const totalCount = allTasksFlattened.length
-  const progressText = totalCount > 0 ? `${completedCount}/${totalCount} 完成` : undefined
+  const progressRatioText = totalCount > 0 ? `${completedCount}/${totalCount} 完成` : undefined
 
   return (
     <div className="space-y-4">
@@ -502,9 +505,9 @@ export const ChatMessage: FC<ChatMessageProps> = ({
             <ListChecks className="h-4 w-4" />
             <span className="text-sm font-semibold">分析计划</span>
             <div className="flex items-center space-x-2 ml-auto">
-              {progressText && (
+              {progressRatioText && (
                 <Badge variant="secondary" className="text-xs">
-                  {progressText}
+                  {progressRatioText}
                 </Badge>
               )}
               {hasActiveTasks && (
@@ -643,6 +646,31 @@ export const ChatMessage: FC<ChatMessageProps> = ({
             {renderTaskList(tasks)}
           </div>
         ) : null}
+
+        {progressText && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 shadow-sm">
+            <div className="flex items-center space-x-2 text-blue-800 mb-3">
+              <ListChecks className="h-5 w-5" />
+              <span className="font-semibold text-base">排查进度</span>
+            </div>
+            <div className="prose prose-sm max-w-none text-blue-900">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm, remarkMath]}
+                components={{
+                  p: ({ children }) => <p className="text-sm leading-relaxed mb-2 last:mb-0">{children}</p>,
+                  strong: ({ children }) => <strong className="font-semibold text-blue-800">{children}</strong>,
+                  code: ({ children }) => (
+                    <code className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-sm font-mono">
+                      {children}
+                    </code>
+                  ),
+                }}
+              >
+                {progressText}
+              </ReactMarkdown>
+            </div>
+          </div>
+        )}
 
         {summary && (
           <div className="rounded-lg border border-green-200 bg-green-50/80 p-4 shadow-sm">
@@ -828,18 +856,23 @@ export const ChatMessage: FC<ChatMessageProps> = ({
 
           {/* 工具调用结果显示 - 时间线风格，简洁展示 */}
           {toolCalls && toolCalls.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {toolCalls.map((tool, index) => (
-                <div key={index} className="bg-gray-900 rounded-lg overflow-hidden shadow-sm">
-                  {/* 工具头部 - 更简洁的设计 */}
-                  <div className="bg-gray-800 px-4 py-2 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                <div key={index} className="bg-gray-900 rounded-lg overflow-hidden shadow-md border border-gray-700">
+                  {/* 工具头部 - Linux终端风格 */}
+                  <div className="bg-gradient-to-r from-gray-800 to-gray-700 px-4 py-3 flex items-center justify-between border-b border-gray-600">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-1">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                      </div>
                       <span className="text-green-400 font-mono text-sm">$</span>
                       <span className="text-white text-sm font-medium">{tool.name}</span>
                     </div>
                     <Badge 
                       variant={tool.status === 'success' ? 'default' : tool.status === 'error' ? 'destructive' : 'secondary'}
-                      className="text-xs"
+                      className="text-xs font-mono"
                     >
                       {tool.status === 'success' ? '成功' : tool.status === 'error' ? '失败' : '执行中'}
                     </Badge>
@@ -863,11 +896,15 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                     }
                     
                     return command ? (
-                      <div className="px-4 py-2 border-b border-gray-700">
-                        <div className="text-green-400 text-xs font-medium mb-1">执行命令:</div>
-                        <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap">
-                          {command}
-                        </pre>
+                      <div className="px-4 py-3 border-b border-gray-700">
+                        <div className="text-green-400 text-xs font-medium mb-2 flex items-center space-x-1">
+                          <span>执行命令:</span>
+                        </div>
+                        <div className="bg-gray-800 rounded-md px-3 py-2 border border-gray-600">
+                          <pre className="text-green-300 text-sm font-mono leading-relaxed whitespace-pre-wrap break-all">
+                            {command}
+                          </pre>
+                        </div>
                       </div>
                     ) : null
                   })()}
@@ -888,9 +925,52 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                       output = JSON.stringify(tool.output, null, 2)
                     }
                     
+                    // 格式化输出内容，改善可读性
+                    const formatOutput = (text: string): string => {
+                      // 检测是否为YAML格式
+                      if (text.includes('apiVersion:') || text.includes('kind:') || text.includes('metadata:')) {
+                        // YAML格式：改善缩进和间距
+                        const lines = text.split('\n')
+                        const formattedLines: string[] = []
+                        
+                        for (let i = 0; i < lines.length; i++) {
+                          const line = lines[i]
+                          const nextLine = lines[i + 1]
+                          
+                          // 为顶级键（如apiVersion, kind, metadata等）前添加间距
+                          if (line.match(/^[a-zA-Z][^:]*:/) && !line.startsWith('  ') && formattedLines.length > 0) {
+                            formattedLines.push('')
+                          }
+                          
+                          formattedLines.push(line)
+                          
+                          // 在metadata和spec等大段落后添加额外间距
+                          if (line.match(/^(metadata|spec|status):\s*$/) && nextLine && nextLine.startsWith('  ')) {
+                            // 不添加额外行，保持紧凑
+                          }
+                        }
+                        
+                        return formattedLines.join('\n')
+                      }
+                      
+                      // 检测kubectl事件表格格式
+                      if (text.includes('LAST SEEN') || text.includes('TYPE') || text.includes('REASON')) {
+                        // 表格格式：保持原有对齐
+                        return text
+                      }
+                      
+                      // JSON格式：确保正确缩进
+                      try {
+                        const parsed = JSON.parse(text)
+                        return JSON.stringify(parsed, null, 2)
+                      } catch {
+                        return text
+                      }
+                    }
+                    
                     return output ? (
                       <div className="px-4 py-3">
-                        <div className="flex items-center space-x-2 mb-2">
+                        <div className="flex items-center space-x-2 mb-3">
                           <div className="text-blue-400 text-xs font-medium">执行结果:</div>
                           {returnCode !== null && (
                             <div className={`text-xs px-2 py-0.5 rounded ${
@@ -902,9 +982,14 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                             </div>
                           )}
                         </div>
-                        <pre className="text-gray-300 text-sm font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
-                          {output}
-                        </pre>
+                        <div className="bg-gray-950 rounded-md border border-gray-700 overflow-hidden">
+                          <div className="bg-gray-800 px-3 py-1 border-b border-gray-700">
+                            <span className="text-gray-400 text-xs font-mono">输出</span>
+                          </div>
+                          <pre className="text-gray-200 text-sm font-mono leading-relaxed p-4 whitespace-pre-wrap break-words">
+                            {formatOutput(output)}
+                          </pre>
+                        </div>
                       </div>
                     ) : null
                   })()}
@@ -947,6 +1032,10 @@ const buildStructuredCopyText = (data: HolmesStructuredData): string => {
       return parts.join('\n')
     })
     sections.push(blocks.join('\n\n'))
+  }
+
+  if (data.progressText) {
+    sections.push(`排查进度:\n${data.progressText}`)
   }
 
   if (data.summary) {
