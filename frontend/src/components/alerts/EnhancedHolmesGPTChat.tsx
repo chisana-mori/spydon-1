@@ -78,9 +78,12 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   })
   const [showSettings, setShowSettings] = useState(false)
   const allTasksCompletedRef = useRef(false);
-  // 固定在瀑布流底部显示的任务卡片数据
+  // 固定在底部的任务与结论卡片
   const [pinnedTasksData, setPinnedTasksData] = useState<HolmesStructuredData | undefined>(undefined)
+  const [pinnedSummaryData, setPinnedSummaryData] = useState<HolmesStructuredData | undefined>(undefined)
   const tasksMessageIdRef = useRef<string>('tasks-pinned')
+  const summaryMessageIdRef = useRef<string>('summary-pinned')
+  
   
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -705,6 +708,7 @@ Analysis Requirements:
     })
     allTasksCompletedRef.current = false;
     setPinnedTasksData(undefined)
+    setPinnedSummaryData(undefined)
 
     try {
       const response = await fetch('/api/holmesgpt/stream/investigate', {
@@ -838,22 +842,26 @@ Analysis Requirements:
         
         // 1. 处理文本内容
         else if (item.content && typeof item.content === 'string') {
-          // 若任务全部完成，则将后续文本视为结论进行合并，否则按普通内容解析
-          let mergedStructured
+          // 若任务全部完成，将文本归入固定“分析结论”卡片，避免插入中部
           if (allTasksCompletedRef.current) {
-            mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { summary: item.content })
-          } else {
-            const structured = extractHolmesStructuredData(item)
-            mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: item.content }))
+            // 不再把结论文本追加到中间消息，保证结论出现在底部
+            return
           }
-          
+          // 否则按过程文本/计划解析
+          const structured = extractHolmesStructuredData(item)
+          // 若解析出了summary（例如isFinalReport），也固定到底部卡片，并从结构中移除
+          if (structured?.summary) {
+            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: structured.summary }))
+            structured.summary = undefined
+          }
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
           currentAssistantMessage = {
             ...currentAssistantMessage,
             structuredData: mergedStructured,
             content: appendTextChunk(currentAssistantMessage.content, item.content),
             isStreaming: true
           }
-          
           updateMessageState()
         }
         
@@ -918,26 +926,27 @@ Analysis Requirements:
         // 1. 处理AI消息内容
         if (analysisData.content && typeof analysisData.content === 'string') {
           console.log('Processing AI message content:', analysisData.content);
-          let mergedStructured;
-
           if (allTasksCompletedRef.current) {
-            console.log('Treating content as part of final summary.');
-            mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { summary: analysisData.content });
-          } else {
-            const structured = extractHolmesStructuredData(analysisData);
-            mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured);
+            // 结论阶段：固定在底部
+            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: analysisData.content }))
+            return
           }
-          
-          console.log('Merged structured data:', mergedStructured);
-          
+          // 过程阶段：解析为进度/计划
+          const structured = extractHolmesStructuredData(analysisData)
+          if (structured?.summary) {
+            // 若模型直接给了带标题的总结，仍固定到底部
+            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: structured.summary }))
+            structured.summary = undefined
+          }
+
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
           currentAssistantMessage = {
             ...currentAssistantMessage,
             structuredData: mergedStructured,
             content: appendTextChunk(currentAssistantMessage.content, analysisData.content),
             isStreaming: true
-          };
-          
-          updateMessageState();
+          }
+          updateMessageState()
         }
         
         // 2. 处理工具调用开始
@@ -1039,23 +1048,19 @@ Analysis Requirements:
         // 4. 处理最终分析结论（ai_answer_end的data是字符串）
         else if (typeof analysisData === 'string') {
           console.log('Final analysis conclusion received');
-
-          // 根据是否已完成所有任务，将文本归类为最终结论或排查进度
-          let mergedStructured: HolmesStructuredData | undefined
           if (allTasksCompletedRef.current) {
-            mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { summary: analysisData });
+            // 最终文本固定到底部结论卡片
+            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: analysisData }))
           } else {
-            mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: analysisData });
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: analysisData })
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergedStructured,
+              content: appendTextChunk(currentAssistantMessage.content, analysisData),
+              isStreaming: true,
+            }
+            updateMessageState()
           }
-
-          currentAssistantMessage = {
-            ...currentAssistantMessage,
-            structuredData: mergedStructured,
-            content: appendTextChunk(currentAssistantMessage.content, analysisData),
-            isStreaming: true,
-          };
-
-          updateMessageState();
         }
       }
 
@@ -1175,6 +1180,7 @@ Analysis Requirements:
     })
     allTasksCompletedRef.current = false;
     setPinnedTasksData(undefined)
+    setPinnedSummaryData(undefined)
   }
 
   // 下载分析结果
@@ -1291,6 +1297,17 @@ Analysis Requirements:
               structuredData={pinnedTasksData}
             />
           )}
+          {pinnedSummaryData && (
+            <ChatMessage
+              key={summaryMessageIdRef.current}
+              role="assistant"
+              content={''}
+              timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
+              isStreaming={false}
+              toolCalls={[]}
+              structuredData={pinnedSummaryData}
+            />
+          )}
           <div ref={messagesEndRef} />
         </div>
       )}
@@ -1335,6 +1352,8 @@ Analysis Requirements:
       // 避免顶层 tasks（若存在）残留导致重复
       if (next.tasks && next.tasks.length) { delete (next as any).tasks; changed = true }
     }
+    // 不在普通消息中展示结论，结论固定在底部
+    if ((next as any).summary) { delete (next as any).summary; changed = true }
     // 如果去除后不再包含任何可渲染的结构信息，则返回 undefined 以隐藏该卡片
     const hasRenderable = Boolean(
       next.planText ||
