@@ -60,7 +60,8 @@ func setupHolmesTestDB(t *testing.T) *db.Database {
 			started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			completed_at DATETIME,
 			error_message TEXT,
-			raw_payload_key TEXT
+			raw_payload_key TEXT,
+			analysis_payload_key TEXT
 		)
 	`).Error
 	require.NoError(t, err)

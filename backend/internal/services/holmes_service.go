@@ -347,3 +347,66 @@ func (s *HolmesService) getRunningAnalysis(alertID string) (*models.RCARun, erro
 	}
 	return &rcaRun, nil
 }
+
+// CreateStreamRun 创建用于流式分析的 RCA 运行记录
+func (s *HolmesService) CreateStreamRun(alertID uuid.UUID) (*models.RCARun, error) {
+	run := &models.RCARun{
+		BaseModel:       models.BaseModel{ID: uuid.New()},
+		AlertID:         alertID,
+		Status:          string(models.RCAStatusRunning),
+		StartedAt:       time.Now(),
+		Suspects:        datatypes.JSON([]byte(`{}`)),
+		Recommendations: datatypes.JSON([]byte(`{}`)),
+		Attachments:     datatypes.JSON([]byte(`{}`)),
+	}
+
+	if err := s.db.DB.Create(run).Error; err != nil {
+		return nil, fmt.Errorf("创建RCA流式运行记录失败: %w", err)
+	}
+
+	return run, nil
+}
+
+// MarkStreamRunCompleted 将流式分析标记为完成并保存结果
+func (s *HolmesService) MarkStreamRunCompleted(runID uuid.UUID, analysisKey string) error {
+	updates := map[string]interface{}{
+		"status":               string(models.RCAStatusCompleted),
+		"analysis_payload_key": analysisKey,
+		"completed_at":         time.Now(),
+	}
+
+	result := s.db.DB.Model(&models.RCARun{}).Where("id = ?", runID).Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("更新RCA运行状态失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("RCA运行记录不存在")
+	}
+	return nil
+}
+
+// MarkStreamRunFailed 将流式分析标记为失败
+func (s *HolmesService) MarkStreamRunFailed(runID uuid.UUID, errMsg string) error {
+	updates := map[string]interface{}{
+		"status":        string(models.RCAStatusFailed),
+		"error_message": errMsg,
+		"completed_at":  time.Now(),
+	}
+	result := s.db.DB.Model(&models.RCARun{}).Where("id = ?", runID).Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("更新失败状态时出错: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("RCA运行记录不存在")
+	}
+	return nil
+}
+
+// GetRunByID 根据ID获取运行记录
+func (s *HolmesService) GetRunByID(runID uuid.UUID) (*models.RCARun, error) {
+	var run models.RCARun
+	if err := s.db.DB.Where("id = ?", runID).First(&run).Error; err != nil {
+		return nil, err
+	}
+	return &run, nil
+}

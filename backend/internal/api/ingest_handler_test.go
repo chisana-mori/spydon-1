@@ -56,20 +56,21 @@ type TestAlert struct {
 func (TestAlert) TableName() string { return "alerts" }
 
 type TestRCARun struct {
-	ID              string `gorm:"primaryKey"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       gorm.DeletedAt `gorm:"index"`
-	AlertID         string         `gorm:"not null"`
-	Status          string         `gorm:"not null"`
-	Summary         string
-	Suspects        []byte
-	Recommendations []byte
-	Attachments     []byte
-	StartedAt       time.Time
-	CompletedAt     *time.Time
-	ErrorMessage    string
-	RawPayloadKey   string
+	ID                 string `gorm:"primaryKey"`
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	AlertID            string         `gorm:"not null"`
+	Status             string         `gorm:"not null"`
+	Summary            string
+	Suspects           []byte
+	Recommendations    []byte
+	Attachments        []byte
+	StartedAt          time.Time
+	CompletedAt        *time.Time
+	ErrorMessage       string
+	RawPayloadKey      string
+	AnalysisPayloadKey string
 }
 
 func (TestRCARun) TableName() string { return "rca_runs" }

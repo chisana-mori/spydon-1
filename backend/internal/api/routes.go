@@ -29,6 +29,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	rcaHandler := NewRCAHandler(holmesService)
 	authHandler := NewAuthHandler(authService)
 	healthHandler := NewHealthHandler(database)
+	holmesStreamHandler := NewHolmesStreamHandler(cfg, holmesService, objectStorage)
 
 	// 全局中间件
 	router.Use(middleware.CORSMiddleware())
@@ -95,6 +96,8 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		queryGroup.POST("/rca/trigger", rcaHandler.TriggerRCA)
 		queryGroup.GET("/rca/runs", rcaHandler.ListRCARuns)
 		queryGroup.GET("/rca/runs/:run_id", rcaHandler.GetRCARunStatus)
+		queryGroup.GET("/rca/runs/:run_id/stream", holmesStreamHandler.StreamRunReplay)
+		queryGroup.POST("/holmesgpt/stream/investigate", holmesStreamHandler.StreamInvestigate)
 		queryGroup.GET("/rca/stats", rcaHandler.GetRCAStats)
 
 		// 事件流（SSE）

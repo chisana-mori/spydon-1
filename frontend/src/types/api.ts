@@ -90,6 +90,8 @@ export interface RCARun {
   started_at: string
   completed_at?: string
   error_message?: string
+  raw_payload_key?: string
+  analysis_payload_key?: string
   created_at: string
   alert?: Alert
 }

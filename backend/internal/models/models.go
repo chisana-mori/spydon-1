@@ -52,16 +52,17 @@ type Alert struct {
 // RCARun RCA运行记录模型
 type RCARun struct {
 	BaseModel
-	AlertID         uuid.UUID      `json:"alert_id" gorm:"not null"`
-	Status          string         `json:"status" gorm:"not null"`
-	Summary         *string        `json:"summary"`
-	Suspects        datatypes.JSON `json:"suspects" gorm:"type:jsonb"`
-	Recommendations datatypes.JSON `json:"recommendations" gorm:"type:jsonb"`
-	Attachments     datatypes.JSON `json:"attachments" gorm:"type:jsonb"`
-	StartedAt       time.Time      `json:"started_at" gorm:"default:now()"`
-	CompletedAt     *time.Time     `json:"completed_at"`
-	ErrorMessage    *string        `json:"error_message"`
-	RawPayloadKey   string         `json:"raw_payload_key" gorm:"type:text"`
+	AlertID            uuid.UUID      `json:"alert_id" gorm:"not null"`
+	Status             string         `json:"status" gorm:"not null"`
+	Summary            *string        `json:"summary"`
+	Suspects           datatypes.JSON `json:"suspects" gorm:"type:jsonb"`
+	Recommendations    datatypes.JSON `json:"recommendations" gorm:"type:jsonb"`
+	Attachments        datatypes.JSON `json:"attachments" gorm:"type:jsonb"`
+	StartedAt          time.Time      `json:"started_at" gorm:"default:now()"`
+	CompletedAt        *time.Time     `json:"completed_at"`
+	ErrorMessage       *string        `json:"error_message"`
+	RawPayloadKey      string         `json:"raw_payload_key" gorm:"type:text"`
+	AnalysisPayloadKey string         `json:"analysis_payload_key" gorm:"type:text"`
 
 	// 关联关系
 	Alert *Alert `json:"alert,omitempty" gorm:"foreignKey:AlertID"`

@@ -20,10 +20,13 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react'
-import { Alert } from '@/types/api'
+import { Alert, RCARun } from '@/types/api'
 import { ChatMessage, HolmesStructuredData, HolmesTaskItem, HolmesTaskSection } from './ChatMessage'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import RobustaAPI from '@/lib/api'
+
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1').replace(/\/$/, '')
 
 interface EnhancedHolmesGPTChatProps {
   alert: Alert
@@ -688,15 +691,31 @@ Analysis Requirements:
   }
 
   // 开始分析
-  const startAnalysis = async () => {
+  const startAnalysis = async (forceNewRun = false) => {
     const controller = new AbortController()
     setAbortController(controller)
+
+    let existingRun: RCARun | undefined
+
+    if (!forceNewRun) {
+      try {
+        const runsResponse = await RobustaAPI.getRCAByAlertId(alert.id)
+        const runs = runsResponse.data || []
+        existingRun = runs.find(run => run.status === 'completed' && run.analysis_payload_key)
+      } catch (error) {
+        console.warn('加载历史RCA报告失败，将触发新的分析', error)
+      }
+    }
+
+    const isReplay = Boolean(existingRun)
 
     // 添加用户消息
     const userMessage: AnalysisMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
+      content: isReplay
+        ? `加载历史分析报告：${alert.title}`
+        : `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
       timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN })
     }
 
@@ -711,14 +730,29 @@ Analysis Requirements:
     setPinnedSummaryData(undefined)
 
     try {
-      const response = await fetch('/api/holmesgpt/stream/investigate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(buildInvestigateRequest()),
-        signal: controller.signal
-      })
+      const requestUrl = isReplay
+        ? `${API_BASE_URL}/rca/runs/${existingRun!.id}/stream`
+        : `${API_BASE_URL}/holmesgpt/stream/investigate`
+
+      const fetchOptions: RequestInit = isReplay
+        ? {
+            method: 'GET',
+            headers: {
+              Accept: 'text/event-stream',
+            },
+            signal: controller.signal,
+          }
+        : {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'text/event-stream',
+            },
+            body: JSON.stringify(buildInvestigateRequest()),
+            signal: controller.signal,
+          }
+
+      const response = await fetch(requestUrl, fetchOptions)
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -1400,7 +1434,7 @@ Analysis Requirements:
           </Button>
           
           {analysisState.status === 'idle' && (
-            <Button onClick={startAnalysis} size="sm">
+            <Button onClick={() => startAnalysis(false)} size="sm">
               <Play className="h-4 w-4 mr-2" />
               触发RCA分析
             </Button>
@@ -1413,7 +1447,7 @@ Analysis Requirements:
           )}
           {(analysisState.status === 'completed' || analysisState.status === 'error') && (
             <>
-              <Button onClick={restartAnalysis} variant="outline" size="sm">
+              <Button onClick={() => startAnalysis(true)} variant="outline" size="sm">
                 <RotateCcw className="h-4 w-4 mr-2" />
                 重新分析
               </Button>
