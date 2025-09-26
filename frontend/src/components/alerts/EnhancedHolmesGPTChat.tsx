@@ -1286,17 +1286,21 @@ Analysis Requirements:
               />
             )
           })}
-          {pinnedTasksData && (
-            <ChatMessage
-              key={tasksMessageIdRef.current}
-              role="assistant"
-              content={''}
-              timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
-              isStreaming={analysisState.status === 'analyzing'}
-              toolCalls={[]}
-              structuredData={pinnedTasksData}
-            />
-          )}
+          {pinnedTasksData && (() => {
+            const prog = parseProgress(pinnedTasksData)
+            const pinnedIsStreaming = analysisState.status === 'analyzing' && (!pinnedSummaryData) && (prog.total === 0 || prog.completed < prog.total)
+            return (
+              <ChatMessage
+                key={tasksMessageIdRef.current}
+                role="assistant"
+                content={''}
+                timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
+                isStreaming={pinnedIsStreaming}
+                toolCalls={[]}
+                structuredData={pinnedTasksData}
+              />
+            )
+          })()}
           {pinnedSummaryData && (
             <ChatMessage
               key={summaryMessageIdRef.current}
