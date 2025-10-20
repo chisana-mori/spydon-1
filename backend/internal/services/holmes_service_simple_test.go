@@ -61,6 +61,7 @@ func TestHolmesService_SendAnalysisRequest(t *testing.T) {
 			Enabled        bool   `json:"enabled"`
 			DefaultDepth   string `json:"default_depth"`
 			Model          string `json:"model"`
+			ProxyAuthToken string `json:"proxy_auth_token"`
 		}{
 			URL:            mockServer.URL,
 			APIKey:         "test-api-key",
@@ -68,6 +69,7 @@ func TestHolmesService_SendAnalysisRequest(t *testing.T) {
 			Enabled:        true,
 			DefaultDepth:   "standard",
 			Model:          "test-model",
+			ProxyAuthToken: "",
 		},
 	}
 
@@ -119,6 +121,7 @@ func TestHolmesService_SendAnalysisRequest_Error(t *testing.T) {
 			Enabled        bool   `json:"enabled"`
 			DefaultDepth   string `json:"default_depth"`
 			Model          string `json:"model"`
+			ProxyAuthToken string `json:"proxy_auth_token"`
 		}{
 			URL:            mockServer.URL,
 			APIKey:         "test-api-key",
@@ -126,6 +129,7 @@ func TestHolmesService_SendAnalysisRequest_Error(t *testing.T) {
 			Enabled:        true,
 			DefaultDepth:   "standard",
 			Model:          "test-model",
+			ProxyAuthToken: "",
 		},
 	}
 

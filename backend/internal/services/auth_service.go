@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	cas "gopkg.in/cas.v2"
+	"gorm.io/gorm"
 )
 
 // AuthService 认证服务
@@ -127,6 +130,42 @@ func (s *AuthService) HandleCallback(code, state string) (*LoginResponse, error)
 	}
 
 	// 生成refresh token
+	refreshToken, err := s.generateRefreshToken(user.ID.String())
+	if err != nil {
+		return nil, fmt.Errorf("生成refresh token失败: %w", err)
+	}
+
+	return &LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    time.Now().Add(24 * time.Hour),
+		User: UserInfo{
+			ID:       user.ID.String(),
+			Username: user.Username,
+			Email:    user.Email,
+			Name:     user.Name,
+			Picture:  user.Picture,
+			Roles:    user.Roles,
+		},
+	}, nil
+}
+
+// LoginWithCAS 使用 CAS 登录并颁发本地令牌
+func (s *AuthService) LoginWithCAS(username string, attributes cas.UserAttributes) (*LoginResponse, error) {
+	if username == "" {
+		return nil, fmt.Errorf("CAS 用户名为空")
+	}
+
+	user, err := s.createOrUpdateCASUser(username, attributes)
+	if err != nil {
+		return nil, fmt.Errorf("创建或更新 CAS 用户失败: %w", err)
+	}
+
+	accessToken, err := s.generateJWT(user)
+	if err != nil {
+		return nil, fmt.Errorf("生成JWT失败: %w", err)
+	}
+
 	refreshToken, err := s.generateRefreshToken(user.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("生成refresh token失败: %w", err)
@@ -302,6 +341,59 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 	return &user, nil
 }
 
+func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.UserAttributes) (*models.User, error) {
+	now := time.Now()
+	emailAttr := firstCASAttribute(attributes, s.config.CAS.EmailAttribute, "mail", "email")
+	email := s.deriveCASEmail(username, emailAttr)
+
+	nameAttr := firstCASAttribute(attributes, s.config.CAS.NameAttribute, "displayName", "cn", "name")
+	if nameAttr == "" {
+		nameAttr = username
+	}
+
+	picture := firstCASAttribute(attributes, "picture", "avatar", "photo")
+	roles := s.resolveCASRoles(attributes)
+
+	var user models.User
+	err := s.db.DB.Where("username = ? OR email = ?", username, email).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		user = models.User{
+			BaseModel: models.BaseModel{
+				ID: uuid.New(),
+			},
+			Username:      username,
+			Email:         email,
+			Name:          nameAttr,
+			Picture:       picture,
+			Roles:         roles,
+			EmailVerified: true,
+			Provider:      "cas",
+			ProviderID:    username,
+			LastLoginAt:   &now,
+		}
+
+		if err := s.db.DB.Create(&user).Error; err != nil {
+			return nil, err
+		}
+	} else if err != nil {
+		return nil, err
+	} else {
+		user.Email = email
+		user.Name = nameAttr
+		if picture != "" {
+			user.Picture = picture
+		}
+		user.Roles = roles
+		user.LastLoginAt = &now
+
+		if err := s.db.DB.Save(&user).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	return &user, nil
+}
+
 func (s *AuthService) generateUsername(email string) string {
 	parts := strings.Split(email, "@")
 	if len(parts) > 0 {
@@ -322,6 +414,99 @@ func (s *AuthService) assignDefaultRoles(oidcUser *OIDCUserInfo) []string {
 		case "operators":
 			roles = append(roles, "operator")
 		}
+	}
+
+	return roles
+}
+
+func firstCASAttribute(attributes cas.UserAttributes, keys ...string) string {
+	if attributes == nil {
+		return ""
+	}
+
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+
+		if values, ok := attributes[key]; ok {
+			for _, value := range values {
+				trimmed := strings.TrimSpace(value)
+				if trimmed != "" {
+					return trimmed
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func (s *AuthService) deriveCASEmail(username, candidate string) string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate != "" {
+		return candidate
+	}
+
+	domain := strings.TrimSpace(s.config.CAS.DefaultEmailDomain)
+	if domain == "" {
+		domain = "cas.local"
+	}
+
+	return fmt.Sprintf("%s@%s", username, domain)
+}
+
+func (s *AuthService) resolveCASRoles(attributes cas.UserAttributes) []string {
+	if attributes == nil {
+		return []string{"user"}
+	}
+
+	keys := []string{s.config.CAS.RolesAttribute, "roles", "groups"}
+	roleSet := make(map[string]struct{})
+
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+
+		values, ok := attributes[key]
+		if !ok {
+			continue
+		}
+
+		for _, value := range values {
+			parts := strings.FieldsFunc(value, func(r rune) bool {
+				switch r {
+				case ',', ';', '|':
+					return true
+				default:
+					return false
+				}
+			})
+
+			if len(parts) == 0 {
+				parts = []string{value}
+			}
+
+			for _, part := range parts {
+				role := strings.ToLower(strings.TrimSpace(part))
+				if role == "" {
+					continue
+				}
+				roleSet[role] = struct{}{}
+			}
+		}
+	}
+
+	if len(roleSet) == 0 {
+		return []string{"user"}
+	}
+
+	roles := make([]string, 0, len(roleSet))
+	for role := range roleSet {
+		roles = append(roles, role)
 	}
 
 	return roles

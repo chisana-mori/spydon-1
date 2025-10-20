@@ -83,27 +83,47 @@ MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
 5. 技术术语解释`
     }
 
-    // HolmesGPT 服务地址 - 从环境变量获取
-    const holmesGPTUrl = process.env.HOLMESGPT_URL || 'http://localhost:8080'
+    // 项目后端 HolmesGPT 代理地址
+    const backendBaseUrl = (process.env.ROBUSTA_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1').replace(/\/$/, '')
+    const upstreamUrl = `${backendBaseUrl}/holmesgpt/stream/investigate`
 
-    console.log('代理 HolmesGPT 请求 (已添加中文提示):', {
-      url: `${holmesGPTUrl}/api/stream/investigate`,
+    console.log('通过后端代理 HolmesGPT 请求 (已添加中文提示):', {
+      url: upstreamUrl,
       body: JSON.stringify(body, null, 2)
     })
 
-    // 向 HolmesGPT 发送流式请求
-    const response = await fetch(`${holmesGPTUrl}/api/stream/investigate`, {
+    // 建立到上游 HolmesGPT 的可中断请求
+    const upstreamController = new AbortController()
+
+    // 当客户端取消（例如点击“停止分析”导致 fetch abort）时，联动中断上游请求
+    const onClientAbort = () => {
+      try {
+        upstreamController.abort()
+      } catch {}
+    }
+    request.signal.addEventListener('abort', onClientAbort, { once: true })
+
+    // 向 HolmesGPT 发送流式请求（携带 abort signal）
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+    }
+
+    const apiToken = process.env.HOLMES_GPT_PROXY_TOKEN || process.env.API_AUTH_TOKEN || ''
+    if (apiToken) {
+      headers['Authorization'] = `Bearer ${apiToken}`
+    }
+
+    const response = await fetch(upstreamUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-      },
+      headers,
       body: JSON.stringify(body),
+      signal: upstreamController.signal,
     })
 
     if (!response.ok) {
-      console.error('HolmesGPT 请求失败:', response.status, response.statusText)
+      console.error('后端 HolmesGPT 代理请求失败:', response.status, response.statusText)
       return NextResponse.json(
         { error: `HolmesGPT 服务错误: ${response.status} ${response.statusText}` },
         { status: response.status }
@@ -117,7 +137,7 @@ MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
       )
     }
 
-    // 创建流式响应
+    // 创建流式响应（支持 cancel 以联动中断上游）
     const stream = new ReadableStream({
       async start(controller) {
         const reader = response.body!.getReader()
@@ -267,21 +287,28 @@ MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
           )
           controller.close()
         } finally {
-          reader.releaseLock()
+          try { reader.releaseLock() } catch {}
         }
+      },
+      cancel(reason) {
+        // 前端取消消费时触发：中断上游请求，避免后台继续占用资源
+        try { upstreamController.abort() } catch {}
       },
     })
 
-    return new NextResponse(stream, {
+    const nextResponse = new NextResponse(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
     })
+
+    return nextResponse
 
   } catch (error) {
     console.error('HolmesGPT 代理错误:', error)

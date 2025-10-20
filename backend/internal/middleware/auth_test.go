@@ -144,6 +144,97 @@ func TestAuthMiddleware_ExpiredToken(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "无效的token")
 }
 
+func TestCookieAuthMiddleware_WithCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{JWTSecret: "test-secret"}
+
+	claims := jwt.MapClaims{
+		"sub":   "cookie-user",
+		"email": "cookie@example.com",
+		"roles": []string{"user"},
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
+	assert.NoError(t, err)
+
+	router := gin.New()
+	router.Use(CookieAuthMiddleware(cfg))
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.AddCookie(&http.Cookie{Name: "access_token", Value: tokenString})
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestCookieAuthMiddleware_Missing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{JWTSecret: "test-secret"}
+
+	router := gin.New()
+	router.Use(CookieAuthMiddleware(cfg))
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAPITokenMiddleware_Valid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{}
+	cfg.HolmesGPT.ProxyAuthToken = "secret-token"
+
+	router := gin.New()
+	router.Use(APITokenMiddleware(cfg))
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAPITokenMiddleware_Invalid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{}
+	cfg.HolmesGPT.ProxyAuthToken = "secret-token"
+
+	router := gin.New()
+	router.Use(APITokenMiddleware(cfg))
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestRequireRole_ValidRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

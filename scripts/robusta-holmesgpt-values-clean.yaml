@@ -55,15 +55,6 @@ holmes:
       api_key: "sk-d8a509507c05475aa65956c50866d63d"  
       api_base: https://api.deepseek.com/v1
       temperature: 0
-  # 配置 DeepSeek API
-  # additionalEnvVars:
-  #   - name: MODEL
-  #     value: "deepseek/deepseek-chat"
-  #   - name: DEEPSEEK_API_KEY
-  #     valueFrom:
-  #       secretKeyRef:
-  #         name: holmes-secrets
-  #         key: deepseekApiKey
   
   # 启用内置工具集
   toolsets:

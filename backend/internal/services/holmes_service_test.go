@@ -130,6 +130,7 @@ func TestHolmesService_TriggerAnalysis(t *testing.T) {
 			Enabled        bool   `json:"enabled"`
 			DefaultDepth   string `json:"default_depth"`
 			Model          string `json:"model"`
+			ProxyAuthToken string `json:"proxy_auth_token"`
 		}{
 			URL:            mockServer.URL,
 			APIKey:         "test-api-key",
@@ -137,6 +138,7 @@ func TestHolmesService_TriggerAnalysis(t *testing.T) {
 			Enabled:        true,
 			DefaultDepth:   "standard",
 			Model:          "test-model",
+			ProxyAuthToken: "",
 		},
 	}
 
@@ -194,12 +196,14 @@ func TestHolmesService_GetAnalysisByAlertID(t *testing.T) {
 			Enabled        bool   `json:"enabled"`
 			DefaultDepth   string `json:"default_depth"`
 			Model          string `json:"model"`
+			ProxyAuthToken string `json:"proxy_auth_token"`
 		}{
 			URL:            "http://localhost:8081",
 			TimeoutSeconds: 300,
 			Enabled:        true,
 			DefaultDepth:   "standard",
 			Model:          "test-model",
+			ProxyAuthToken: "",
 		},
 	}
 
@@ -256,12 +260,14 @@ func TestHolmesService_GetAnalysisStats(t *testing.T) {
 			Enabled        bool   `json:"enabled"`
 			DefaultDepth   string `json:"default_depth"`
 			Model          string `json:"model"`
+			ProxyAuthToken string `json:"proxy_auth_token"`
 		}{
 			URL:            "http://localhost:8081",
 			TimeoutSeconds: 300,
 			Enabled:        true,
 			DefaultDepth:   "standard",
 			Model:          "test-model",
+			ProxyAuthToken: "",
 		},
 	}
 
@@ -369,12 +375,14 @@ func TestHolmesService_HandleAnalysisError(t *testing.T) {
 			Enabled        bool   `json:"enabled"`
 			DefaultDepth   string `json:"default_depth"`
 			Model          string `json:"model"`
+			ProxyAuthToken string `json:"proxy_auth_token"`
 		}{
 			URL:            mockServer.URL,
 			TimeoutSeconds: 300,
 			Enabled:        true,
 			DefaultDepth:   "standard",
 			Model:          "test-model",
+			ProxyAuthToken: "",
 		},
 	}
 

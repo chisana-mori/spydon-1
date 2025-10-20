@@ -12,18 +12,40 @@ import type {
   AlertStats,
   RCAStats,
   AlertTrendData,
+  User,
 } from '@/types/api'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1'
+const DEFAULT_CAS_LOGIN_URL = 'https://localhost:8443/cas/login'
+const CAS_LOGIN_PATH = process.env.NEXT_PUBLIC_CAS_LOGIN_PATH || DEFAULT_CAS_LOGIN_URL
+
+const BACKEND_ORIGIN = (() => {
+  try {
+    return new URL(API_BASE).origin
+  } catch (error) {
+    return 'http://localhost:8080'
+  }
+})()
+
+let isRedirectingToCAS = false
+
+const resolveCasLoginUrl = () => {
+  const target = CAS_LOGIN_PATH.trim() || DEFAULT_CAS_LOGIN_URL
+  if (target.startsWith('http://') || target.startsWith('https://')) {
+    return target
+  }
+  return `${BACKEND_ORIGIN}${target}`
+}
 
 // 创建axios实例
 const createApiClient = (): AxiosInstance => {
-  const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1'
-  
   const client = axios.create({
-    baseURL,
+    baseURL: API_BASE,
     timeout: 30000,
     headers: {
       'Content-Type': 'application/json',
     },
+    withCredentials: true,
   })
 
   // 请求拦截器 - 开发阶段暂时禁用认证
@@ -47,12 +69,20 @@ const createApiClient = (): AxiosInstance => {
       return response
     },
     (error) => {
-      // TODO: 生产环境需要启用认证重定向
-      // if (error.response?.status === 401) {
-      //   // Token过期，清除本地存储并重定向到登录页
-      //   localStorage.removeItem('auth_token')
-      //   window.location.href = '/login'
-      // }
+      if (
+        typeof window !== 'undefined' &&
+        error?.response?.status === 401 &&
+        !isRedirectingToCAS
+      ) {
+        isRedirectingToCAS = true
+        // 保存当前页面URL，用于登录后跳转
+        sessionStorage.setItem('cas_return_url', window.location.href)
+
+        const callbackUrl = encodeURIComponent(`${window.location.origin}/auth/cas/callback`)
+        const casLoginUrl = resolveCasLoginUrl()
+        const separator = casLoginUrl.includes('?') ? '&' : '?'
+        window.location.href = `${casLoginUrl}${separator}service=${callbackUrl}`
+      }
       return Promise.reject(error)
     }
   )
@@ -124,6 +154,15 @@ export class RobustaAPI {
     const params = new URLSearchParams({ days: days.toString() })
     const response = await apiClient.get(`/alerts/trend?${params}`)
     return response.data
+  }
+
+  static async getProfile(): Promise<User | null> {
+    const response = await apiClient.get<{ user?: User }>('/profile')
+    return response.data?.user ?? null
+  }
+
+  static async logout(): Promise<void> {
+    await apiClient.post('/auth/logout')
   }
 
   // RCA相关API

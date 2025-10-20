@@ -3,22 +3,32 @@ package api
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
+	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
+	cas "gopkg.in/cas.v2"
 )
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
 	authService *services.AuthService
+	casClient   *cas.Client
+	cfg         *config.Config
 }
 
 // NewAuthHandler 创建认证处理器
-func NewAuthHandler(authService *services.AuthService) *AuthHandler {
+func NewAuthHandler(authService *services.AuthService, casClient *cas.Client, cfg *config.Config) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
+		casClient:   casClient,
+		cfg:         cfg,
 	}
 }
 
@@ -87,6 +97,7 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 
 	// 设置refresh token到httpOnly cookie
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", true, true) // 30天
+	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token": loginResp.AccessToken,
@@ -120,6 +131,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	// 更新refresh token cookie
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", true, true)
+	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token": loginResp.AccessToken,
@@ -130,19 +142,105 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 // Logout 登出
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// 从cookie获取refresh token
-	refreshToken, err := c.Cookie("refresh_token")
-	if err == nil {
-		// 撤销refresh token
-		h.authService.Logout(refreshToken)
-	}
-
-	// 清除refresh token cookie
-	c.SetCookie("refresh_token", "", -1, "/", "", true, true)
+	h.performLocalLogout(c)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "登出成功",
 	})
+}
+
+// CASLogin 触发CAS登录
+func (h *AuthHandler) CASLogin(c *gin.Context) {
+	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "CAS 未启用"})
+		return
+	}
+
+	h.casClient.RedirectToLogin(c.Writer, c.Request)
+}
+
+// CASCallback 处理CAS回调
+func (h *AuthHandler) CASCallback(c *gin.Context) {
+	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "CAS 未启用"})
+		return
+	}
+
+	if !cas.IsAuthenticated(c.Request) {
+		h.casClient.RedirectToLogin(c.Writer, c.Request)
+		return
+	}
+
+	username := cas.Username(c.Request)
+	attributes := cas.Attributes(c.Request)
+	loginResp, err := h.authService.LoginWithCAS(username, attributes)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "CAS 登录失败",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", true, true)
+	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
+
+	redirectTarget := c.Query("redirect")
+	if redirectTarget == "" && h.cfg != nil {
+		redirectTarget = h.cfg.CAS.RedirectURL
+	}
+	if redirectTarget == "" {
+		redirectTarget = "/"
+	}
+
+	c.Redirect(http.StatusFound, redirectTarget)
+}
+
+// CASValidate 验证 CAS ticket (用于前端 callback 调用)
+func (h *AuthHandler) CASValidate(c *gin.Context) {
+	// 这个方法应该通过 CAS 中间件调用，而不是直接处理
+	// 实际的验证逻辑在 CASCallback 中处理
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"error": "请使用 /auth/cas/callback 接口",
+	})
+}
+
+// CASLogout 注销CAS并清理本地会话
+func (h *AuthHandler) CASLogout(c *gin.Context) {
+	redirectTarget := c.Query("redirect")
+	if redirectTarget == "" && h.cfg != nil {
+		redirectTarget = h.cfg.CAS.RedirectURL
+	}
+	if redirectTarget == "" {
+		redirectTarget = "/"
+	}
+
+	h.performLocalLogout(c)
+
+	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
+		c.Redirect(http.StatusFound, redirectTarget)
+		return
+	}
+
+	logoutURL, err := h.casClient.LogoutUrlForRequest(c.Request)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "构造CAS登出地址失败",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	if redirectTarget != "" {
+		if parsed, parseErr := url.Parse(logoutURL); parseErr == nil {
+			query := parsed.Query()
+			query.Set("service", redirectTarget)
+			parsed.RawQuery = query.Encode()
+			logoutURL = parsed.String()
+		}
+	}
+
+	c.Redirect(http.StatusFound, logoutURL)
 }
 
 // GetProfile 获取用户资料
@@ -158,11 +256,13 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 
 	userEmail, _ := c.Get("user_email")
 	userRoles, _ := c.Get("user_roles")
+	userName, _ := c.Get("user_name")
 
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
 			"id":    userID,
 			"email": userEmail,
+			"name":  userName,
 			"roles": userRoles,
 		},
 	})
@@ -303,4 +403,45 @@ func generateRandomState() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(bytes), nil
+}
+
+func (h *AuthHandler) performLocalLogout(c *gin.Context) {
+	refreshToken, err := c.Cookie("refresh_token")
+	if err == nil && refreshToken != "" {
+		h.authService.Logout(refreshToken)
+	}
+
+	c.SetCookie("refresh_token", "", -1, "/", "", true, true)
+	c.SetCookie("access_token", "", -1, "/", "", true, true)
+}
+
+func (h *AuthHandler) getFullURL(c *gin.Context, path string) string {
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if proto := c.Request.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+
+	host := c.Request.Host
+	return fmt.Sprintf("%s://%s%s", scheme, host, path)
+}
+
+func setAccessTokenCookie(c *gin.Context, token string, expiresAt time.Time) {
+	if token == "" {
+		return
+	}
+
+	ttl := int(time.Until(expiresAt).Seconds())
+	if ttl <= 0 {
+		ttl = 3600
+	}
+
+	secure := c.Request.TLS != nil
+	if proto := c.Request.Header.Get("X-Forwarded-Proto"); proto != "" {
+		secure = strings.EqualFold(proto, "https")
+	}
+
+	c.SetCookie("access_token", token, ttl, "/", "", secure, true)
 }

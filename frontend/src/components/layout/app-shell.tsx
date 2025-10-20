@@ -12,7 +12,6 @@ import {
   LayoutDashboard,
   AlertTriangle,
   Server,
-  Settings,
   Bell,
   Menu,
   X,
@@ -20,11 +19,25 @@ import {
   Shield,
   Activity,
   Users,
-  HelpCircle,
   Moon,
   Sun,
   Monitor,
 } from 'lucide-react'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1'
+const DEFAULT_CAS_LOGIN_URL = 'https://localhost:8443/cas/login'
+const CAS_LOGIN_PATH = process.env.NEXT_PUBLIC_CAS_LOGIN_PATH || DEFAULT_CAS_LOGIN_URL
+const CAS_CALLBACK_PATH = process.env.NEXT_PUBLIC_CAS_CALLBACK_PATH || '/auth/cas/callback'
+const CAS_LOGOUT_PATH = process.env.NEXT_PUBLIC_CAS_LOGOUT_PATH || '/auth/cas/logout'
+
+const BACKEND_ORIGIN = (() => {
+  try {
+    return new URL(API_BASE).origin
+  } catch (error) {
+    return 'http://localhost:8080'
+  }
+})()
 
 interface AppShellProps {
   children: ReactNode
@@ -74,6 +87,35 @@ export function AppShell({ children }: AppShellProps) {
   const { theme, setTheme } = useThemeStore()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user, loading: authLoading } = useCurrentUser()
+
+  const userInitial = (user?.name || user?.email || 'U').charAt(0).toUpperCase()
+
+  const resolveCasLoginUrl = () => {
+    const target = CAS_LOGIN_PATH.trim() || DEFAULT_CAS_LOGIN_URL
+    if (target.startsWith('http://') || target.startsWith('https://')) {
+      return target
+    }
+    return `${BACKEND_ORIGIN}${target}`
+  }
+
+  const handleCASLogin = () => {
+    if (typeof window === 'undefined') return
+
+    // 保存当前页面URL，用于登录后跳转
+    sessionStorage.setItem('cas_return_url', window.location.href)
+
+    const callbackUrl = encodeURIComponent(`${window.location.origin}/auth/cas/callback`)
+    const casLoginUrl = resolveCasLoginUrl()
+    const separator = casLoginUrl.includes('?') ? '&' : '?'
+    window.location.href = `${casLoginUrl}${separator}service=${callbackUrl}`
+  }
+
+  const handleCASLogout = () => {
+    if (typeof window === 'undefined') return
+    const redirectTarget = encodeURIComponent(window.location.origin)
+    window.location.href = `${BACKEND_ORIGIN}${CAS_LOGOUT_PATH}?redirect=${redirectTarget}`
+  }
 
   const toggleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system']
@@ -230,15 +272,28 @@ export function AppShell({ children }: AppShellProps) {
                 </span>
               </Button>
 
-              <div className="flex items-center space-x-3">
-                <div className="hidden md:block text-right">
-                  <p className="text-sm font-medium text-foreground">管理员</p>
-                  <p className="text-xs text-muted-foreground">admin@robusta.com</p>
+              {authLoading ? (
+                <span className="text-xs text-muted-foreground">正在同步账户...</span>
+              ) : user ? (
+                <div className="flex items-center space-x-3">
+                  <div className="hidden md:block text-right">
+                    <p className="text-sm font-medium text-foreground">
+                      {user.name ?? user.email}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                  </div>
+                  <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
+                    <span className="text-sm font-medium text-primary-foreground">{userInitial}</span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleCASLogout}>
+                    退出登录
+                  </Button>
                 </div>
-                <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-primary-foreground">A</span>
-                </div>
-              </div>
+              ) : (
+                <Button size="sm" onClick={handleCASLogin}>
+                  CAS 登录
+                </Button>
+              )}
             </div>
           </div>
         </header>

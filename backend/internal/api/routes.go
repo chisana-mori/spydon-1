@@ -1,12 +1,17 @@
 package api
 
 import (
+	"net/http"
+	"net/url"
+	"strings"
+
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/middleware"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
+	cas "gopkg.in/cas.v2"
 )
 
 // SetupRoutes 设置API路由
@@ -23,11 +28,35 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		return err
 	}
 
+	var casClient *cas.Client
+	if cfg.CAS.Enabled && cfg.CAS.ServerURL != "" {
+		casURL, err := url.Parse(cfg.CAS.ServerURL)
+		if err != nil {
+			return err
+		}
+
+		cookieSecure := strings.HasPrefix(strings.ToLower(cfg.CAS.RedirectURL), "https")
+		casOptions := &cas.Options{
+			URL:          casURL,
+			SessionStore: cas.NewMemorySessionStore(),
+			SendService:  true,
+			Cookie: &http.Cookie{
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   cookieSecure,
+				SameSite: http.SameSiteLaxMode,
+			},
+		}
+
+		casClient = cas.NewClient(casOptions)
+	}
+
 	// 创建处理器实例
 	ingestHandler := NewIngestHandler(alertService, rcaService, clusterService, auditService, objectStorage)
 	queryHandler := NewQueryHandler(alertService, rcaService, clusterService, objectStorage)
 	rcaHandler := NewRCAHandler(holmesService)
-	authHandler := NewAuthHandler(authService)
+	holmesProxyHandler := NewHolmesProxyHandler(cfg)
+	authHandler := NewAuthHandler(authService, casClient, cfg)
 	healthHandler := NewHealthHandler(database)
 
 	// 全局中间件
@@ -47,6 +76,24 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		authGroup.POST("/callback", authHandler.HandleCallback)
 		authGroup.POST("/refresh", authHandler.RefreshToken)
 		authGroup.POST("/logout", authHandler.Logout)
+	}
+
+	if casClient != nil {
+		router.GET("/auth/cas/login", authHandler.CASLogin)
+
+		callbackPath := cfg.CAS.CallbackPath
+		if callbackPath == "" {
+			callbackPath = "/auth/cas/callback"
+		}
+
+		router.GET(callbackPath, func(c *gin.Context) {
+			middleware.CASMiddleware(casClient)(c)
+			if c.IsAborted() {
+				return
+			}
+			authHandler.CASCallback(c)
+		})
+		router.GET("/auth/cas/logout", authHandler.CASLogout)
 	}
 
 	// API v1 路由组
@@ -74,8 +121,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 
 	// Query API（开发阶段暂时禁用JWT认证）
 	queryGroup := v1.Group("")
-	// TODO: 生产环境需要启用认证中间件
-	// queryGroup.Use(middleware.AuthMiddleware(cfg))
+	queryGroup.Use(middleware.CookieAuthMiddleware(cfg))
 	queryGroup.Use(middleware.AuditLogMiddleware())
 	{
 		// 集群相关
@@ -106,6 +152,13 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		queryGroup.POST("/profile/change-password", authHandler.ChangePassword)
 		queryGroup.GET("/profile/sessions", authHandler.GetUserSessions)
 		queryGroup.DELETE("/profile/sessions/:session_id", authHandler.RevokeSession)
+	}
+
+	apiGroup := v1.Group("")
+	apiGroup.Use(middleware.APITokenMiddleware(cfg))
+	apiGroup.Use(middleware.AuditLogMiddleware())
+	{
+		apiGroup.POST("/holmesgpt/stream/investigate", holmesProxyHandler.StreamInvestigate)
 	}
 
 	// 管理API（开发阶段暂时禁用权限检查）

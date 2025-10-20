@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -13,9 +14,8 @@ import (
 // AuthMiddleware JWT认证中间件
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取Authorization头
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		tokenString := extractBearerToken(c.GetHeader("Authorization"))
+		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "缺少认证头",
 				"code":  "MISSING_AUTH_HEADER",
@@ -24,26 +24,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 检查Bearer前缀
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "无效的认证头格式",
-				"code":  "INVALID_AUTH_FORMAT",
-			})
-			c.Abort()
-			return
-		}
-
-		// 解析JWT token
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			// 验证签名方法
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(cfg.JWTSecret), nil
-		})
-
+		claims, err := parseJWTClaims(cfg, tokenString)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "无效的token",
@@ -53,24 +34,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 验证token有效性
-		if !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "token已过期或无效",
-				"code":  "TOKEN_EXPIRED",
-			})
-			c.Abort()
-			return
-		}
-
-		// 提取claims
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			// 将用户信息存储到上下文中
-			c.Set("user_id", claims["sub"])
-			c.Set("user_email", claims["email"])
-			c.Set("user_roles", claims["roles"])
-		}
-
+		setUserClaims(c, claims)
 		c.Next()
 	}
 }
@@ -78,35 +42,132 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 // OptionalAuthMiddleware 可选认证中间件（用于某些公开接口）
 func OptionalAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		tokenString := extractBearerToken(c.GetHeader("Authorization"))
+		if tokenString == "" {
 			c.Next()
 			return
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			c.Next()
-			return
-		}
-
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(cfg.JWTSecret), nil
-		})
-
-		if err == nil && token.Valid {
-			if claims, ok := token.Claims.(jwt.MapClaims); ok {
-				c.Set("user_id", claims["sub"])
-				c.Set("user_email", claims["email"])
-				c.Set("user_roles", claims["roles"])
-			}
+		claims, err := parseJWTClaims(cfg, tokenString)
+		if err == nil {
+			setUserClaims(c, claims)
 		}
 
 		c.Next()
 	}
+}
+
+// CookieAuthMiddleware 支持通过Cookie或Authorization头验证JWT
+func CookieAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenString := ""
+
+		if cookieToken, err := c.Cookie("access_token"); err == nil && strings.TrimSpace(cookieToken) != "" {
+			tokenString = strings.TrimSpace(cookieToken)
+		}
+
+		if tokenString == "" {
+			tokenString = extractBearerToken(c.GetHeader("Authorization"))
+		}
+
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "缺少有效的认证信息",
+				"code":  "MISSING_AUTH",
+			})
+			c.Abort()
+			return
+		}
+
+		claims, err := parseJWTClaims(cfg, tokenString)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "无效的登录状态",
+				"code":  "INVALID_SESSION",
+			})
+			c.Abort()
+			return
+		}
+
+		setUserClaims(c, claims)
+		c.Next()
+	}
+}
+
+// APITokenMiddleware 针对API访问的Token认证
+func APITokenMiddleware(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		expected := strings.TrimSpace(cfg.HolmesGPT.ProxyAuthToken)
+		if expected == "" {
+			c.Next()
+			return
+		}
+
+		token := extractBearerToken(c.GetHeader("Authorization"))
+		if token == "" {
+			token = strings.TrimSpace(c.GetHeader("X-API-Token"))
+		}
+		if token == "" {
+			if cookieToken, err := c.Cookie("api_token"); err == nil {
+				token = strings.TrimSpace(cookieToken)
+			}
+		}
+
+		if token == "" || token != expected {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "API token无效",
+				"code":  "INVALID_API_TOKEN",
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func extractBearerToken(header string) string {
+	if header == "" {
+		return ""
+	}
+	lower := strings.ToLower(header)
+	if !strings.HasPrefix(lower, "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(header[7:])
+}
+
+func parseJWTClaims(cfg *config.Config, tokenString string) (jwt.MapClaims, error) {
+	if tokenString == "" {
+		return nil, errors.New("empty token")
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(cfg.JWTSecret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if !token.Valid {
+		return nil, errors.New("invalid token")
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, errors.New("invalid claims")
+	}
+
+	return claims, nil
+}
+
+func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
+	c.Set("user_id", claims["sub"])
+	c.Set("user_email", claims["email"])
+	c.Set("user_name", claims["name"])
+	c.Set("user_roles", claims["roles"])
 }
 
 // RequireRole 角色权限检查中间件
