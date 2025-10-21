@@ -78,23 +78,16 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		authGroup.POST("/logout", authHandler.Logout)
 	}
 
-	if casClient != nil {
-		router.GET("/auth/cas/login", authHandler.CASLogin)
+	// 无论 CAS 是否启用，都注册登录与登出路由，由处理器自行判断
+	router.GET("/auth/cas/login", authHandler.CASLogin)
 
-		callbackPath := cfg.CAS.CallbackPath
-		if callbackPath == "" {
-			callbackPath = "/auth/cas/callback"
-		}
-
-		router.GET(callbackPath, func(c *gin.Context) {
-			middleware.CASMiddleware(casClient)(c)
-			if c.IsAborted() {
-				return
-			}
-			authHandler.CASCallback(c)
-		})
-		router.GET("/auth/cas/logout", authHandler.CASLogout)
+	callbackPath := cfg.CAS.CallbackPath
+	if callbackPath == "" {
+		callbackPath = "/auth/cas/callback"
 	}
+
+	router.GET(callbackPath, authHandler.CASCallback)
+	router.GET("/auth/cas/logout", authHandler.CASLogout)
 
 	// API v1 路由组
 	v1 := router.Group("/api/v1")

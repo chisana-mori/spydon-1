@@ -150,7 +150,7 @@ type User struct {
 	Email         string     `json:"email" gorm:"uniqueIndex;not null"`
 	Name          string     `json:"name"`
 	Picture       string     `json:"picture"`
-	Roles         []string   `json:"roles" gorm:"type:text[]"`
+	Roles         []string   `json:"roles" gorm:"serializer:json"`
 	EmailVerified bool       `json:"email_verified" gorm:"default:false"`
 	Provider      string     `json:"provider" gorm:"default:local"`
 	ProviderID    string     `json:"provider_id"`

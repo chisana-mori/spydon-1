@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -22,6 +23,8 @@ type AuthHandler struct {
 	casClient   *cas.Client
 	cfg         *config.Config
 }
+
+const casRedirectCookieName = "cas_redirect_target"
 
 // NewAuthHandler 创建认证处理器
 func NewAuthHandler(authService *services.AuthService, casClient *cas.Client, cfg *config.Config) *AuthHandler {
@@ -96,7 +99,8 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	}
 
 	// 设置refresh token到httpOnly cookie
-	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", true, true) // 30天
+	secure := isSecureRequest(c.Request)
+	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true) // 30天
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -121,7 +125,8 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	loginResp, err := h.authService.RefreshToken(refreshToken)
 	if err != nil {
 		// 清除无效的refresh token cookie
-		c.SetCookie("refresh_token", "", -1, "/", "", true, true)
+		secure := isSecureRequest(c.Request)
+		c.SetCookie("refresh_token", "", -1, "/", "", secure, true)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error":   "刷新token失败",
 			"details": err.Error(),
@@ -130,7 +135,8 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	}
 
 	// 更新refresh token cookie
-	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", true, true)
+	secure := isSecureRequest(c.Request)
+	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true)
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -143,6 +149,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // Logout 登出
 func (h *AuthHandler) Logout(c *gin.Context) {
 	h.performLocalLogout(c)
+	h.clearRedirectCookie(c)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "登出成功",
@@ -156,7 +163,44 @@ func (h *AuthHandler) CASLogin(c *gin.Context) {
 		return
 	}
 
-	h.casClient.RedirectToLogin(c.Writer, c.Request)
+	redirectTarget := strings.TrimSpace(c.Query("service"))
+	if redirectTarget == "" {
+		redirectTarget = h.cfg.CAS.RedirectURL
+	}
+	if redirectTarget == "" {
+		redirectTarget = "/"
+	}
+
+	secure := isSecureRequest(c.Request)
+	encodedTarget := base64.URLEncoding.EncodeToString([]byte(redirectTarget))
+	c.SetCookie(casRedirectCookieName, encodedTarget, 600, "/", "", secure, true)
+
+	if strings.TrimSpace(h.cfg.CAS.ServerURL) == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "CAS 服务地址未配置",
+		})
+		return
+	}
+
+	callbackURL, err := h.buildCallbackURL(c.Request)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "构造回调地址失败",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	loginURL, err := buildCASLoginURL(h.cfg.CAS.ServerURL, callbackURL.String())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "构造CAS登录地址失败",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.Redirect(http.StatusFound, loginURL)
 }
 
 // CASCallback 处理CAS回调
@@ -166,13 +210,23 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 		return
 	}
 
-	if !cas.IsAuthenticated(c.Request) {
+	ticket := strings.TrimSpace(c.Query("ticket"))
+	if ticket == "" {
 		h.casClient.RedirectToLogin(c.Writer, c.Request)
 		return
 	}
 
-	username := cas.Username(c.Request)
-	attributes := cas.Attributes(c.Request)
+	authResp, err := h.validateCASTicket(c.Request, ticket)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "CAS ticket 验证失败",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	username := authResp.User
+	attributes := cas.UserAttributes(authResp.Attributes)
 	loginResp, err := h.authService.LoginWithCAS(username, attributes)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -182,16 +236,23 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", true, true)
+	secure := isSecureRequest(c.Request)
+	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true)
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
-	redirectTarget := c.Query("redirect")
-	if redirectTarget == "" && h.cfg != nil {
+	redirectTarget := ""
+	if value, err := c.Cookie(casRedirectCookieName); err == nil && value != "" {
+		if decoded, decodeErr := base64.URLEncoding.DecodeString(value); decodeErr == nil {
+			redirectTarget = string(decoded)
+		}
+	}
+	if redirectTarget == "" {
 		redirectTarget = h.cfg.CAS.RedirectURL
 	}
 	if redirectTarget == "" {
 		redirectTarget = "/"
 	}
+	h.clearRedirectCookie(c)
 
 	c.Redirect(http.StatusFound, redirectTarget)
 }
@@ -411,21 +472,9 @@ func (h *AuthHandler) performLocalLogout(c *gin.Context) {
 		h.authService.Logout(refreshToken)
 	}
 
-	c.SetCookie("refresh_token", "", -1, "/", "", true, true)
-	c.SetCookie("access_token", "", -1, "/", "", true, true)
-}
-
-func (h *AuthHandler) getFullURL(c *gin.Context, path string) string {
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
-	}
-	if proto := c.Request.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
-	}
-
-	host := c.Request.Host
-	return fmt.Sprintf("%s://%s%s", scheme, host, path)
+	secure := isSecureRequest(c.Request)
+	c.SetCookie("refresh_token", "", -1, "/", "", secure, true)
+	c.SetCookie("access_token", "", -1, "/", "", secure, true)
 }
 
 func setAccessTokenCookie(c *gin.Context, token string, expiresAt time.Time) {
@@ -438,10 +487,103 @@ func setAccessTokenCookie(c *gin.Context, token string, expiresAt time.Time) {
 		ttl = 3600
 	}
 
-	secure := c.Request.TLS != nil
-	if proto := c.Request.Header.Get("X-Forwarded-Proto"); proto != "" {
-		secure = strings.EqualFold(proto, "https")
-	}
+	secure := isSecureRequest(c.Request)
 
 	c.SetCookie("access_token", token, ttl, "/", "", secure, true)
+}
+
+func (h *AuthHandler) clearRedirectCookie(c *gin.Context) {
+	secure := isSecureRequest(c.Request)
+	c.SetCookie(casRedirectCookieName, "", -1, "/", "", secure, true)
+}
+
+func (h *AuthHandler) buildCallbackURL(r *http.Request) (*url.URL, error) {
+	base := buildRequestBaseURL(r)
+	callbackPath := h.cfg.CAS.CallbackPath
+	if callbackPath == "" {
+		callbackPath = "/auth/cas/callback"
+	}
+
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := url.Parse(callbackPath)
+	if err != nil {
+		return nil, err
+	}
+	return baseURL.ResolveReference(rel), nil
+}
+
+func buildCASLoginURL(serverURL, serviceURL string) (string, error) {
+	server := strings.TrimRight(serverURL, "/") + "/login"
+	loginURL, err := url.Parse(server)
+	if err != nil {
+		return "", err
+	}
+	query := loginURL.Query()
+	query.Set("service", serviceURL)
+	loginURL.RawQuery = query.Encode()
+	return loginURL.String(), nil
+}
+
+func buildRequestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if isSecureRequest(r) {
+		scheme = "https"
+	}
+	host := r.Host
+	if xfHost := r.Header.Get("X-Forwarded-Host"); xfHost != "" {
+		parts := strings.Split(xfHost, ",")
+		host = strings.TrimSpace(parts[0])
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+func isSecureRequest(r *http.Request) bool {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		parts := strings.Split(proto, ",")
+		return strings.EqualFold(strings.TrimSpace(parts[0]), "https")
+	}
+	return r.TLS != nil
+}
+
+func (h *AuthHandler) validateCASTicket(r *http.Request, ticket string) (*cas.AuthenticationResponse, error) {
+	serviceURL, err := h.buildCallbackURL(r)
+	if err != nil {
+		return nil, fmt.Errorf("构造回调地址失败: %w", err)
+	}
+
+	casBase := strings.TrimSpace(h.cfg.CAS.ServerURL)
+	if casBase == "" {
+		return nil, fmt.Errorf("CAS 服务地址未配置")
+	}
+
+	casURL, err := url.Parse(casBase)
+	if err != nil {
+		return nil, fmt.Errorf("CAS 服务地址无效: %w", err)
+	}
+
+	// 创建自定义HTTP客户端，开发环境跳过TLS验证
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: tr,
+	}
+
+	validator := cas.NewServiceTicketValidator(client, casURL)
+	resp, err := validator.ValidateTicket(serviceURL, ticket)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("CAS 未返回有效认证信息")
+	}
+
+	return resp, nil
 }

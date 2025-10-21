@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"robusta-web/backend/internal/config"
@@ -71,6 +73,12 @@ func CookieAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
+			if shouldRedirectForCAS(cfg, c.Request) {
+				redirectToCASLogin(cfg, c)
+				c.Abort()
+				return
+			}
+
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "缺少有效的认证信息",
 				"code":  "MISSING_AUTH",
@@ -168,6 +176,75 @@ func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
 	c.Set("user_email", claims["email"])
 	c.Set("user_name", claims["name"])
 	c.Set("user_roles", claims["roles"])
+}
+
+func shouldRedirectForCAS(cfg *config.Config, r *http.Request) bool {
+	if cfg == nil || !cfg.CAS.Enabled {
+		return false
+	}
+
+	if !strings.EqualFold(r.Method, http.MethodGet) {
+		return false
+	}
+
+	accept := r.Header.Get("Accept")
+	if accept != "" && !strings.Contains(accept, "text/html") {
+		return false
+	}
+
+	return true
+}
+
+func redirectToCASLogin(cfg *config.Config, c *gin.Context) {
+	baseURL := buildBaseURL(c.Request)
+	serviceTarget := determineServiceTarget(cfg, c.Request)
+
+	loginURL := fmt.Sprintf("%s/auth/cas/login?service=%s", baseURL, url.QueryEscape(serviceTarget))
+	c.Redirect(http.StatusFound, loginURL)
+}
+
+func determineServiceTarget(cfg *config.Config, r *http.Request) string {
+	fullURL := buildFullRequestURL(r)
+
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		if cfg != nil && strings.TrimSpace(cfg.CAS.RedirectURL) != "" {
+			return cfg.CAS.RedirectURL
+		}
+		return buildBaseURL(r)
+	}
+
+	return fullURL
+}
+
+func buildBaseURL(r *http.Request) string {
+	scheme := "http"
+	if isSecureRequest(r) {
+		scheme = "https"
+	}
+
+	host := r.Host
+	if xfHost := r.Header.Get("X-Forwarded-Host"); xfHost != "" {
+		parts := strings.Split(xfHost, ",")
+		host = strings.TrimSpace(parts[0])
+	}
+	if host == "" {
+		host = "localhost"
+	}
+
+	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+func buildFullRequestURL(r *http.Request) string {
+	base := buildBaseURL(r)
+	return base + r.URL.RequestURI()
+}
+
+func isSecureRequest(r *http.Request) bool {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		parts := strings.Split(proto, ",")
+		return strings.EqualFold(strings.TrimSpace(parts[0]), "https")
+	}
+	return r.TLS != nil
 }
 
 // RequireRole 角色权限检查中间件

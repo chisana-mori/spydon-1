@@ -16,8 +16,7 @@ import type {
 } from '@/types/api'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1'
-const DEFAULT_CAS_LOGIN_URL = 'https://localhost:8443/cas/login'
-const CAS_LOGIN_PATH = process.env.NEXT_PUBLIC_CAS_LOGIN_PATH || DEFAULT_CAS_LOGIN_URL
+const CAS_LOGIN_PATH = process.env.NEXT_PUBLIC_CAS_LOGIN_PATH || '/auth/cas/login'
 
 const BACKEND_ORIGIN = (() => {
   try {
@@ -30,7 +29,7 @@ const BACKEND_ORIGIN = (() => {
 let isRedirectingToCAS = false
 
 const resolveCasLoginUrl = () => {
-  const target = CAS_LOGIN_PATH.trim() || DEFAULT_CAS_LOGIN_URL
+  const target = CAS_LOGIN_PATH.trim() || '/auth/cas/login'
   if (target.startsWith('http://') || target.startsWith('https://')) {
     return target
   }
@@ -75,13 +74,10 @@ const createApiClient = (): AxiosInstance => {
         !isRedirectingToCAS
       ) {
         isRedirectingToCAS = true
-        // 保存当前页面URL，用于登录后跳转
-        sessionStorage.setItem('cas_return_url', window.location.href)
-
-        const callbackUrl = encodeURIComponent(`${window.location.origin}/auth/cas/callback`)
+        const serviceTarget = encodeURIComponent(window.location.href)
         const casLoginUrl = resolveCasLoginUrl()
         const separator = casLoginUrl.includes('?') ? '&' : '?'
-        window.location.href = `${casLoginUrl}${separator}service=${callbackUrl}`
+        window.location.href = `${casLoginUrl}${separator}service=${serviceTarget}`
       }
       return Promise.reject(error)
     }
