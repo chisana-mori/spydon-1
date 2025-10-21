@@ -63,12 +63,12 @@ type LoginResponse struct {
 
 // UserInfo 用户信息
 type UserInfo struct {
-	ID       string   `json:"id"`
-	Username string   `json:"username"`
-	Email    string   `json:"email"`
-	Name     string   `json:"name"`
-	Picture  string   `json:"picture"`
-	Roles    []string `json:"roles"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Picture  string `json:"picture"`
+	IsAdmin  bool   `json:"is_admin"`
 }
 
 // NewAuthService 创建认证服务
@@ -145,7 +145,7 @@ func (s *AuthService) HandleCallback(code, state string) (*LoginResponse, error)
 			Email:    user.Email,
 			Name:     user.Name,
 			Picture:  user.Picture,
-			Roles:    user.Roles,
+			IsAdmin:  user.IsAdmin,
 		},
 	}, nil
 }
@@ -181,7 +181,7 @@ func (s *AuthService) LoginWithCAS(username string, attributes cas.UserAttribute
 			Email:    user.Email,
 			Name:     user.Name,
 			Picture:  user.Picture,
-			Roles:    user.Roles,
+			IsAdmin:  user.IsAdmin,
 		},
 	}, nil
 }
@@ -222,7 +222,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 			Email:    user.Email,
 			Name:     user.Name,
 			Picture:  user.Picture,
-			Roles:    user.Roles,
+			IsAdmin:  user.IsAdmin,
 		},
 	}, nil
 }
@@ -231,6 +231,15 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 func (s *AuthService) Logout(refreshToken string) error {
 	// 删除refresh token
 	return s.revokeRefreshToken(refreshToken)
+}
+
+// GetUserByID 根据ID获取用户信息（用于获取最新的用户状态）
+func (s *AuthService) GetUserByID(userID string) (*models.User, error) {
+	var user models.User
+	if err := s.db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // 私有方法
@@ -309,6 +318,11 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 	err := s.db.DB.Where("email = ?", oidcUser.Email).First(&user).Error
 	if err != nil {
 		// 用户不存在，创建新用户
+		// 检查是否是第一个用户，如果是则设置为管理员
+		var userCount int64
+		s.db.DB.Model(&models.User{}).Count(&userCount)
+		isFirstUser := userCount == 0
+
 		user = models.User{
 			BaseModel: models.BaseModel{
 				ID: uuid.New(),
@@ -317,7 +331,7 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 			Email:         oidcUser.Email,
 			Name:          oidcUser.Name,
 			Picture:       oidcUser.Picture,
-			Roles:         s.assignDefaultRoles(oidcUser),
+			IsAdmin:       isFirstUser, // 第一个用户自动成为管理员
 			EmailVerified: oidcUser.EmailVerified,
 			Provider:      "oidc",
 			ProviderID:    oidcUser.Sub,
@@ -352,11 +366,17 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 	}
 
 	picture := firstCASAttribute(attributes, "picture", "avatar", "photo")
-	roles := s.resolveCASRoles(attributes)
+	// 检查CAS属性中是否包含管理员标识
+	isAdmin := s.checkCASAdminRole(attributes)
 
 	var user models.User
 	err := s.db.DB.Where("username = ? OR email = ?", username, email).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// 检查是否是第一个用户，如果是则设置为管理员
+		var userCount int64
+		s.db.DB.Model(&models.User{}).Count(&userCount)
+		isFirstUser := userCount == 0
+
 		user = models.User{
 			BaseModel: models.BaseModel{
 				ID: uuid.New(),
@@ -365,7 +385,7 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 			Email:         email,
 			Name:          nameAttr,
 			Picture:       picture,
-			Roles:         roles,
+			IsAdmin:       isFirstUser || isAdmin, // 第一个用户或CAS标识的管理员
 			EmailVerified: true,
 			Provider:      "cas",
 			ProviderID:    username,
@@ -383,7 +403,10 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 		if picture != "" {
 			user.Picture = picture
 		}
-		user.Roles = roles
+		// 如果CAS标识为管理员，则更新管理员状态
+		if isAdmin {
+			user.IsAdmin = true
+		}
 		user.LastLoginAt = &now
 
 		if err := s.db.DB.Save(&user).Error; err != nil {
@@ -402,21 +425,35 @@ func (s *AuthService) generateUsername(email string) string {
 	return "user"
 }
 
-func (s *AuthService) assignDefaultRoles(oidcUser *OIDCUserInfo) []string {
-	// 默认角色分配逻辑
-	roles := []string{"user"}
+// checkCASAdminRole 检查CAS属性中是否包含管理员标识
+func (s *AuthService) checkCASAdminRole(attributes cas.UserAttributes) bool {
+	if attributes == nil {
+		return false
+	}
 
-	// 如果OIDC提供了groups信息，可以根据groups分配角色
-	for _, group := range oidcUser.Groups {
-		switch group {
-		case "admin", "administrators":
-			roles = append(roles, "admin")
-		case "operators":
-			roles = append(roles, "operator")
+	// 检查配置的角色属性
+	keys := []string{s.config.CAS.RolesAttribute, "roles", "groups"}
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+
+		values, ok := attributes[key]
+		if !ok {
+			continue
+		}
+
+		for _, value := range values {
+			role := strings.ToLower(strings.TrimSpace(value))
+			// 检查是否包含管理员相关的角色
+			if role == "admin" || role == "administrator" || role == "administrators" {
+				return true
+			}
 		}
 	}
 
-	return roles
+	return false
 }
 
 func firstCASAttribute(attributes cas.UserAttributes, keys ...string) string {
@@ -457,70 +494,15 @@ func (s *AuthService) deriveCASEmail(username, candidate string) string {
 	return fmt.Sprintf("%s@%s", username, domain)
 }
 
-func (s *AuthService) resolveCASRoles(attributes cas.UserAttributes) []string {
-	if attributes == nil {
-		return []string{"user"}
-	}
-
-	keys := []string{s.config.CAS.RolesAttribute, "roles", "groups"}
-	roleSet := make(map[string]struct{})
-
-	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-
-		values, ok := attributes[key]
-		if !ok {
-			continue
-		}
-
-		for _, value := range values {
-			parts := strings.FieldsFunc(value, func(r rune) bool {
-				switch r {
-				case ',', ';', '|':
-					return true
-				default:
-					return false
-				}
-			})
-
-			if len(parts) == 0 {
-				parts = []string{value}
-			}
-
-			for _, part := range parts {
-				role := strings.ToLower(strings.TrimSpace(part))
-				if role == "" {
-					continue
-				}
-				roleSet[role] = struct{}{}
-			}
-		}
-	}
-
-	if len(roleSet) == 0 {
-		return []string{"user"}
-	}
-
-	roles := make([]string, 0, len(roleSet))
-	for role := range roleSet {
-		roles = append(roles, role)
-	}
-
-	return roles
-}
-
 func (s *AuthService) generateJWT(user *models.User) (string, error) {
 	claims := jwt.MapClaims{
-		"sub":   user.ID.String(),
-		"email": user.Email,
-		"name":  user.Name,
-		"roles": user.Roles,
-		"iat":   time.Now().Unix(),
-		"exp":   time.Now().Add(24 * time.Hour).Unix(),
-		"iss":   "robusta-central-hub",
+		"sub":      user.ID.String(),
+		"email":    user.Email,
+		"name":     user.Name,
+		"is_admin": user.IsAdmin,
+		"iat":      time.Now().Unix(),
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+		"iss":      "robusta-central-hub",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

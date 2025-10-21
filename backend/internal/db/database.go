@@ -20,7 +20,7 @@ type Database struct {
 func Initialize(databaseURL string) (*Database, error) {
 	// 配置GORM日志
 	gormConfig := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger:                                   logger.Default.LogMode(logger.Info),
 		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
@@ -57,6 +57,7 @@ func (d *Database) AutoMigrate() error {
 		&models.AuditLog{},
 		&models.User{},
 		&models.RefreshToken{},
+		&models.APIKey{},
 	)
 	if err != nil {
 		return err
@@ -109,6 +110,21 @@ func (d *Database) AutoMigrate() error {
 		}
 	}
 
+	// Manually create foreign key for: api_keys -> users
+	if !d.Migrator().HasConstraint("api_keys", "fk_api_keys_user") {
+		err = d.Exec(`
+			ALTER TABLE "api_keys"
+			ADD CONSTRAINT "fk_api_keys_user"
+			FOREIGN KEY ("user_id")
+			REFERENCES "users"("id")
+			ON UPDATE CASCADE
+			ON DELETE CASCADE;
+		`).Error
+		if err != nil {
+			return fmt.Errorf("手动创建api_keys -> users外键失败: %w", err)
+		}
+	}
+
 	log.Println("手动创建外键完成")
 	return nil
 }
@@ -157,10 +173,25 @@ func (d *Database) CreateIndexes() error {
 
 	// 为audit_logs表创建索引
 	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_action 
+		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_action
 		ON audit_logs(user_id, action, created_at DESC)
 	`).Error; err != nil {
 		return fmt.Errorf("创建audit_logs索引失败: %w", err)
+	}
+
+	// 为api_keys表创建索引
+	if err := d.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_api_keys_user_id
+		ON api_keys(user_id)
+	`).Error; err != nil {
+		return fmt.Errorf("创建api_keys用户索引失败: %w", err)
+	}
+
+	if err := d.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix
+		ON api_keys(key_prefix)
+	`).Error; err != nil {
+		return fmt.Errorf("创建api_keys前缀索引失败: %w", err)
 	}
 
 	log.Println("数据库索引创建完成")

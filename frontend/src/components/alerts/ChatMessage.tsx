@@ -296,7 +296,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
   toolCalls = [],
   structuredData
 }) => {
-  const { copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
+  const { isCopied: isAnalysisCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
 
   // 简单的 JSON 检测
   const isJsonContent = (text: string): boolean => {
@@ -707,14 +707,23 @@ export const ChatMessage: FC<ChatMessageProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center space-x-2">
+          {isAnalysisCopied && (
+            <span className="text-xs text-green-600">已复制</span>
+          )}
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
             onClick={() => copyToClipboard(copyText)}
-            className="text-xs"
+            className="h-8 w-8 text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            title={isAnalysisCopied ? '已复制' : '复制分析内容'}
+            aria-label="复制分析内容"
           >
-            复制分析内容
+            {isAnalysisCopied ? (
+              <Check className="h-4 w-4 text-green-600" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
           </Button>
         </div>
       </div>

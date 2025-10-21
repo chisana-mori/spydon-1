@@ -175,7 +175,14 @@ func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
 	c.Set("user_id", claims["sub"])
 	c.Set("user_email", claims["email"])
 	c.Set("user_name", claims["name"])
-	c.Set("user_roles", claims["roles"])
+	c.Set("user_roles", claims["roles"]) // 保留兼容性
+
+	// 设置is_admin字段
+	if isAdmin, ok := claims["is_admin"].(bool); ok {
+		c.Set("is_admin", isAdmin)
+	} else {
+		c.Set("is_admin", false)
+	}
 }
 
 func shouldRedirectForCAS(cfg *config.Config, r *http.Request) bool {
@@ -247,7 +254,7 @@ func isSecureRequest(r *http.Request) bool {
 	return r.TLS != nil
 }
 
-// RequireRole 角色权限检查中间件
+// RequireRole 角色权限检查中间件（已废弃，保留兼容性）
 func RequireRole(requiredRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		roles, exists := c.Get("user_roles")
@@ -283,6 +290,35 @@ func RequireRole(requiredRole string) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": "权限不足",
 				"code":  "INSUFFICIENT_PERMISSIONS",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireAdmin 管理员权限检查中间件
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 从JWT claims中获取is_admin字段
+		isAdmin, exists := c.Get("is_admin")
+		if !exists {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "缺少权限信息",
+				"code":  "MISSING_PERMISSION",
+			})
+			c.Abort()
+			return
+		}
+
+		// 检查是否为管理员
+		admin, ok := isAdmin.(bool)
+		if !ok || !admin {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "需要管理员权限",
+				"code":  "ADMIN_REQUIRED",
 			})
 			c.Abort()
 			return

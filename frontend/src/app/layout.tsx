@@ -4,7 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeInitializer } from "@/components/theme-initializer";
 import { Providers } from './providers'
-import { AppShell } from '@/components/layout/app-shell'
+import { ConditionalShell } from '@/components/layout/conditional-shell'
 
 const sourceCodePro = Source_Code_Pro({
   subsets: ["latin"],
@@ -40,7 +40,7 @@ export default function RootLayout({
       <body className={`${sourceCodePro.variable} ${dancingScript.variable} font-sans antialiased min-h-screen bg-background`}>
         <ThemeInitializer />
         <Providers>
-          <AppShell>{children}</AppShell>
+          <ConditionalShell>{children}</ConditionalShell>
         </Providers>
         <Toaster position="top-right" expand richColors />
       </body>

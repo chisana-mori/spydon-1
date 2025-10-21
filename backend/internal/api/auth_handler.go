@@ -306,7 +306,7 @@ func (h *AuthHandler) CASLogout(c *gin.Context) {
 
 // GetProfile 获取用户资料
 func (h *AuthHandler) GetProfile(c *gin.Context) {
-	// 从上下文获取用户信息
+	// 从上下文获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -315,16 +315,23 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	userEmail, _ := c.Get("user_email")
-	userRoles, _ := c.Get("user_roles")
-	userName, _ := c.Get("user_name")
+	// 从数据库获取最新的用户信息（而不是从JWT token中获取）
+	// 这样可以确保获取到最新的is_admin状态
+	user, err := h.authService.GetUserByID(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "获取用户信息失败",
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
-			"id":    userID,
-			"email": userEmail,
-			"name":  userName,
-			"roles": userRoles,
+			"id":       user.ID.String(),
+			"email":    user.Email,
+			"username": user.Username,
+			"name":     user.Name,
+			"is_admin": user.IsAdmin, // 从数据库读取最新的is_admin值
 		},
 	})
 }

@@ -150,7 +150,7 @@ type User struct {
 	Email         string     `json:"email" gorm:"uniqueIndex;not null"`
 	Name          string     `json:"name"`
 	Picture       string     `json:"picture"`
-	Roles         []string   `json:"roles" gorm:"serializer:json"`
+	IsAdmin       bool       `json:"is_admin" gorm:"default:false"` // 是否为管理员，默认为普通用户
 	EmailVerified bool       `json:"email_verified" gorm:"default:false"`
 	Provider      string     `json:"provider" gorm:"default:local"`
 	ProviderID    string     `json:"provider_id"`
@@ -173,4 +173,23 @@ func (User) TableName() string {
 
 func (RefreshToken) TableName() string {
 	return "refresh_tokens"
+}
+
+// APIKey API密钥模型
+type APIKey struct {
+	BaseModel
+	UserID      uuid.UUID  `json:"user_id" gorm:"not null"`
+	Name        string     `json:"name" gorm:"not null"`                    // API Key名称/描述
+	Key         string     `json:"key" gorm:"uniqueIndex;not null"`         // API Key值（加密存储）
+	KeyPrefix   string     `json:"key_prefix" gorm:"not null"`              // Key前缀（用于显示）
+	LastUsedAt  *time.Time `json:"last_used_at"`                            // 最后使用时间
+	ExpiresAt   *time.Time `json:"expires_at"`                              // 过期时间（可选）
+	IsActive    bool       `json:"is_active" gorm:"default:true"`           // 是否激活
+	Permissions string     `json:"permissions" gorm:"default:read"`         // 权限范围（read/write/admin）
+	User        User       `json:"user,omitempty" gorm:"foreignKey:UserID"` // 关联用户
+}
+
+// TableName 指定表名
+func (APIKey) TableName() string {
+	return "api_keys"
 }

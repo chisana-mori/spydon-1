@@ -88,7 +88,9 @@ export function RawPayloadViewer({
     try {
       // 使用后端 API 获取原始数据
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1';
-      const response = await fetch(`${apiBaseUrl}/alerts/${alertId}/raw-payload`);
+      const response = await fetch(`${apiBaseUrl}/alerts/${alertId}/raw-payload`, {
+        credentials: 'include', // 携带Cookie进行认证
+      });
 
       if (response.ok) {
         const contentType = response.headers.get('content-type') || 'text/plain';

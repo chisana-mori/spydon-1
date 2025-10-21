@@ -161,6 +161,30 @@ export class RobustaAPI {
     await apiClient.post('/auth/logout')
   }
 
+  // 用户管理API（管理员功能）
+  static async getUsers(page = 1, limit = 20, keyword?: string): Promise<PaginationResponse<User>> {
+    const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() })
+    if (keyword) params.append('keyword', keyword)
+
+    const response = await apiClient.get(`/admin/users?${params}`)
+    return response.data
+  }
+
+  static async getUser(userId: string): Promise<ApiResponse<User>> {
+    const response = await apiClient.get(`/admin/users/${userId}`)
+    return response.data
+  }
+
+  static async setUserAdmin(userId: string, isAdmin: boolean): Promise<ApiResponse> {
+    const response = await apiClient.put(`/admin/users/${userId}/admin`, { is_admin: isAdmin })
+    return response.data
+  }
+
+  static async deleteUser(userId: string): Promise<ApiResponse> {
+    const response = await apiClient.delete(`/admin/users/${userId}`)
+    return response.data
+  }
+
   // RCA相关API
   static async getRCAByAlertId(alertId: string): Promise<ApiResponse<RCARun[]>> {
     const response = await apiClient.get(`/rca/${alertId}`)

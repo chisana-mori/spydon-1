@@ -61,8 +61,9 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("服务器启动在端口 %s", port)
-	if err := router.Run(":" + port); err != nil {
+	host := "0.0.0.0"
+	log.Printf("服务器启动在 %s:%s", host, port)
+	if err := router.Run(host + ":" + port); err != nil {
 		log.Fatalf("服务器启动失败: %v", err)
 	}
 }

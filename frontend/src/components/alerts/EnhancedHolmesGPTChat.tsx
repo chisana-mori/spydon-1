@@ -2,9 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { 
   Brain, 
@@ -71,7 +70,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   })
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [settings, setSettings] = useState<ChatSettings>({
-    autoScroll: true,
+    autoScroll: false,
     soundEnabled: false,
     showToolCalls: true,
     language: 'zh-CN'
@@ -87,17 +86,82 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [isUserNearBottom, setIsUserNearBottom] = useState(true)
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false)
+  const lastContentSignatureRef = useRef<string>('')
 
-  // 自动滚动到底部
-  const scrollToBottom = useCallback(() => {
-    if (settings.autoScroll) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [settings.autoScroll])
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior })
+    })
+  }, [])
+
+  const handleScroll = useCallback(() => {
+    const container = scrollAreaRef.current
+    if (!container) return
+    const threshold = 120
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    const nearBottom = distanceToBottom <= threshold
+    setIsUserNearBottom(nearBottom)
+  }, [])
+
+  const handleScrollToLatest = useCallback(() => {
+    scrollToBottom()
+    setShowScrollToLatest(false)
+  }, [scrollToBottom])
 
   useEffect(() => {
-    scrollToBottom()
-  }, [analysisState.messages, settings.autoScroll, scrollToBottom])
+    if (isUserNearBottom) {
+      setShowScrollToLatest(false)
+    }
+  }, [isUserNearBottom])
+
+  useEffect(() => {
+    const signatureParts: string[] = []
+    const lastMessage = analysisState.messages[analysisState.messages.length - 1]
+    const lastMessageSignature = lastMessage
+      ? `${analysisState.messages.length}:${lastMessage.id}:${lastMessage.content?.length ?? 0}:${lastMessage.toolCalls?.length ?? 0}:${lastMessage.isStreaming ? 1 : 0}`
+      : `${analysisState.messages.length}:none`
+    signatureParts.push(lastMessageSignature)
+
+    if (pinnedTasksData) {
+      const sectionSignature = pinnedTasksData.taskSections
+        ?.map(section => `${section.id}:${section.tasks?.length ?? 0}:${section.statusText ?? ''}`)
+        .join('|') ?? ''
+      const tasksSignature = `${pinnedTasksData.tasks?.length ?? 0}:${sectionSignature}:${(pinnedTasksData as any).progressText ?? ''}`
+      signatureParts.push(tasksSignature)
+    } else {
+      signatureParts.push('no-tasks')
+    }
+
+    if (pinnedSummaryData?.summary) {
+      signatureParts.push(`${pinnedSummaryData.summary.length}`)
+    } else {
+      signatureParts.push('no-summary')
+    }
+
+    const signature = signatureParts.join('||')
+    if (lastContentSignatureRef.current === signature) {
+      return
+    }
+    lastContentSignatureRef.current = signature
+
+    if (settings.autoScroll && isUserNearBottom) {
+      scrollToBottom()
+      return
+    }
+
+    if (!isUserNearBottom) {
+      setShowScrollToLatest(true)
+    }
+  }, [analysisState.messages, pinnedTasksData, pinnedSummaryData, settings.autoScroll, isUserNearBottom, scrollToBottom])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      handleScroll()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [analysisState.messages, pinnedTasksData, pinnedSummaryData, handleScroll])
 
   // 构建 HolmesGPT 调查请求
   const buildInvestigateRequest = () => {
@@ -687,6 +751,78 @@ Analysis Requirements:
     return commands
   }
 
+  const formatTaskListMarkdown = (tasks: HolmesTaskItem[], indent = ''): string => {
+    if (!tasks?.length) return ''
+    return tasks
+      .map(task => {
+        const checkbox = task.status === 'completed' ? '[x]' : task.status === 'in_progress' ? '[-]' : '[ ]'
+        const lines = [`${indent}- ${checkbox} ${task.content}`]
+        if (task.note) {
+          lines.push(`${indent}  > 备注：${task.note}`)
+        }
+        return lines.join('\n')
+      })
+      .join('\n')
+  }
+
+  const structuredDataToMarkdown = (
+    data?: HolmesStructuredData,
+    options?: { headingLevel?: number; summaryTitle?: string }
+  ): string | undefined => {
+    if (!data) return undefined
+    const { headingLevel = 3, summaryTitle = '分析结论' } = options || {}
+    const sections: string[] = []
+    const heading = (title: string, levelOffset = 0) => {
+      const level = Math.min(6, headingLevel + levelOffset)
+      return `${'#'.repeat(level)} ${title}`
+    }
+
+    if (data.planText) {
+      sections.push(`${heading('分析计划')}\n${data.planText}`)
+    }
+
+    if (data.progressText) {
+      sections.push(`${heading('排查进度')}\n${data.progressText}`)
+    }
+
+    if (data.tasks?.length) {
+      const tasksMarkdown = formatTaskListMarkdown(data.tasks)
+      if (tasksMarkdown) {
+        sections.push(`${heading('任务列表')}\n${tasksMarkdown}`)
+      }
+    }
+
+    if (data.taskSections?.length) {
+      const sectionLines: string[] = []
+      data.taskSections.forEach(section => {
+        if (!section || !section.tasks?.length) return
+        sectionLines.push(`${heading(section.title || section.toolName || '任务', 1)}`)
+        if (section.statusText) {
+          sectionLines.push(`> 状态：${section.statusText}`)
+        }
+        const tasksMarkdown = formatTaskListMarkdown(section.tasks, '  ')
+        if (tasksMarkdown) {
+          sectionLines.push(tasksMarkdown)
+        }
+        if (section.commands?.length) {
+          sectionLines.push('  - 执行命令：')
+          section.commands.forEach(cmd => {
+            sectionLines.push(`    - \`${cmd}\``)
+          })
+        }
+      })
+      if (sectionLines.length) {
+        sections.push(sectionLines.join('\n'))
+      }
+    }
+
+    if (data.summary) {
+      sections.push(`${heading(summaryTitle)}\n${data.summary}`)
+    }
+
+    return sections.length ? sections.join('\n\n') : undefined
+  }
+
   // 开始分析
   const startAnalysis = async () => {
     const controller = new AbortController()
@@ -1185,15 +1321,12 @@ Analysis Requirements:
 
   // 下载分析结果
   const downloadAnalysis = () => {
-    const analysisText = analysisState.messages
-      .map(msg => `[${msg.timestamp}] ${msg.role === 'user' ? '用户' : 'HolmesGPT'}: ${msg.content}`)
-      .join('\n\n')
-    
-    const blob = new Blob([analysisText], { type: 'text/plain;charset=utf-8' })
+    const markdown = buildAnalysisMarkdown()
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `holmesgpt-analysis-${alert.id}-${Date.now()}.txt`
+    link.download = `holmesgpt-analysis-${alert.id}-${Date.now()}.md`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -1237,84 +1370,173 @@ Analysis Requirements:
     return null
   }
 
+  const getRoleLabel = (role: AnalysisMessage['role']) => {
+    switch (role) {
+      case 'assistant':
+        return 'HolmesGPT'
+      case 'user':
+        return '用户'
+      case 'system':
+        return '系统'
+      default:
+        return role
+    }
+  }
+
+  const buildAnalysisMarkdown = () => {
+    const lines: string[] = []
+    lines.push('# HolmesGPT 分析报告')
+    lines.push(`- 告警标题：${alert.title}`)
+    lines.push(`- 告警指纹：${alert.fingerprint || '未知'}`)
+    lines.push(`- 集群：${alert.cluster_id || '未知'}`)
+    lines.push(`- 严重程度：${alert.severity || '未知'}`)
+    lines.push(`- 导出时间：${format(new Date(), 'yyyy-MM-dd HH:mm:ss', { locale: zhCN })}`)
+
+    analysisState.messages.forEach((message, index) => {
+      const roleLabel = getRoleLabel(message.role)
+      const timestamp = message.timestamp ? `（${message.timestamp}）` : ''
+      lines.push(`\n## ${index + 1}. ${roleLabel}${timestamp}`)
+      if (message.content?.trim()) {
+        lines.push(message.content.trim())
+      }
+      const structuredMarkdown = structuredDataToMarkdown(message.structuredData)
+      if (structuredMarkdown) {
+        lines.push(structuredMarkdown)
+      }
+      if (message.toolCalls?.length) {
+        lines.push('### 工具调用记录')
+        message.toolCalls.forEach(call => {
+          const statusLabel = call.status === 'success' ? '✅ 成功' : call.status === 'error' ? '⚠️ 失败' : '⏳ 进行中'
+          lines.push(`- ${call.name}：${statusLabel}`)
+          if (call.command) {
+            lines.push(`  - 命令：\`${call.command}\``)
+          }
+          if (typeof call.output === 'string' && call.output.trim()) {
+            lines.push(`  - 输出：${call.output.trim()}`)
+          } else if (call.output) {
+            lines.push('  - 输出：')
+            lines.push('    ```json')
+            lines.push(JSON.stringify(call.output, null, 2))
+            lines.push('    ```')
+          }
+        })
+      }
+    })
+
+    if (pinnedTasksData) {
+      const taskMarkdown = structuredDataToMarkdown(pinnedTasksData, { headingLevel: 2, summaryTitle: '任务总结' })
+      if (taskMarkdown) {
+        lines.push('\n## 调查任务进度')
+        lines.push(taskMarkdown)
+      }
+    }
+
+    if (pinnedSummaryData) {
+      const summaryMarkdown = structuredDataToMarkdown(pinnedSummaryData, { headingLevel: 2, summaryTitle: '最终结论' })
+      if (summaryMarkdown) {
+        lines.push(summaryMarkdown)
+      }
+    }
+
+    return lines.filter(Boolean).join('\n\n')
+  }
+
   // 内容区域组件
   const ContentArea = () => (
     <div className="flex-1 flex flex-col min-h-0">
-      {analysisState.messages.length === 0 ? (
-        <div className="flex flex-col items-center justify-center flex-1 text-center p-8">
-          <div className="relative mb-6">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-              <Brain className="h-8 w-8 text-blue-600" />
+      <div
+        ref={scrollAreaRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-6 py-4 flex flex-col"
+      >
+        {analysisState.messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center flex-1 text-center p-8">
+            <div className="relative mb-6">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                <Brain className="h-8 w-8 text-blue-600" />
+              </div>
+              <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                <MessageSquare className="h-3 w-3 text-white" />
+              </div>
             </div>
-            <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-              <MessageSquare className="h-3 w-3 text-white" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">准备开始智能分析</h3>
+            <p className="text-sm text-gray-500 max-w-md leading-relaxed">
+              点击触发RCA分析按钮，HolmesGPT 将为您分析告警的根本原因，并提供详细的解决方案和预防措施。
+              分析过程包括任务规划、并行调查和结论总结。
+            </p>
+            <div className="mt-6 grid grid-cols-3 gap-4 text-center">
+              <div className="p-3 bg-blue-50 rounded-lg">
+                <div className="text-blue-600 font-semibold text-lg">📋</div>
+                <div className="text-xs text-blue-700 mt-1">任务规划</div>
+              </div>
+              <div className="p-3 bg-green-50 rounded-lg">
+                <div className="text-green-600 font-semibold text-lg">🔍</div>
+                <div className="text-xs text-green-700 mt-1">并行调查</div>
+              </div>
+              <div className="p-3 bg-purple-50 rounded-lg">
+                <div className="text-purple-600 font-semibold text-lg">📝</div>
+                <div className="text-xs text-purple-700 mt-1">结论总结</div>
+              </div>
             </div>
           </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">准备开始智能分析</h3>
-          <p className="text-sm text-gray-500 max-w-md leading-relaxed">
-            点击触发RCA分析按钮，HolmesGPT 将为您分析告警的根本原因，并提供详细的解决方案和预防措施。
-            分析过程包括任务规划、并行调查和结论总结。
-          </p>
-          <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <div className="text-blue-600 font-semibold text-lg">📋</div>
-              <div className="text-xs text-blue-700 mt-1">任务规划</div>
-            </div>
-            <div className="p-3 bg-green-50 rounded-lg">
-              <div className="text-green-600 font-semibold text-lg">🔍</div>
-              <div className="text-xs text-green-700 mt-1">并行调查</div>
-            </div>
-            <div className="p-3 bg-purple-50 rounded-lg">
-              <div className="text-purple-600 font-semibold text-lg">📝</div>
-              <div className="text-xs text-purple-700 mt-1">结论总结</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 space-y-0">
-          {analysisState.messages.map((message) => {
-            const sanitized = sanitizeStructuredData(message.structuredData)
-            return (
+        ) : (
+          <div className="space-y-0">
+            {analysisState.messages.map((message) => {
+              const sanitized = sanitizeStructuredData(message.structuredData)
+              return (
+                <ChatMessage
+                  key={message.id}
+                  role={message.role}
+                  content={message.content}
+                  timestamp={message.timestamp}
+                  isStreaming={message.isStreaming}
+                  toolCalls={message.toolCalls || []}
+                  structuredData={sanitized}
+                />
+              )
+            })}
+            {pinnedTasksData && (() => {
+              const prog = parseProgress(pinnedTasksData)
+              const pinnedIsStreaming = analysisState.status === 'analyzing' && (!pinnedSummaryData) && (prog.total === 0 || prog.completed < prog.total)
+              return (
+                <ChatMessage
+                  key={tasksMessageIdRef.current}
+                  role="assistant"
+                  content={''}
+                  timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
+                  isStreaming={pinnedIsStreaming}
+                  toolCalls={[]}
+                  structuredData={pinnedTasksData}
+                />
+              )
+            })()}
+            {pinnedSummaryData && (
               <ChatMessage
-                key={message.id}
-                role={message.role}
-                content={message.content}
-                timestamp={message.timestamp}
-                isStreaming={message.isStreaming}
-                toolCalls={message.toolCalls || []}
-                structuredData={sanitized}
-              />
-            )
-          })}
-          {pinnedTasksData && (() => {
-            const prog = parseProgress(pinnedTasksData)
-            const pinnedIsStreaming = analysisState.status === 'analyzing' && (!pinnedSummaryData) && (prog.total === 0 || prog.completed < prog.total)
-            return (
-              <ChatMessage
-                key={tasksMessageIdRef.current}
+                key={summaryMessageIdRef.current}
                 role="assistant"
                 content={''}
                 timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
-                isStreaming={pinnedIsStreaming}
+                isStreaming={false}
                 toolCalls={[]}
-                structuredData={pinnedTasksData}
+                structuredData={pinnedSummaryData}
               />
-            )
-          })()}
-          {pinnedSummaryData && (
-            <ChatMessage
-              key={summaryMessageIdRef.current}
-              role="assistant"
-              content={''}
-              timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
-              isStreaming={false}
-              toolCalls={[]}
-              structuredData={pinnedSummaryData}
-            />
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-      )}
+            )}
+            {showScrollToLatest && (
+              <div className="sticky bottom-4 flex justify-end">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shadow"
+                  onClick={handleScrollToLatest}
+                >
+                  回到最新
+                </Button>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </div>
       
       {analysisState.status === 'error' && analysisState.error && (
         <div className="p-4 border-t bg-red-50">

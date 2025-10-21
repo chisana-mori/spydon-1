@@ -132,9 +132,16 @@ export interface StreamEvent {
 // 用户认证类型
 export interface User {
   id: string
+  username?: string
   email: string
   name?: string
-  roles: string[]
+  picture?: string
+  is_admin: boolean
+  email_verified?: boolean
+  provider?: string
+  last_login_at?: string
+  created_at?: string
+  updated_at?: string
 }
 
 export interface AuthToken {

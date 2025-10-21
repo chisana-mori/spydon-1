@@ -22,7 +22,7 @@ services:
       CAS_SERVICE_REGISTRY_CORE_INIT_FROM_JSON: "true"
 
       # 认证配置 - 使用静态用户
-      CAS_AUTHN_ACCEPT_USERS: casuser::Mellon
+      CAS_AUTHN_ACCEPT_USERS: casuser::Mellon,hny::Mellon,hbc::Mellon,navy::Mellon,wayne::Mellon
       CAS_AUTHN_ACCEPT_ENABLED: true
 
       # CAS Profiles

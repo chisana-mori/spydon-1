@@ -238,6 +238,13 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 	}
 	title := pickString(body, "title", "summary", "text", "message")
 	description := pickString(body, "description", "details")
+
+	// 调试日志：记录提取的初始字段
+	log.Printf("[Webhook] 初始提取 - title: %q, description: %q", title, description)
+	if lblMap, ok := body["labels"].(map[string]interface{}); ok {
+		log.Printf("[Webhook] labels: %+v", lblMap)
+	}
+
 	// 预先声明严重级别与聚合键，供后续规则使用
 	sev, _ := body["severity"].(string)
 	if sev == "" {
@@ -252,6 +259,7 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 		} else {
 			title = strings.TrimSpace(description)
 		}
+		log.Printf("[Webhook] 从description提取标题: %q", title)
 	}
 	// 先从labels中直接标准化（优先级最高）
 	var lblMap map[string]interface{}
@@ -327,8 +335,84 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 			}
 		}
 	}
+
+	// 4) 从 labels 中提取更多信息来构建标题
+	if title == "" || title == "Robusta Webhook" {
+		if lblMap != nil {
+			// 尝试从常见的 Kubernetes 标签构建标题
+			alertType := ""
+			resourceName := ""
+			namespace := ""
+
+			// 提取告警类型
+			for _, key := range []string{"alert_type", "type", "kind", "reason"} {
+				if v, ok := lblMap[key].(string); ok && v != "" {
+					alertType = v
+					break
+				}
+			}
+
+			// 提取资源名称
+			for _, key := range []string{"pod", "deployment", "statefulset", "daemonset", "job", "node", "service"} {
+				if v, ok := lblMap[key].(string); ok && v != "" {
+					resourceName = v
+					break
+				}
+			}
+
+			// 提取命名空间
+			for _, key := range []string{"namespace", "kubernetes_namespace"} {
+				if v, ok := lblMap[key].(string); ok && v != "" {
+					namespace = v
+					break
+				}
+			}
+
+			// 构建标题
+			if alertType != "" && resourceName != "" {
+				if namespace != "" {
+					title = fmt.Sprintf("%s: %s (%s)", alertType, resourceName, namespace)
+				} else {
+					title = fmt.Sprintf("%s: %s", alertType, resourceName)
+				}
+			} else if alertType != "" {
+				title = alertType
+			} else if resourceName != "" {
+				if namespace != "" {
+					title = fmt.Sprintf("K8s Alert: %s (%s)", resourceName, namespace)
+				} else {
+					title = fmt.Sprintf("K8s Alert: %s", resourceName)
+				}
+			}
+		}
+	}
+
+	// 5) 从 description 中提取更多模式
+	if (title == "" || title == "Robusta Webhook") && description != "" {
+		// 尝试匹配 "reason: <type>" 模式
+		if m := regexp.MustCompile(`(?i)reason:\s*([A-Za-z0-9]+)`).FindStringSubmatch(description); len(m) >= 2 {
+			reason := m[1]
+			// 尝试提取 pod/namespace
+			if m2 := regexp.MustCompile(`(?i)pod[:\s]+([A-Za-z0-9\-_.]+)`).FindStringSubmatch(description); len(m2) >= 2 {
+				pod := m2[1]
+				if m3 := regexp.MustCompile(`(?i)namespace[:\s]+([A-Za-z0-9\-_.]+)`).FindStringSubmatch(description); len(m3) >= 2 {
+					ns := m3[1]
+					title = fmt.Sprintf("%s: %s (%s)", reason, pod, ns)
+				} else {
+					title = fmt.Sprintf("%s: %s", reason, pod)
+				}
+			} else {
+				title = reason
+			}
+		}
+	}
+
+	// 最终兜底
 	if title == "" {
 		title = "Robusta Webhook"
+		log.Printf("[Webhook] 警告：无法从webhook数据中提取标题，使用默认值")
+	} else {
+		log.Printf("[Webhook] 最终标题: %q", title)
 	}
 	// sev 已在前面标准化
 

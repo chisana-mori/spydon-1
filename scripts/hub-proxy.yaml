@@ -10,10 +10,24 @@ data:
     events { worker_connections  1024; }
     http {
       resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
-      log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"';
-      access_log /var/log/nginx/access.log main;
+      # 详细日志格式，包含所有可能的headers
+      log_format robusta_headers '$remote_addr - $remote_user [$time_local] "$request" '
+                                '$status $body_bytes_sent "$http_referer" '
+                                '"$http_user_agent" "$http_x_forwarded_for" '
+                                'X-API-Key="$http_x_api_key" '
+                                'x-api-key="$http_x_api_key" '
+                                'Authorization="$http_authorization" '
+                                'authorization="$http_authorization" '
+                                'X-Robusta-Cluster-ID="$http_x_robusta_cluster_id" '
+                                'x-robusta-cluster-id="$http_x_robusta_cluster_id" '
+                                'Content-Type="$http_content_type" '
+                                'content-type="$http_content_type" '
+                                'Content-Length="$http_content_length" '
+                                'User-Agent="$http_user_agent" '
+                                'Host="$host" '
+                                'ALL_HEADERS="$sent_http_*"';
+
+      access_log /var/log/nginx/access.log robusta_headers;
 
       upstream hub_backend {
         server host.docker.internal:8080;
@@ -23,10 +37,17 @@ data:
         listen 8080;
         location / {
           proxy_pass http://hub_backend;
+          proxy_pass_request_headers on;
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto $scheme;
+
+          # 临时解决方案：由于 Robusta webhook_sink 不发送配置的 headers，
+          # 我们在 proxy 层添加 API Key
+          proxy_set_header X-API-Key "rsk_rqDbQnga1CJXUjABWLZSZCsz8ieg-FzXwKxvy5-yqSI=";
+          proxy_set_header Authorization "Bearer rsk_rqDbQnga1CJXUjABWLZSZCsz8ieg-FzXwKxvy5-yqSI=";
+          proxy_set_header X-Robusta-Cluster-ID "robusta-kind";
         }
       }
     }

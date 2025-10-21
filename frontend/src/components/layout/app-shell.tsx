@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useThemeStore } from '@/stores/themeStore'
 import Link from 'next/link'
 import type { Route } from 'next'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { LucideIcon } from 'lucide-react'
@@ -22,6 +22,9 @@ import {
   Moon,
   Sun,
   Monitor,
+  Key,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 
@@ -43,9 +46,10 @@ interface AppShellProps {
 
 type NavigationItem = {
   name: string
-  href: Route
+  href?: Route
   icon: LucideIcon
   description: string
+  children?: NavigationItem[]
 }
 
 const navigation: NavigationItem[] = [
@@ -74,20 +78,66 @@ const navigation: NavigationItem[] = [
     description: '数据分析',
   },
   {
-    name: '用户管理',
-    href: '/users',
-    icon: Users,
+    name: '权限管理',
+    icon: Shield,
     description: '权限控制',
+    children: [
+      {
+        name: '用户管理',
+        href: '/users',
+        icon: Users,
+        description: '用户权限管理',
+      },
+      {
+        name: 'API Key管理',
+        href: '/apikeys',
+        icon: Key,
+        description: 'API密钥管理',
+      },
+    ],
   },
 ]
 
 export function AppShell({ children }: AppShellProps) {
   const { theme, setTheme } = useThemeStore()
   const pathname = usePathname()
+  const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const { user, loading: authLoading } = useCurrentUser()
 
   const userInitial = (user?.name || user?.email || 'U').charAt(0).toUpperCase()
+
+  // 初始化展开状态：如果当前路径匹配某个子菜单，自动展开父菜单
+  useEffect(() => {
+    navigation.forEach((item) => {
+      if (item.children) {
+        const hasActiveChild = item.children.some((child) =>
+          child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+        )
+        if (hasActiveChild && !expandedMenus.includes(item.name)) {
+          setExpandedMenus((prev) => [...prev, item.name])
+        }
+      }
+    })
+  }, [pathname])
+
+  const toggleMenu = (menuName: string) => {
+    setExpandedMenus((prev) =>
+      prev.includes(menuName) ? prev.filter((name) => name !== menuName) : [...prev, menuName]
+    )
+  }
+
+  // 权限检查：非管理员用户重定向到未授权页面
+  useEffect(() => {
+    // 跳过加载状态和未授权页面本身
+    if (authLoading || pathname === '/unauthorized') return
+
+    // 如果用户已登录但不是管理员，重定向到未授权页面
+    if (user && !user.is_admin) {
+      router.push('/unauthorized')
+    }
+  }, [user, authLoading, pathname, router])
 
   const resolveCasLoginUrl = () => {
     const target = CAS_LOGIN_PATH.trim() || '/auth/cas/login'
@@ -132,18 +182,100 @@ export function AppShell({ children }: AppShellProps) {
     }
   }
 
-  const activeNav = navigation.find((item) =>
-    item.href === '/' ? pathname === '/' : pathname.startsWith(item.href),
-  )
+  const activeNav = navigation.find((item) => {
+    if (item.href) {
+      return item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+    }
+    if (item.children) {
+      return item.children.some((child) =>
+        child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+      )
+    }
+    return false
+  })
 
   const renderedNavigation = navigation.map((item) => {
-    const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
     const Icon = item.icon
+    const isExpanded = expandedMenus.includes(item.name)
+
+    // 如果有子菜单
+    if (item.children) {
+      const hasActiveChild = item.children.some((child) =>
+        child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+      )
+
+      return (
+        <div key={item.name} className="space-y-1">
+          <button
+            onClick={() => toggleMenu(item.name)}
+            className={cn(
+              'group flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+              hasActiveChild
+                ? 'bg-muted text-foreground shadow-inner'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground hover:shadow-sm',
+            )}
+          >
+            <div className="flex items-center space-x-3">
+              <Icon
+                className={cn(
+                  'h-5 w-5 transition-transform duration-200 flex-shrink-0',
+                  hasActiveChild ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground group-hover:scale-110',
+                )}
+              />
+              <span className="font-medium text-foreground">
+                {item.name}
+              </span>
+            </div>
+            {isExpanded ? (
+              <ChevronDown className={cn('h-4 w-4', hasActiveChild ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')} />
+            ) : (
+              <ChevronRight className={cn('h-4 w-4', hasActiveChild ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')} />
+            )}
+          </button>
+
+          {isExpanded && (
+            <div className="mt-1 space-y-1 pl-3">
+              {item.children.map((child) => {
+                const isActive = child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+                const ChildIcon = child.icon
+
+                return (
+                  <Link
+                    key={child.name}
+                    href={child.href!}
+                    className={cn(
+                      'group flex items-center space-x-2.5 px-3 py-1.5 rounded-md text-sm transition-all duration-200',
+                      isActive
+                        ? 'bg-primary text-primary-foreground shadow-sm font-medium'
+                        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground font-normal',
+                    )}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    <ChildIcon
+                      className={cn(
+                        'h-4 w-4 transition-all duration-200 flex-shrink-0',
+                        isActive ? 'text-primary-foreground' : 'text-muted-foreground/70 group-hover:text-foreground group-hover:scale-110',
+                      )}
+                    />
+                    <span className="text-sm">
+                      {child.name}
+                    </span>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // 没有子菜单的普通菜单项
+    const isActive = item.href && (item.href === '/' ? pathname === '/' : pathname.startsWith(item.href))
 
     return (
       <Link
         key={item.name}
-        href={item.href}
+        href={item.href!}
         className={cn(
           'group flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 relative',
           isActive
@@ -207,20 +339,47 @@ export function AppShell({ children }: AppShellProps) {
           </nav>
 
           <div className="p-4 border-t border-border/50 space-y-3">
-            <div className="px-4 py-3 bg-muted/30 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center">
-                  <Activity className="w-4 h-4 text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">系统状态</p>
-                  <div className="flex items-center gap-1 text-green-600">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span className="text-xs">运行正常</span>
+            {authLoading ? (
+              <div className="px-4 py-3 bg-muted/30 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-muted rounded-lg flex items-center justify-center animate-pulse">
+                    <Activity className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">加载中...</p>
+                    <p className="text-xs text-muted-foreground">正在同步账户</p>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : user ? (
+              <div className="space-y-2">
+                <div className="px-4 py-3 bg-muted/30 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-medium text-primary-foreground">{userInitial}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {user.name || user.username || user.email}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCASLogout}
+                  className="w-full"
+                >
+                  退出登录
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" onClick={handleCASLogin} className="w-full">
+                CAS 登录
+              </Button>
+            )}
           </div>
         </div>
       </aside>
@@ -266,29 +425,6 @@ export function AppShell({ children }: AppShellProps) {
                   3
                 </span>
               </Button>
-
-              {authLoading ? (
-                <span className="text-xs text-muted-foreground">正在同步账户...</span>
-              ) : user ? (
-                <div className="flex items-center space-x-3">
-                  <div className="hidden md:block text-right">
-                    <p className="text-sm font-medium text-foreground">
-                      {user.name ?? user.email}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{user.email}</p>
-                  </div>
-                  <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium text-primary-foreground">{userInitial}</span>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={handleCASLogout}>
-                    退出登录
-                  </Button>
-                </div>
-              ) : (
-                <Button size="sm" onClick={handleCASLogin}>
-                  CAS 登录
-                </Button>
-              )}
             </div>
           </div>
         </header>

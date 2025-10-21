@@ -5,7 +5,7 @@ clusterName: robusta-kind
 # runner:
 #   log_level: DEBUG
 #   image:
-#     repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/robusta-runner
+#     repository: robustadev/robusta-runner
 #     tag: "0.28.1"
 #     pullPolicy: IfNotPresent
 
@@ -14,10 +14,10 @@ clusterName: robusta-kind
 
 # # Forwarder 配置
 # forwarder:
-#   image:
-#     repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/robusta-forwarder
-#     tag: "0.28.1"
-#     pullPolicy: IfNotPresent
+  # image:
+  #   repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/robusta-forwarder
+  #   tag: "0.28.1"
+  #   pullPolicy: IfNotPresent
 
 # # Kubewatch 配置
 # kubewatch:
@@ -33,13 +33,21 @@ globalConfig:
   context: {}
   cluster_name: robusta-kind
 
+# Runner 配置
+runner:
+  additionalEnvVars:
+  - name: WEBHOOK_API_KEY
+    value: "rsk_rqDbQnga1CJXUjABWLZSZCsz8ieg-FzXwKxvy5-yqSI="
+  - name: WEBHOOK_CLUSTER_ID
+    value: "robusta-kind"
+
 # 启用 HolmesGPT
 enableHolmesGPT: true
 
 # HolmesGPT 配置
 holmes:
   enablePostProcessing: true
-  additionalEnvVars:  
+  additionalEnvVars:
   - name: OVERRIDE_MAX_CONTENT_SIZE
     value: "200000"
   - name: OVERRIDE_MAX_OUTPUT_TOKEN
@@ -78,11 +86,9 @@ sinksConfig:
   - webhook_sink:
       size_limit: 100000000
       name: hub_webhook
+      # 通过 hub-proxy 访问后端（hub-proxy 会透传 headers）
       url: "http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook"
-      headers:
-        X-API-Key: "dev-api-key-123"
-        Authorization: "Bearer dev-api-key-123"
-        X-Robusta-Cluster-ID: "robusta-kind"
+      authorization: "Bearer rsk_fNKhXrltaRNAJq7eIlqXCJkUjhMPsEuPVBds3QWGyt8="
       aggregation_key: "$finding_title-$finding_severity"
   
   # - mail_sink:

@@ -23,6 +23,8 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	auditService := services.NewAuditService(database)
 	holmesService := services.NewHolmesService(database, cfg)
 	authService := services.NewAuthService(database, cfg)
+	userService := services.NewUserService(database)
+	apiKeyService := services.NewAPIKeyService(database)
 	objectStorage, err := services.NewObjectStorageService(cfg)
 	if err != nil {
 		return err
@@ -57,6 +59,8 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	rcaHandler := NewRCAHandler(holmesService)
 	holmesProxyHandler := NewHolmesProxyHandler(cfg)
 	authHandler := NewAuthHandler(authService, casClient, cfg)
+	userHandler := NewUserHandler(userService)
+	apiKeyHandler := NewAPIKeyHandler(apiKeyService)
 	healthHandler := NewHealthHandler(database)
 
 	// 全局中间件
@@ -94,7 +98,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 
 	// 本地/生产对接：提供一个使用API Key校验的webhook入口（webhook_sink专用）
 	// 生产环境请设置 INGEST_API_KEY，并在Robusta sinksConfig.headers 中附带相同的 X-API-Key 或 Authorization: Bearer
-	v1.Group("").Use(middleware.APIKeyMiddleware(cfg)).POST("/ingest/robusta-webhook", ingestHandler.IngestRobustaFinding)
+	v1.Group("").Use(middleware.APIKeyMiddleware(cfg, apiKeyService)).POST("/ingest/robusta-webhook", ingestHandler.IngestRobustaFinding)
 
 	// Ingest API（需要增强版HMAC验证，包含时间戳）
 	ingestGroup := v1.Group("/ingest")
@@ -112,9 +116,22 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		clusterGroup.POST("/heartbeat", ingestHandler.ClusterHeartbeat)
 	}
 
-	// Query API（开发阶段暂时禁用JWT认证）
+	// 用户资料API（仅需要登录，不需要管理员权限）
+	profileGroup := v1.Group("")
+	profileGroup.Use(middleware.CookieAuthMiddleware(cfg))
+	profileGroup.Use(middleware.AuditLogMiddleware())
+	{
+		profileGroup.GET("/profile", authHandler.GetProfile)
+		profileGroup.PUT("/profile", authHandler.UpdateProfile)
+		profileGroup.POST("/profile/change-password", authHandler.ChangePassword)
+		profileGroup.GET("/profile/sessions", authHandler.GetUserSessions)
+		profileGroup.DELETE("/profile/sessions/:session_id", authHandler.RevokeSession)
+	}
+
+	// Query API（需要管理员权限）
 	queryGroup := v1.Group("")
 	queryGroup.Use(middleware.CookieAuthMiddleware(cfg))
+	queryGroup.Use(middleware.RequireAdmin())
 	queryGroup.Use(middleware.AuditLogMiddleware())
 	{
 		// 集群相关
@@ -138,15 +155,9 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 
 		// 事件流（SSE）
 		queryGroup.GET("/events/stream", queryHandler.EventStream)
-
-		// 用户资料相关
-		queryGroup.GET("/profile", authHandler.GetProfile)
-		queryGroup.PUT("/profile", authHandler.UpdateProfile)
-		queryGroup.POST("/profile/change-password", authHandler.ChangePassword)
-		queryGroup.GET("/profile/sessions", authHandler.GetUserSessions)
-		queryGroup.DELETE("/profile/sessions/:session_id", authHandler.RevokeSession)
 	}
 
+	// HolmesGPT API（需要API Token或管理员权限）
 	apiGroup := v1.Group("")
 	apiGroup.Use(middleware.APITokenMiddleware(cfg))
 	apiGroup.Use(middleware.AuditLogMiddleware())
@@ -154,15 +165,37 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		apiGroup.POST("/holmesgpt/stream/investigate", holmesProxyHandler.StreamInvestigate)
 	}
 
-	// 管理API（开发阶段暂时禁用权限检查）
+	// API Key管理（需要登录）
+	apiKeyGroup := v1.Group("/apikeys")
+	apiKeyGroup.Use(middleware.CookieAuthMiddleware(cfg))
+	apiKeyGroup.Use(middleware.AuditLogMiddleware())
+	{
+		apiKeyGroup.POST("", apiKeyHandler.CreateAPIKey)
+		apiKeyGroup.GET("", apiKeyHandler.ListAPIKeys)
+		apiKeyGroup.DELETE("/:id", apiKeyHandler.DeleteAPIKey)
+		apiKeyGroup.PUT("/:id/status", apiKeyHandler.UpdateAPIKeyStatus)
+	}
+
+	// 管理API（需要管理员权限）
 	adminGroup := v1.Group("/admin")
-	// TODO: 生产环境需要启用认证和权限中间件
-	// adminGroup.Use(middleware.AuthMiddleware(cfg))
-	// adminGroup.Use(middleware.RequireRole("admin"))
+	adminGroup.Use(middleware.CookieAuthMiddleware(cfg))
+	adminGroup.Use(middleware.RequireAdmin())
 	adminGroup.Use(middleware.AuditLogMiddleware())
 	{
+		// 审计日志
 		adminGroup.GET("/audit-logs", queryHandler.GetAuditLogs)
+
+		// 集群管理
 		adminGroup.DELETE("/clusters/:id", queryHandler.DeleteCluster)
+
+		// 用户管理
+		adminGroup.GET("/users", userHandler.GetUsers)
+		adminGroup.GET("/users/:id", userHandler.GetUser)
+		adminGroup.PUT("/users/:id/admin", userHandler.SetUserAdmin)
+		adminGroup.DELETE("/users/:id", userHandler.DeleteUser)
+
+		// API Key管理（管理员查看所有）
+		adminGroup.GET("/apikeys", apiKeyHandler.ListAllAPIKeys)
 	}
 
 	return nil
