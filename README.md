@@ -68,6 +68,19 @@ graph TD
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) (用于集群部署)
 - [Helm](https://helm.sh/docs/intro/install/) (用于集群部署)
 
+## 项目结构
+
+```
+robusta-web/
+├─ apps/                    # 主要应用
+│  ├─ backend/              # Go 后端（API、迁移、配置）
+│  └─ frontend/             # Next.js 前端（含 src/prototypes 原型区）
+├─ infrastructure/          # Docker、K8s、CAS 配置与脚本
+├─ packages/                # 可复用的扩展/插件
+├─ docs/                    # 架构与使用文档
+└─ var/                     # 运行期产物（日志等，本地忽略）
+```
+
 ## 快速启动 (推荐)
 
 使用 Docker Compose 是启动完整开发环境最简单的方式。此方法会一键启动所有依赖服务（数据库、缓存、对象存储）以及前后端应用。
@@ -77,21 +90,21 @@ graph TD
 
     ```bash
     # 从后端模板复制环境变量文件
-    cp backend/.env.example backend/.env
+    cp apps/backend/.env.example apps/backend/.env
     ```
-    > 注意: `docker-compose.yml` 中已为开发环境预设了大部分变量，对于本地开发，您通常无需修改 `backend/.env` 文件。
+    > 注意: `infrastructure/docker/docker-compose.yml` 中已为开发环境预设了大部分变量，对于本地开发，您通常无需修改 `apps/backend/.env` 文件。
 
 2.  **启动服务**:
-    使用 `make` 命令（推荐）或直接使用 `docker-compose`。
+    使用 `make` 命令（推荐）或直接使用 `docker compose`。
 
     ```bash
     # 使用 make (推荐)
     make docker-run
 
-    # 或者直接使用 docker-compose
-    docker-compose up -d
+    # 或者直接使用 docker compose
+    docker compose -f infrastructure/docker/docker-compose.yml up -d
     ```
-    该命令将在后台启动所有服务。数据库初始化脚本位于 `backend/migrations`，会在首次启动时自动执行。
+    该命令将在后台启动所有服务。数据库初始化脚本位于 `apps/backend/migrations`，会在首次启动时自动执行。
 
 3.  **访问应用**:
     - **前端界面**: [http://localhost:3000](http://localhost:3000)
@@ -103,8 +116,8 @@ graph TD
     # 使用 make
     make docker-stop
 
-    # 或者直接使用 docker-compose
-    docker-compose down
+    # 或者直接使用 docker compose
+    docker compose -f infrastructure/docker/docker-compose.yml down
     ```
 
 ## 开发模式
@@ -114,21 +127,21 @@ graph TD
 **首先，启动依赖服务：**
 
 ```bash
-docker-compose up -d postgres minio redis
+docker compose -f infrastructure/docker/docker-compose.yml up -d postgres minio redis
 ```
 
 ### 启动后端 (Go)
 
 1.  **目录**: 进入后端目录。
     ```bash
-    cd backend
+    cd apps/backend
     ```
 
 2.  **配置**: 复制并根据需要修改环境变量文件。
     ```bash
     cp .env.example .env
     ```
-    > 请确保 `.env` 文件中的数据库、MinIO 和 Redis 连接信息与 `docker-compose.yml` 中定义的一致。
+    > 请确保 `.env` 文件中的数据库、MinIO 和 Redis 连接信息与 `infrastructure/docker/docker-compose.yml` 中定义的一致。
 
 3.  **安装依赖**:
     ```bash
@@ -149,7 +162,7 @@ docker-compose up -d postgres minio redis
 
 1.  **目录**: 进入前端目录。
     ```bash
-    cd frontend
+    cd apps/frontend
     ```
 
 2.  **安装依赖**:
@@ -185,10 +198,10 @@ docker-compose up -d postgres minio redis
     ```
 
 3.  **安装 Robusta Chart**:
-    使用项目提供的 `scripts/robusta-holmesgpt-values-clean.yaml` 文件进行安装。这个配置文件启用了 HolmesGPT 并配置了 `webhook_sink`，用于将告警数据转发到本应用的后端。
+    使用项目提供的 `infrastructure/scripts/robusta-holmesgpt-values-clean.yaml` 文件进行安装。这个配置文件启用了 HolmesGPT 并配置了 `webhook_sink`，用于将告警数据转发到本应用的后端。
 
     ```bash
-    helm install robusta robusta/robusta -n robusta -f scripts/robusta-holmesgpt-values-clean.yaml
+    helm install robusta robusta/robusta -n robusta -f infrastructure/scripts/robusta-holmesgpt-values-clean.yaml
     ```
 
 4.  **验证安装**:
@@ -202,16 +215,16 @@ docker-compose up -d postgres minio redis
 安装完 Robusta Agent 后，您需要将本应用（前后端）部署到集群中，以便接收 Agent 发送的数据。
 
 1.  **配置文件**:
-    部署配置位于 `k8s/` 目录。您可能需要根据您的集群环境修改 `k8s/configmap.yaml` 和相关的部署脚本。确保 `webhook_sink` 的 `url` (`http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook`) 可以正确路由到本应用的后端服务。
+    部署配置位于 `infrastructure/k8s/` 目录。您可能需要根据您的集群环境修改 `infrastructure/k8s/configmap.yaml` 和相关的部署脚本。确保 `webhook_sink` 的 `url` (`http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook`) 可以正确路由到本应用的后端服务。
 
 2.  **部署脚本**:
-    项目提供了多个部署脚本，例如 `scripts/deploy.sh`。
+    项目提供了多个部署脚本，例如 `infrastructure/scripts/deploy.sh`。
     ```bash
     # 确保您的 kubectl 上下文正确指向目标集群
     kubectl config use-context <your-cluster-context>
 
     # 运行部署脚本
-    ./scripts/deploy.sh
+    ./infrastructure/scripts/deploy.sh
     ```
     > 在运行任何部署脚本之前，请务必仔细阅读其内容，了解它将对您的集群执行哪些操作。
 

@@ -14,23 +14,22 @@
 ## 目录结构
 ```
 robusta-web/
-├─ docs/                    # 架构与接口文档
-├─ frontend/
-│  ├─ src/
-│  │  ├─ app/               # 布局、路由、上下文
-│  │  ├─ components/        # 基础通用组件（含 shadcn 包装）
-│  │  ├─ features/
-│  │  │  ├─ dashboard/      # 仪表盘模块
-│  │  │  ├─ events/         # 事件列表与详情
-│  │  │  └─ playbooks/      # 自动化执行记录
-│  │  ├─ lib/               # 工具函数、API 客户端
-│  │  ├─ pages/             # 路由页面
-│  │  ├─ stores/            # Zustand 状态容器
-│  │  └─ types/             # TS 类型定义
-│  ├─ public/
-│  ├─ tests/                # Vitest/RTL 单测
-│  └─ playwright/           # 端到端测试配置
-└─ ...
+├─ apps/
+│  ├─ backend/              # Go 服务（API、配置、迁移等）
+│  └─ frontend/
+│     ├─ src/
+│     │  ├─ app/            # 布局、路由、上下文
+│     │  ├─ components/     # 基础通用组件（含 shadcn 包装）
+│     │  ├─ features/       # 业务模块（仪表盘、事件等）
+│     │  ├─ lib/            # 工具函数、API 客户端
+│     │  ├─ stores/         # Zustand 状态容器
+│     │  ├─ types/          # TS 类型定义
+│     │  └─ prototypes/     # 未上线的实验性模块
+│     ├─ public/
+│     └─ tests/             # 前端测试配置
+├─ infrastructure/          # 部署脚本、K8s、CAS 配置等
+├─ packages/                # 复用扩展组件
+└─ docs/                    # 架构与接口文档
 ```
 
 ## 接口契约（BFF 层）
