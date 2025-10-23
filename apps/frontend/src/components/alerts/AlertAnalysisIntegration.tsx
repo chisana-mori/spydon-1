@@ -184,42 +184,6 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
         </div>
       )}
 
-      {/* 分析选项卡 */}
-      <div className="min-h-[600px]">
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="h-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
-            <TabsTrigger value="enhanced" className="flex items-center space-x-2">
-              <Brain className="h-4 w-4" />
-              <span>增强分析</span>
-            </TabsTrigger>
-            <TabsTrigger value="raw" className="flex items-center space-x-2">
-              <Settings className="h-4 w-4" />
-              <span>原始数据</span>
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="enhanced" className="flex-1 min-h-0">
-            <div className="h-full">
-              <EnhancedHolmesGPTChat
-                alert={alert}
-                showCard={false}
-                cachedResult={cachedResult}
-                loadingCache={loadingCache}
-              />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="raw" className="h-[500px]">
-            <div className="h-full">
-              <RawPayloadViewer
-                alertId={alert.id}
-                alertTitle={alert.title}
-              />
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
-
       {/* 分析历史 */}
       {analysisHistory.length > 0 && (
         <Card className="border-2 shadow-sm">
@@ -236,7 +200,7 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-3">
-              {analysisHistory.map((history, index) => {
+              {analysisHistory.slice(0, 3).map((history, index) => {
                 // 使用 completed_at 或 started_at 或 created_at 作为时间戳
                 const timestamp = history.completed_at || history.started_at || history.created_at
                 const statusInfo = getStatusInfo(history.status)
@@ -312,6 +276,42 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
           </CardContent>
         </Card>
       )}
+
+      {/* 分析选项卡 */}
+      <div className="min-h-[600px]">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="h-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="enhanced" className="flex items-center space-x-2">
+              <Brain className="h-4 w-4" />
+              <span>增强分析</span>
+            </TabsTrigger>
+            <TabsTrigger value="raw" className="flex items-center space-x-2">
+              <Settings className="h-4 w-4" />
+              <span>原始数据</span>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="enhanced" className="flex-1 min-h-0">
+            <div className="h-full">
+              <EnhancedHolmesGPTChat
+                alert={alert}
+                showCard={false}
+                cachedResult={cachedResult}
+                loadingCache={loadingCache}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="raw" className="h-[500px]">
+            <div className="h-full">
+              <RawPayloadViewer
+                alertId={alert.id}
+                alertTitle={alert.title}
+              />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
 
     </div>
   )

@@ -590,6 +590,22 @@ Analysis Requirements:
     const statusText = deriveStatusText(payload)
     let summary: string | undefined
     let progressText: string | undefined
+    const summaryParts: string[] = []
+
+    const analysisContent = typeof payload.analysis === 'string' ? payload.analysis.trim() : undefined
+
+    let sectionsSummary: string | undefined
+    if (payload.sections && typeof payload.sections === 'object') {
+      try {
+        sectionsSummary = formatSummaryText(JSON.stringify({ sections: payload.sections }))
+      } catch (error) {
+        console.warn('Failed to format sections summary:', error)
+      }
+    }
+
+    if (sectionsSummary) {
+      summaryParts.push(sectionsSummary)
+    }
 
     // 检测是否为最终分析报告
     const isFinalReport = payload.content && typeof payload.content === 'string' && 
@@ -599,7 +615,9 @@ Analysis Requirements:
        payload.content.includes('## 解决方案'))
 
     if (isFinalReport) {
-      summary = payload.content
+      if (typeof payload.content === 'string' && payload.content.trim()) {
+        summaryParts.push(payload.content.trim())
+      }
       planText = undefined
     } else {
       if ((!planText || /^write\s*\[/i.test(planText)) && tasks && tasks.length) {
@@ -614,6 +632,14 @@ Analysis Requirements:
         progressText = planText
         planText = undefined
       }
+    }
+
+    if (analysisContent) {
+      summaryParts.push(analysisContent)
+    }
+
+    if (summaryParts.length) {
+      summary = deduplicateSummaryBlocks(summaryParts.join('\n\n'))
     }
 
     const commands = collectCommands(payload)
@@ -761,7 +787,11 @@ Analysis Requirements:
       if (!taskMap.has(key)) {
         order.push(key)
       }
-      taskMap.set(key, task)
+      taskMap.set(key, {
+        ...task,
+        content: normalizePlainText(task.content),
+        note: task.note ? normalizePlainText(task.note) : task.note
+      })
     }
 
     previous.tasks?.forEach(registerTask)
@@ -774,7 +804,7 @@ Analysis Requirements:
       summaryText = appendTextChunk(summaryText, next.summary)
     }
     if (summaryText.trim()) {
-      merged.summary = summaryText
+      merged.summary = deduplicateSummaryBlocks(summaryText)
     }
 
     // merge progressText
@@ -853,17 +883,45 @@ Analysis Requirements:
       delete merged.tasks
     }
 
+    if (merged.planText) {
+      merged.planText = normalizePlainText(merged.planText)
+    }
+    if ((merged as any).progressText) {
+      (merged as any).progressText = normalizePlainText((merged as any).progressText)
+    }
+    if (merged.statusText) {
+      merged.statusText = normalizePlainText(merged.statusText)
+    }
+    if (merged.summary) {
+      merged.summary = normalizePlainText(merged.summary)
+    }
+
     return merged
   }
 
+  function normalizePlainText(text: string): string {
+    if (!text) return text
+    let result = text
+    result = result.replace(/\r\n/g, '\n')
+    result = result.replace(/\u000d\u000a/gi, '\n')
+    result = result.replace(/\\r\\n/g, '\n')
+    result = result.replace(/\\n/g, '\n')
+    result = result.replace(/\\t/g, '    ')
+    result = result.replace(/\u00a0/g, ' ')
+    result = result.replace(/\n{3,}/g, '\n\n')
+    return result.trimEnd()
+  }
+
   function appendTextChunk(base: string, chunk: string): string {
-    if (!chunk) return base
-    const trimmedChunk = chunk.trim()
+    const normalizedBase = normalizePlainText(base)
+    if (!chunk) return normalizedBase
+    const normalizedChunk = normalizePlainText(chunk)
+    const trimmedChunk = normalizedChunk.trim()
     if (!trimmedChunk) return base
-    const normalizedChunk = trimmedChunk.replace(/\s+/g, ' ')
-    const normalizedBase = base.replace(/\s+/g, ' ')
-    if (normalizedBase.includes(normalizedChunk)) return base
-    return base ? `${base}\n\n${trimmedChunk}` : trimmedChunk
+    const flatChunk = trimmedChunk.replace(/\s+/g, ' ')
+    const flatBase = normalizedBase.replace(/\s+/g, ' ')
+    if (flatBase.includes(flatChunk)) return normalizedBase
+    return normalizedBase ? `${normalizedBase}\n\n${trimmedChunk}` : trimmedChunk
   }
 
   function appendCommands(existing?: string[], incoming?: string[]): string[] | undefined {
@@ -875,6 +933,42 @@ Analysis Requirements:
       if (cmd && cmd.trim()) merged.add(cmd.trim())
     })
     return merged.size ? Array.from(merged) : undefined
+  }
+
+  function canonicalizeSummaryFragment(fragment: string): string {
+    if (!fragment) return ''
+    const normalized = normalizePlainText(fragment)
+    return normalized
+      .replace(/(^|\n)#+\s*/g, '$1')
+      .replace(/(^|\n)[-*]\s+/g, '$1')
+      .replace(/(^|\n)\d+\.\s+/g, '$1')
+      .replace(/[`*_]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+  }
+
+  function deduplicateSummaryBlocks(text: string): string {
+    if (!text) return text
+    const parts = text
+      .split(/\n{2,}/)
+      .map(part => normalizePlainText(part).trim())
+      .filter(Boolean)
+    const seen = new Set<string>()
+    const unique: string[] = []
+    parts.forEach(part => {
+      const signature = canonicalizeSummaryFragment(part)
+      if (signature && !seen.has(signature)) {
+        seen.add(signature)
+        unique.push(part)
+      }
+    })
+    return unique.join('\n\n')
+  }
+
+  function buildSummarySignature(text: string): string | null {
+    const canonical = canonicalizeSummaryFragment(text)
+    return canonical || null
   }
 
   function collectCommands(payload: any): string[] {
@@ -979,6 +1073,7 @@ Analysis Requirements:
   }): StreamProcessor => {
     let buffer = ''
     let completed = false
+    let lastAiAnswerSignature: string | null = null
 
     let currentAssistantMessage: AnalysisMessage = {
       id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1044,7 +1139,10 @@ Analysis Requirements:
 
     const appendSummary = (summary: string) => {
       if (!summary) return
-      setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary }))
+      const normalizedSummary = normalizePlainText(summary)
+      if (!normalizedSummary) return
+      const dedupedSummary = deduplicateSummaryBlocks(normalizedSummary)
+      setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: dedupedSummary }))
     }
 
     const startNewAssistantMessage = () => {
@@ -1068,44 +1166,71 @@ Analysis Requirements:
       console.log('Processing data item:', item)
 
       if (eventType === 'ai_answer_end') {
+        const payload = item && typeof item === 'object' && 'data' in item ? item.data : item
+        let combinedStructured: HolmesStructuredData | undefined
+
+        const structuredFromPayload = extractHolmesStructuredData(payload)
+        combinedStructured = mergeHolmesStructuredData(combinedStructured, structuredFromPayload)
+
         let summaryText = ''
-        if (typeof item.analysis === 'string' && item.analysis.trim()) {
-          summaryText = appendTextChunk(summaryText, item.analysis.trim())
+        if (structuredFromPayload?.summary) {
+          summaryText = appendTextChunk(summaryText, structuredFromPayload.summary)
         }
 
-        if (item.sections) {
-          try {
-            const sectionSummary = formatSummaryText(JSON.stringify({ sections: item.sections }))
-            if (sectionSummary && sectionSummary.trim()) {
-              summaryText = appendTextChunk(summaryText, sectionSummary.trim())
-            }
-          } catch (error) {
-            console.warn('Failed to format ai_answer_end sections:', error)
+        const additionalSummaries: string[] = []
+        if (typeof payload === 'string') {
+          additionalSummaries.push(payload)
+        } else if (payload && typeof payload === 'object') {
+          if (typeof payload.analysis === 'string' && payload.analysis.trim()) {
+            additionalSummaries.push(payload.analysis.trim())
+          }
+          if (typeof payload.content === 'string' && payload.content.trim()) {
+            additionalSummaries.push(payload.content.trim())
           }
         }
 
-        let combinedStructured: HolmesStructuredData | undefined
-
-        if (item.sections) {
-          const sectionStructured = extractHolmesStructuredData(item.sections)
-          combinedStructured = mergeHolmesStructuredData(combinedStructured, sectionStructured)
+        if (typeof item === 'string') {
+          additionalSummaries.push(item)
         }
 
-        if (summaryText.trim()) {
-          combinedStructured = mergeHolmesStructuredData(combinedStructured, { summary: summaryText.trim() })
+        additionalSummaries.forEach(candidate => {
+          summaryText = appendTextChunk(summaryText, candidate)
+        })
+
+        const dedupedSummaryText = deduplicateSummaryBlocks(summaryText)
+        const signature = dedupedSummaryText ? buildSummarySignature(dedupedSummaryText) : null
+
+        if (signature && signature === lastAiAnswerSignature) {
+          console.log('检测到重复 ai_answer_end 事件，跳过处理')
+          return
+        }
+
+        if (signature) {
+          lastAiAnswerSignature = signature
+        }
+
+        if (dedupedSummaryText.trim()) {
+          combinedStructured = mergeHolmesStructuredData(combinedStructured, { summary: dedupedSummaryText })
         }
 
         if (combinedStructured) {
+          const normalizedContent = dedupedSummaryText.trim()
           currentAssistantMessage = {
             ...currentAssistantMessage,
             structuredData: mergeHolmesStructuredData(currentAssistantMessage.structuredData, combinedStructured),
-            content: summaryText.trim()
-              ? appendTextChunk(currentAssistantMessage.content, summaryText.trim())
+            content: normalizedContent
+              ? appendTextChunk(currentAssistantMessage.content, normalizedContent)
               : currentAssistantMessage.content,
             isStreaming: true
           }
           syncCurrentMessage()
-          setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, combinedStructured))
+          setPinnedSummaryData(prev => {
+            const merged = mergeHolmesStructuredData(prev, combinedStructured)
+            if (merged?.summary) {
+              merged.summary = deduplicateSummaryBlocks(merged.summary)
+            }
+            return merged
+          })
         }
 
         return
@@ -1242,10 +1367,40 @@ Analysis Requirements:
       }
     }
 
-    const processAnalysisData = (analysisData: any) => {
+    const processAnalysisData = (analysisData: any, eventType?: string) => {
       console.log('Processing analysis data:', analysisData)
 
       if (typeof analysisData === 'string') {
+        const trimmed = analysisData.trim()
+
+        if (eventType === 'ai_answer_end' || (allTasksCompletedRef.current && trimmed.length > 0)) {
+          if (trimmed) {
+            const normalized = normalizePlainText(trimmed)
+            const summaryStructured: HolmesStructuredData = { summary: normalized }
+            allTasksCompletedRef.current = true
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergeHolmesStructuredData(currentAssistantMessage.structuredData, summaryStructured),
+              content: appendTextChunk(currentAssistantMessage.content, normalized),
+              isStreaming: true
+            }
+            syncCurrentMessage()
+            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, summaryStructured))
+          }
+          return
+        }
+
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try {
+            const parsed = JSON.parse(trimmed)
+            if (parsed && typeof parsed === 'object') {
+              processDataItem(parsed, 'ai_answer_end')
+              return
+            }
+          } catch (error) {
+            console.warn('Failed to parse analysis string as JSON:', error)
+          }
+        }
         if (allTasksCompletedRef.current) {
           appendSummary(analysisData)
         } else {
@@ -1262,12 +1417,12 @@ Analysis Requirements:
       }
 
       if (Array.isArray(analysisData)) {
-        analysisData.forEach(item => processDataItem(item))
+        analysisData.forEach(item => processDataItem(item, eventType))
         return
       }
 
       if (analysisData && typeof analysisData === 'object') {
-        processDataItem(analysisData)
+        processDataItem(analysisData, eventType)
       }
     }
 
@@ -1328,7 +1483,7 @@ Analysis Requirements:
           const data = JSON.parse(rawData)
 
           if (data.type === 'analysis' && data.data !== undefined) {
-            processAnalysisData(data.data)
+            processAnalysisData(data.data, currentEventType || data.type)
           } else if (Array.isArray(data)) {
             data.forEach(item => processDataItem(item, currentEventType || undefined))
           } else {
@@ -1463,6 +1618,10 @@ Analysis Requirements:
     } finally {
       setAbortController(null)
     }
+  }
+
+  const handleReanalyze = () => {
+    void startAnalysis()
   }
 
   // 停止分析
@@ -1698,11 +1857,11 @@ Analysis Requirements:
             <span className="text-sm font-medium">分析失败</span>
           </div>
           <p className="text-sm text-red-600 mt-1">{analysisState.error}</p>
-          <Button 
-            onClick={restartAnalysis} 
-            variant="outline" 
-            size="sm" 
-            className="mt-2 border-red-200 text-red-600 hover:bg-red-50"
+          <Button
+            onClick={handleReanalyze}
+            variant="default"
+            size="sm"
+            className="mt-2 bg-black text-white hover:bg-black/90"
           >
             重试分析
           </Button>
@@ -1802,7 +1961,12 @@ Analysis Requirements:
           )}
           {(analysisState.status === 'completed' || analysisState.status === 'error') && (
             <>
-              <Button onClick={restartAnalysis} variant="outline" size="sm">
+              <Button
+                onClick={handleReanalyze}
+                variant="default"
+                size="sm"
+                className="bg-black text-white hover:bg-black/90"
+              >
                 <RotateCcw className="h-4 w-4 mr-2" />
                 重新分析
               </Button>

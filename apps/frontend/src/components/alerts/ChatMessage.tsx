@@ -156,6 +156,17 @@ const safeParseJSON = (value: string) => {
   }
 }
 
+const normalizeDisplayText = (value: string): string => {
+  if (!value) return value
+  let result = value
+  result = result.replace(/\r\n/g, '\n')
+  result = result.replace(/\\r\\n/g, '\n')
+  result = result.replace(/\\n/g, '\n')
+  result = result.replace(/\\t/g, '    ')
+  result = result.replace(/\n{3,}/g, '\n\n')
+  return result.trimEnd()
+}
+
 /**
  * 解码Unicode转义序列（如 \u95ee\u9898 -> 问题）
  * 处理后端返回的包含Unicode转义的JSON字符串
@@ -202,7 +213,7 @@ const decodeEscapedUnicode = (value: string): string => {
 
 const renderMarkdownContent = (value: any, indent = ''): string => {
   if (value === null || value === undefined) return ''
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') return normalizeDisplayText(value)
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
 
   if (Array.isArray(value)) {
@@ -290,8 +301,8 @@ export const formatSummaryText = (summary: string): string => {
     return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``
   }
 
-  // 如果不是JSON，返回解码后的文本
-  return decodedSummary
+  // 如果不是JSON，返回格式化后的文本
+  return normalizeDisplayText(decodedSummary)
 }
 
 interface ParsedTable {

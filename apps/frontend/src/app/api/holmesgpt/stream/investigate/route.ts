@@ -143,149 +143,178 @@ MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
       async start(controller) {
         const reader = response.body!.getReader()
         const decoder = new TextDecoder()
+        const encoder = new TextEncoder()
+
+        let buffer = ''
+        let currentEventType: string | null = null
+        let completionEmitted = false
+
+        const emitEvent = (payload: any, eventType?: string | null) => {
+          const type = (eventType ?? '').trim()
+          const typeLine = type ? `event: ${type}\n` : ''
+          controller.enqueue(
+            encoder.encode(`${typeLine}data: ${JSON.stringify(payload)}\n\n`)
+          )
+        }
+
+        const forwardTransformedEvent = (parsedData: any) => {
+          let transformedEvent: { type: string; data: any } | null = null
+
+          if (parsedData?.analysis) {
+            transformedEvent = {
+              type: 'analysis',
+              data: parsedData.analysis,
+            }
+          } else if (parsedData?.tool_calls) {
+            try {
+              const calls: any[] = Array.isArray(parsedData.tool_calls) ? parsedData.tool_calls : []
+              for (const call of calls) {
+                emitEvent(
+                  {
+                    type: 'analysis',
+                    data: call,
+                  },
+                  currentEventType
+                )
+              }
+              return
+            } catch {
+              transformedEvent = {
+                type: 'analysis',
+                data: parsedData.tool_calls,
+              }
+            }
+          } else if (parsedData?.error) {
+            transformedEvent = {
+              type: 'error',
+              data: { message: parsedData.error },
+            }
+          } else if (
+            parsedData?.content ||
+            parsedData?.tool_name ||
+            parsedData?.todos ||
+            parsedData?.params?.todos ||
+            parsedData?.result?.data
+          ) {
+            transformedEvent = {
+              type: 'analysis',
+              data: parsedData,
+            }
+          } else {
+            transformedEvent = {
+              type: 'analysis',
+              data: parsedData,
+            }
+          }
+
+          if (transformedEvent) {
+            emitEvent(transformedEvent, currentEventType)
+          }
+        }
+
+        const processEventData = (eventData: string) => {
+          if (eventData === '[DONE]') {
+            emitEvent({ type: 'complete', data: {} }, currentEventType)
+            completionEmitted = true
+            return
+          }
+
+          let parsedData: any
+          try {
+            parsedData = JSON.parse(eventData)
+          } catch {
+            const sequence = parseJsonSequence(eventData)
+            if (sequence.length) {
+              sequence.forEach(item => {
+                emitEvent(
+                  {
+                    type: 'analysis',
+                    data: item,
+                  },
+                  currentEventType
+                )
+              })
+              return
+            }
+
+            emitEvent(
+              {
+                type: 'analysis',
+                data: eventData,
+              },
+              currentEventType
+            )
+            return
+          }
+
+          forwardTransformedEvent(parsedData)
+        }
+
+        const processBuffer = () => {
+          let newlineIndex = buffer.indexOf('\n')
+          while (newlineIndex !== -1) {
+            let line = buffer.slice(0, newlineIndex)
+            buffer = buffer.slice(newlineIndex + 1)
+
+            if (line.endsWith('\r')) {
+              line = line.slice(0, -1)
+            }
+
+            if (line === '') {
+              currentEventType = null
+            } else if (line.startsWith(':')) {
+              // 注释行，忽略
+            } else {
+              const eventMatch = line.match(/^event:\s*(.*)$/)
+              const dataMatch = line.match(/^data:\s*(.*)$/)
+
+              if (eventMatch) {
+                currentEventType = eventMatch[1]
+              } else if (dataMatch) {
+                processEventData(dataMatch[1])
+              } else {
+                controller.enqueue(encoder.encode(`${line}\n`))
+              }
+            }
+
+            newlineIndex = buffer.indexOf('\n')
+          }
+        }
 
         try {
           while (true) {
             const { done, value } = await reader.read()
-            
+
+            if (value) {
+              buffer += decoder.decode(value, { stream: !done })
+              processBuffer()
+            }
+
             if (done) {
-              // 发送完成事件
-              controller.enqueue(
-                new TextEncoder().encode('data: {"type":"complete","data":{}}\n\n')
-              )
+              const remaining = decoder.decode()
+              if (remaining) {
+                buffer += remaining
+              }
+
+              if (buffer.length) {
+                buffer += '\n'
+                processBuffer()
+              }
+
+              if (!completionEmitted) {
+                emitEvent({ type: 'complete', data: {} })
+                completionEmitted = true
+              }
               controller.close()
               break
-            }
-
-            const chunk = decoder.decode(value, { stream: true })
-            const lines = chunk.split('\n')
-
-            for (const line of lines) {
-              if (line.trim() === '') continue
-              
-              try {
-                // 处理 HolmesGPT 的流式响应格式
-                if (line.startsWith('data: ')) {
-                  const eventData = line.slice(6)
-                  
-                  if (eventData === '[DONE]') {
-                    controller.enqueue(
-                      new TextEncoder().encode('data: {"type":"complete","data":{}}\n\n')
-                    )
-                    continue
-                  }
-
-                  // 尝试解析 JSON 数据
-                  let parsedData
-      try {
-        parsedData = JSON.parse(eventData)
-      } catch (parseError) {
-        const sequence = parseJsonSequence(eventData)
-        if (sequence.length) {
-          sequence.forEach((item) => {
-            const structuredEvent = {
-              type: 'analysis',
-              data: item,
-            }
-            controller.enqueue(
-              new TextEncoder().encode(`data: ${JSON.stringify(structuredEvent)}\n\n`)
-            )
-          })
-          continue
-        }
-
-        const textEvent = {
-          type: 'analysis',
-          data: eventData,
-        }
-        controller.enqueue(
-          new TextEncoder().encode(`data: ${JSON.stringify(textEvent)}\n\n`)
-        )
-        continue
-      }
-
-                  // 根据 HolmesGPT 的响应格式转换事件类型
-                  let transformedEvent
-
-                  if (parsedData.analysis) {
-                    transformedEvent = {
-                      type: 'analysis',
-                      data: parsedData.analysis,
-                    }
-                  } else if (parsedData.tool_calls) {
-                    // 将 tool_calls 数组拆分为多个 analysis 事件，便于前端按顺序消费
-                    try {
-                      const calls: any[] = Array.isArray(parsedData.tool_calls) ? parsedData.tool_calls : []
-                      for (const call of calls) {
-                        const perCallEvent = {
-                          type: 'analysis',
-                          data: call,
-                        }
-                        controller.enqueue(
-                          new TextEncoder().encode(`data: ${JSON.stringify(perCallEvent)}\n\n`)
-                        )
-                      }
-                      // 已逐条发送，跳过默认 transformedEvent 入队
-                      continue
-                    } catch {
-                      // 兜底逻辑：若拆分失败，仍按 analysis 整体发送
-                      transformedEvent = {
-                        type: 'analysis',
-                        data: parsedData.tool_calls,
-                      }
-                    }
-                  } else if (parsedData.error) {
-                    transformedEvent = {
-                      type: 'error',
-                      data: { message: parsedData.error },
-                    }
-                  } else if (
-                    parsedData.content ||
-                    parsedData.tool_name ||
-                    parsedData.todos ||
-                    parsedData.params?.todos ||
-                    parsedData.result?.data
-                  ) {
-                    transformedEvent = {
-                      type: 'analysis',
-                      data: parsedData,
-                    }
-                  } else {
-                    transformedEvent = {
-                      type: 'analysis',
-                      data: parsedData,
-                    }
-                  }
-
-                  controller.enqueue(
-                    new TextEncoder().encode(`data: ${JSON.stringify(transformedEvent)}\n\n`)
-                  )
-                } else {
-                  // 非标准格式，直接转发
-                  controller.enqueue(new TextEncoder().encode(`${line}\n`))
-                }
-              } catch (error) {
-                console.warn('处理流数据行失败:', error, 'Line:', line)
-                // 发送错误但不中断流
-                const errorEvent = {
-                  type: 'error',
-                  data: { message: `数据处理错误: ${error}` }
-                }
-                controller.enqueue(
-                  new TextEncoder().encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
-                )
-              }
             }
           }
         } catch (error) {
           console.error('流处理错误:', error)
-          const errorEvent = {
+          emitEvent({
             type: 'error',
             data: { message: `流处理失败: ${error}` }
-          }
-          controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
-          )
+          })
           controller.close()
         } finally {
           try { reader.releaseLock() } catch {}
