@@ -21,14 +21,14 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	alertService := services.NewAlertService(database)
 	rcaService := services.NewRCAService(database)
 	auditService := services.NewAuditService(database)
-	holmesService := services.NewHolmesService(database, cfg)
-	authService := services.NewAuthService(database, cfg)
-	userService := services.NewUserService(database)
-	apiKeyService := services.NewAPIKeyService(database)
 	objectStorage, err := services.NewObjectStorageService(cfg)
 	if err != nil {
 		return err
 	}
+	holmesService := services.NewHolmesService(database, cfg, objectStorage)
+	authService := services.NewAuthService(database, cfg)
+	userService := services.NewUserService(database)
+	apiKeyService := services.NewAPIKeyService(database)
 
 	var casClient *cas.Client
 	if cfg.CAS.Enabled && cfg.CAS.ServerURL != "" {
@@ -57,7 +57,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	ingestHandler := NewIngestHandler(alertService, rcaService, clusterService, auditService, objectStorage)
 	queryHandler := NewQueryHandler(alertService, rcaService, clusterService, objectStorage)
 	rcaHandler := NewRCAHandler(holmesService)
-	holmesProxyHandler := NewHolmesProxyHandler(cfg)
+	holmesProxyHandler := NewHolmesProxyHandler(cfg, holmesService)
 	authHandler := NewAuthHandler(authService, casClient, cfg)
 	userHandler := NewUserHandler(userService)
 	apiKeyHandler := NewAPIKeyHandler(apiKeyService)
@@ -139,12 +139,14 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		queryGroup.GET("/alerts/:id/raw-payload", queryHandler.GetAlertRawPayload)
 
 		// RCA相关
-		queryGroup.GET("/rca/:alert_id", queryHandler.GetRCAByAlertID)
-		queryGroup.POST("/rca/:alert_id/trigger", queryHandler.TriggerRCA)
-		queryGroup.POST("/rca/trigger", rcaHandler.TriggerRCA)
-		queryGroup.GET("/rca/runs", rcaHandler.ListRCARuns)
-		queryGroup.GET("/rca/runs/:run_id", rcaHandler.GetRCARunStatus)
-		queryGroup.GET("/rca/stats", rcaHandler.GetRCAStats)
+		rcaGroup := queryGroup.Group("/rca")
+		rcaGroup.GET("/:alert_id", rcaHandler.GetRCAByAlertID)
+		rcaGroup.GET("/:alert_id/cache", rcaHandler.GetRCACacheByAlertID)
+		rcaGroup.POST("/:alert_id/trigger", queryHandler.TriggerRCA)
+		rcaGroup.POST("/trigger", rcaHandler.TriggerRCA)
+		rcaGroup.GET("/runs", rcaHandler.ListRCARuns)
+		rcaGroup.GET("/runs/:run_id", rcaHandler.GetRCARunStatus)
+		rcaGroup.GET("/stats", rcaHandler.GetRCAStats)
 
 		// 事件流（SSE）
 		queryGroup.GET("/events/stream", queryHandler.EventStream)

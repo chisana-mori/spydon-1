@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"robusta-web/backend/internal/config"
@@ -15,15 +17,17 @@ import (
 	"robusta-web/backend/internal/models"
 
 	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
 // HolmesService 处理与HolmesGPT的集成
 type HolmesService struct {
-	db     *db.Database
-	config *config.Config
-	client *http.Client
+	db      *db.Database
+	config  *config.Config
+	client  *http.Client
+	storage PayloadStorage
 }
 
 // HolmesAnalysisRequest HolmesGPT分析请求
@@ -48,16 +52,30 @@ type HolmesAnalysisResponse struct {
 	ErrorMessage    string                 `json:"error_message,omitempty"`
 }
 
+// RCACachedResult 存储到对象存储中的RCA分析结果
+type RCACachedResult struct {
+	Version      string                  `json:"version"`
+	RunID        string                  `json:"run_id"`
+	AlertID      string                  `json:"alert_id"`
+	CachedAt     time.Time               `json:"cached_at"`
+	Depth        string                  `json:"depth,omitempty"`
+	Analysis     *HolmesAnalysisResponse `json:"analysis"`
+	StorageKey   string                  `json:"storage_key,omitempty"`
+	StreamChunks []string                `json:"stream_chunks,omitempty"`
+	Metadata     map[string]interface{}  `json:"metadata,omitempty"`
+}
+
 // NewHolmesService 创建HolmesService实例
-func NewHolmesService(database *db.Database, cfg *config.Config) *HolmesService {
+func NewHolmesService(database *db.Database, cfg *config.Config, storage PayloadStorage) *HolmesService {
 	client := &http.Client{
 		Timeout: time.Duration(cfg.HolmesGPT.TimeoutSeconds) * time.Second,
 	}
 
 	return &HolmesService{
-		db:     database,
-		config: cfg,
-		client: client,
+		db:      database,
+		config:  cfg,
+		client:  client,
+		storage: storage,
 	}
 }
 
@@ -131,7 +149,7 @@ func (s *HolmesService) executeAnalysis(ctx context.Context, rcaRun *models.RCAR
 	}
 
 	// 更新分析结果
-	s.updateAnalysisResult(rcaRun, response)
+	s.updateAnalysisResult(ctx, rcaRun, response, depth)
 }
 
 // sendAnalysisRequest 发送分析请求到HolmesGPT
@@ -183,7 +201,7 @@ func (s *HolmesService) sendAnalysisRequest(ctx context.Context, request HolmesA
 }
 
 // updateAnalysisResult 更新分析结果
-func (s *HolmesService) updateAnalysisResult(rcaRun *models.RCARun, response *HolmesAnalysisResponse) {
+func (s *HolmesService) updateAnalysisResult(ctx context.Context, rcaRun *models.RCARun, response *HolmesAnalysisResponse, depth string) {
 	now := time.Now()
 
 	rcaRun.Status = response.Status
@@ -203,11 +221,194 @@ func (s *HolmesService) updateAnalysisResult(rcaRun *models.RCARun, response *Ho
 		rcaRun.ErrorMessage = &response.ErrorMessage
 	}
 
+	s.persistAnalysisResult(ctx, rcaRun, response, depth, now)
+
 	if err := s.db.DB.Save(rcaRun).Error; err != nil {
 		log.Printf("更新RCA运行结果失败: %v", err)
 	}
 
 	log.Printf("RCA分析完成: %s, 状态: %s", rcaRun.ID, rcaRun.Status)
+}
+
+func (s *HolmesService) persistAnalysisResult(ctx context.Context, rcaRun *models.RCARun, response *HolmesAnalysisResponse, depth string, snapshot time.Time) {
+	if s.storage == nil || response == nil {
+		return
+	}
+
+	cached := RCACachedResult{
+		Version:  "v1",
+		RunID:    rcaRun.ID.String(),
+		AlertID:  rcaRun.AlertID.String(),
+		CachedAt: snapshot,
+		Depth:    depth,
+		Analysis: response,
+	}
+
+	payload, err := json.Marshal(cached)
+	if err != nil {
+		log.Printf("序列化RCA分析缓存失败: %v", err)
+		return
+	}
+
+	prefix := fmt.Sprintf("rca-results/%s", rcaRun.AlertID.String())
+	key, err := s.storage.Save(ctx, prefix, payload, "application/json")
+	if err != nil {
+		log.Printf("写入RCA分析缓存失败: %v", err)
+		return
+	}
+
+	rcaRun.RawPayloadKey = key
+}
+
+// StartStreamRun 为流式RCA创建运行记录
+func (s *HolmesService) StartStreamRun(alertID string) (*models.RCARun, error) {
+	alert, err := s.getAlertByID(alertID)
+	if err != nil {
+		return nil, fmt.Errorf("获取告警失败: %w", err)
+	}
+
+	run := &models.RCARun{
+		BaseModel: models.BaseModel{
+			ID: uuid.New(),
+		},
+		AlertID:         alert.ID,
+		Status:          "running",
+		StartedAt:       time.Now(),
+		Suspects:        datatypes.JSON([]byte(`{}`)),
+		Recommendations: datatypes.JSON([]byte(`{}`)),
+		Attachments:     datatypes.JSON([]byte(`{}`)),
+	}
+
+	if err := s.db.DB.Create(run).Error; err != nil {
+		return nil, fmt.Errorf("创建流式RCA记录失败: %w", err)
+	}
+
+	return run, nil
+}
+
+// FinalizeStreamRun 在流式RCA结束后更新状态并缓存结果
+func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARun, depth string, streamChunks []string, metadata map[string]interface{}, streamErr error) {
+	if run == nil {
+		return
+	}
+
+	now := time.Now()
+
+	updates := map[string]interface{}{
+		"updated_at": now,
+	}
+
+	if streamErr != nil {
+		errorMessage := streamErr.Error()
+		updates["status"] = "failed"
+		updates["error_message"] = errorMessage
+		updates["completed_at"] = now
+
+		run.Status = "failed"
+		run.CompletedAt = &now
+		run.ErrorMessage = &errorMessage
+
+		if err := s.db.DB.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
+			log.Printf("更新流式RCA失败状态时出错: %v", err)
+		}
+		return
+	}
+
+	updates["status"] = "completed"
+	updates["completed_at"] = now
+
+	// 提取summary和完整文本内容
+	var summary string
+	var fullText string
+
+	if metadata != nil {
+		if s, ok := metadata["summary"].(string); ok {
+			summary = s
+			updates["summary"] = summary
+		}
+		if ft, ok := metadata["full_text"].(string); ok {
+			fullText = ft
+		}
+	}
+
+	// 如果metadata中没有full_text，从streamChunks中提取
+	if fullText == "" && len(streamChunks) > 0 {
+		fullText = s.extractTextFromStreamChunks(streamChunks)
+	}
+
+	// 保存到MinIO：将完整的分析结果合并到一个JSON文件
+	if s.storage != nil {
+		cached := RCACachedResult{
+			Version:      "v1",
+			RunID:        run.ID.String(),
+			AlertID:      run.AlertID.String(),
+			CachedAt:     now,
+			Depth:        depth,
+			StreamChunks: streamChunks,
+			Metadata: map[string]interface{}{
+				"summary":   summary,
+				"full_text": fullText,
+				"depth":     depth,
+				"duration":  now.Sub(run.StartedAt).Seconds(),
+			},
+		}
+
+		payload, err := json.Marshal(cached)
+		if err != nil {
+			log.Printf("序列化RCA流缓存失败: %v", err)
+		} else {
+			prefix := fmt.Sprintf("rca-results/%s", run.AlertID.String())
+			key, saveErr := s.storage.Save(ctx, prefix, payload, "application/json")
+			if saveErr != nil {
+				log.Printf("保存RCA流缓存失败: %v", saveErr)
+			} else {
+				updates["raw_payload_key"] = key
+				run.RawPayloadKey = key
+				log.Printf("RCA分析结果已缓存到MinIO: %s (大小: %d bytes)", key, len(payload))
+			}
+		}
+	}
+
+	run.Status = "completed"
+	run.CompletedAt = &now
+
+	if err := s.db.DB.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
+		log.Printf("更新流式RCA运行记录失败: %v", err)
+	}
+}
+
+// extractTextFromStreamChunks 从SSE流chunks中提取纯文本内容
+func (s *HolmesService) extractTextFromStreamChunks(chunks []string) string {
+	var textParts []string
+
+	for _, chunk := range chunks {
+		// 解析SSE格式: data: {...}
+		lines := strings.Split(chunk, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+
+			dataStr := strings.TrimPrefix(line, "data: ")
+			if dataStr == "[DONE]" || dataStr == "" {
+				continue
+			}
+
+			// 尝试解析JSON
+			var data map[string]interface{}
+			if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
+				continue
+			}
+
+			// 提取content字段
+			if content, ok := data["content"].(string); ok && content != "" {
+				textParts = append(textParts, content)
+			}
+		}
+	}
+
+	return strings.Join(textParts, "")
 }
 
 // handleAnalysisError 处理分析错误
@@ -322,6 +523,87 @@ func (s *HolmesService) GetAnalysisStats(clusterID string) (*models.RCAStats, er
 	}
 
 	return &stats, nil
+}
+
+// GetCachedResult 获取存储在对象存储中的最新RCA缓存结果
+func (s *HolmesService) GetCachedResult(ctx context.Context, alertID string) (*RCACachedResult, error) {
+	if s.storage == nil {
+		return nil, nil
+	}
+
+	rcaRuns, err := s.GetAnalysisByAlertID(alertID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, run := range rcaRuns {
+		cached, loadErr := s.loadCachedResultForRun(ctx, run)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if cached != nil {
+			return cached, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (s *HolmesService) loadCachedResultForRun(ctx context.Context, run *models.RCARun) (*RCACachedResult, error) {
+	if run == nil || run.RawPayloadKey == "" {
+		return nil, nil
+	}
+
+	data, err := s.storage.Get(ctx, run.RawPayloadKey)
+	if err != nil {
+		var minioErr minio.ErrorResponse
+		if errors.As(err, &minioErr) && (minioErr.Code == "NoSuchKey" || minioErr.StatusCode == http.StatusNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("获取RCA缓存失败: %w", err)
+	}
+
+	var cached RCACachedResult
+	if err := json.Unmarshal(data, &cached); err != nil {
+		return nil, fmt.Errorf("解析RCA缓存失败: %w", err)
+	}
+
+	if cached.StorageKey == "" {
+		cached.StorageKey = run.RawPayloadKey
+	}
+	if cached.AlertID == "" {
+		cached.AlertID = run.AlertID.String()
+	}
+	if cached.RunID == "" {
+		cached.RunID = run.ID.String()
+	}
+
+	return &cached, nil
+}
+
+func (s *HolmesService) GetCachedResultByRunID(ctx context.Context, runID string) (*RCACachedResult, error) {
+	if s.storage == nil {
+		return nil, nil
+	}
+
+	if runID == "" {
+		return nil, fmt.Errorf("运行ID不能为空")
+	}
+
+	parsedID, err := uuid.Parse(runID)
+	if err != nil {
+		return nil, fmt.Errorf("无效的运行ID: %w", err)
+	}
+
+	var run models.RCARun
+	if err := s.db.DB.Where("id = ?", parsedID).First(&run).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, gorm.ErrRecordNotFound
+		}
+		return nil, fmt.Errorf("查询RCA运行记录失败: %w", err)
+	}
+
+	return s.loadCachedResultForRun(ctx, &run)
 }
 
 // 辅助方法

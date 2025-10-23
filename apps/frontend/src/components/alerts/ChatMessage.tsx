@@ -164,11 +164,20 @@ const decodeEscapedUnicode = (value: string): string => {
   if (!value || typeof value !== 'string') return value
 
   try {
+    const normalized = value.replace(/\\u([0-9a-fA-F]{1,3})(?![0-9a-fA-F])/g, (_match, partial) => {
+      try {
+        const padded = `${partial}`.padEnd(4, '0')
+        return String.fromCharCode(parseInt(padded, 16))
+      } catch {
+        return ''
+      }
+    })
+
     // 如果字符串包含Unicode转义序列，尝试解码
-    if (value.includes('\\u')) {
+    if (normalized.includes('\\u')) {
       // 方法1: 尝试直接JSON.parse（适用于完整的JSON字符串）
       try {
-        const parsed = JSON.parse(value)
+        const parsed = JSON.parse(normalized)
         if (typeof parsed === 'string') {
           return parsed
         }
@@ -179,12 +188,12 @@ const decodeEscapedUnicode = (value: string): string => {
       }
 
       // 方法2: 使用正则表达式替换Unicode转义序列
-      return value.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex) => {
+      return normalized.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex) => {
         return String.fromCharCode(parseInt(hex, 16))
       })
     }
 
-    return value
+    return normalized
   } catch (error) {
     console.warn('Failed to decode Unicode escapes:', error)
     return value
@@ -283,6 +292,142 @@ export const formatSummaryText = (summary: string): string => {
 
   // 如果不是JSON，返回解码后的文本
   return decodedSummary
+}
+
+interface ParsedTable {
+  headers: string[]
+  rows: string[][]
+}
+
+interface ParsedKeyValueLine {
+  type: 'pair' | 'text'
+  indentLevel: number
+  key?: string
+  value?: string
+  raw?: string
+}
+
+const parseCLIITable = (text: string): ParsedTable | null => {
+  if (!text) return null
+
+  const lines = text
+    .split('\n')
+    .map(line => line.trimEnd())
+    .filter(Boolean)
+
+  if (lines.length < 2) {
+    return null
+  }
+
+  const headerLine = lines[0]
+  const headerParts = headerLine.split(/\s{2,}/).map(part => part.trim()).filter(Boolean)
+
+  if (headerParts.length < 3) {
+    return null
+  }
+
+  const probableTable =
+    headerParts.filter(part => /[A-Z]{2,}/.test(part) || ['namespace', 'name', 'status', 'age', 'node', 'labels'].some(key => part.toLowerCase().includes(key))).length >= Math.max(3, headerParts.length - 1)
+
+  if (!probableTable) {
+    return null
+  }
+
+  const rows: string[][] = []
+
+  for (let i = 1; i < lines.length; i++) {
+    const raw = lines[i]
+    if (!raw) continue
+
+    const cells = raw.split(/\s{2,}/).map(part => part.trim())
+    if (!cells.length) {
+      continue
+    }
+
+    let normalized = [...cells]
+
+    if (normalized.length > headerParts.length) {
+      const head = normalized.slice(0, headerParts.length - 1)
+      const tail = normalized.slice(headerParts.length - 1).join(' ')
+      normalized = [...head, tail]
+    } else if (normalized.length < headerParts.length) {
+      normalized = [...normalized, ...Array(headerParts.length - normalized.length).fill('')]
+    }
+
+    rows.push(normalized)
+  }
+
+  if (!rows.length) {
+    return null
+  }
+
+  return {
+    headers: headerParts,
+    rows,
+  }
+}
+
+const parseCLIKeyValueLines = (text: string): ParsedKeyValueLine[] | null => {
+  if (!text) return null
+
+  const lines = text.split('\n')
+  if (!lines.length) return null
+
+  const result: ParsedKeyValueLine[] = []
+  let pairCount = 0
+  let nonEmptyCount = 0
+
+  const colonLineRegex = /^([^:]+):\s*(.*)$/
+
+  for (const line of lines) {
+    const indentMatch = line.match(/^\s*/)
+    const indent = indentMatch ? indentMatch[0] : ''
+    const normalizedIndent = indent.replace(/\t/g, '  ')
+    const indentLevel = Math.floor(normalizedIndent.length / 2)
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      result.push({ type: 'text', indentLevel, raw: '' })
+      continue
+    }
+
+    nonEmptyCount += 1
+
+    const kvMatch = trimmed.match(colonLineRegex)
+    const looksLikeKeyValue = kvMatch && !trimmed.startsWith('- ')
+
+    if (looksLikeKeyValue) {
+      const key = kvMatch![1].trim()
+      const value = kvMatch![2]
+
+      // 排除 URL 或时间戳等误判情况
+      const invalidKey = key.includes('://') || key.includes('=') || key.length > 60
+
+      if (!invalidKey && key.replace(/[^a-zA-Z0-9\s\-_.]/g, '').length >= Math.min(2, key.length)) {
+        result.push({
+          type: 'pair',
+          indentLevel,
+          key,
+          value: value || ''
+        })
+        pairCount += 1
+        continue
+      }
+    }
+
+    result.push({ type: 'text', indentLevel, raw: trimmed })
+  }
+
+  if (pairCount === 0) {
+    return null
+  }
+
+  const effectiveLines = Math.max(nonEmptyCount, pairCount)
+  if (pairCount < Math.max(2, Math.ceil(effectiveLines * 0.4))) {
+    return null
+  }
+
+  return result
 }
 
 const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
@@ -1005,8 +1150,24 @@ export const ChatMessage: FC<ChatMessageProps> = ({
           {/* 工具调用结果显示 - 时间线风格，简洁展示 */}
           {toolCalls && toolCalls.length > 0 && (
             <div className="space-y-3">
-              {toolCalls.map((tool, index) => (
-                <div key={index} className="bg-gray-900 rounded-lg overflow-hidden shadow-md border border-gray-700">
+              {toolCalls.map((tool, index) => {
+                const schemaVersion = tool.output?.result?.schema_version || tool.output?.schema_version
+                const resultStatus = tool.output?.result?.status || tool.status
+                const statusVariant =
+                  resultStatus === 'success'
+                    ? 'default'
+                    : resultStatus === 'error' || resultStatus === 'failed'
+                      ? 'destructive'
+                      : 'secondary'
+                const statusLabel =
+                  resultStatus === 'success'
+                    ? '成功'
+                    : resultStatus === 'error' || resultStatus === 'failed'
+                      ? '失败'
+                      : '执行中'
+
+                return (
+                  <div key={index} className="bg-gray-900 rounded-lg overflow-hidden shadow-md border border-gray-700">
                   {/* 工具头部 - Linux终端风格 */}
                   <div className="bg-gradient-to-r from-gray-800 to-gray-700 px-4 py-3 flex items-center justify-between border-b border-gray-600">
                     <div className="flex items-center space-x-3">
@@ -1017,12 +1178,17 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                       </div>
                       <span className="text-green-400 font-mono text-sm">$</span>
                       <span className="text-white text-sm font-medium">{tool.name}</span>
+                      {schemaVersion && (
+                        <span className="text-xs text-blue-200 font-mono bg-blue-900/40 border border-blue-700 px-2 py-0.5 rounded-full">
+                          {schemaVersion}
+                        </span>
+                      )}
                     </div>
                     <Badge 
-                      variant={tool.status === 'success' ? 'default' : tool.status === 'error' ? 'destructive' : 'secondary'}
+                      variant={statusVariant}
                       className="text-xs font-mono"
                     >
-                      {tool.status === 'success' ? '成功' : tool.status === 'error' ? '失败' : '执行中'}
+                      {statusLabel}
                     </Badge>
                   </div>
                   
@@ -1075,6 +1241,8 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                     
                     // 格式化输出内容，改善可读性
                     const formatOutput = (text: string): string => {
+                      if (!text) return text
+
                       // 检测是否为YAML格式
                       if (text.includes('apiVersion:') || text.includes('kind:') || text.includes('metadata:')) {
                         // YAML格式：改善缩进和间距
@@ -1106,7 +1274,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                         // 表格格式：保持原有对齐
                         return text
                       }
-                      
+
                       // JSON格式：确保正确缩进
                       try {
                         const parsed = JSON.parse(text)
@@ -1116,9 +1284,15 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                       }
                     }
                     
+                    const tableData = output ? parseCLIITable(output) : null
+                    const formattedOutput = formatOutput(output)
+                    const parsedJSON = !tableData ? safeParseJSON(formattedOutput) : null
+                    const keyValueLines = !tableData && !parsedJSON && formattedOutput
+                      ? parseCLIKeyValueLines(formattedOutput)
+                      : null
                     return output ? (
                       <div className="px-4 py-3">
-                        <div className="flex items-center space-x-2 mb-3">
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
                           <div className="text-blue-400 text-xs font-medium">执行结果:</div>
                           {returnCode !== null && (
                             <div className={`text-xs px-2 py-0.5 rounded ${
@@ -1129,20 +1303,109 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                               退出码: {returnCode}
                             </div>
                           )}
+                          {tool.output?.result?.status_message && (
+                            <div className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-100">
+                              {tool.output.result.status_message}
+                            </div>
+                          )}
                         </div>
                         <div className="bg-gray-950 rounded-md border border-gray-700 overflow-hidden">
                           <div className="bg-gray-800 px-3 py-1 border-b border-gray-700">
                             <span className="text-gray-400 text-xs font-mono">输出</span>
                           </div>
-                          <pre className="text-gray-200 text-sm font-mono leading-relaxed p-4 whitespace-pre-wrap break-words">
-                            {formatOutput(output)}
-                          </pre>
+                          {tableData ? (
+                            <div className="p-4">
+                              <div className="overflow-x-auto rounded border border-gray-800">
+                                <table className="min-w-full divide-y divide-gray-800">
+                                  <thead className="bg-gray-900/60">
+                                    <tr>
+                                      {tableData.headers.map((header, idx) => (
+                                        <th
+                                          key={idx}
+                                          className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-blue-200 border-r border-gray-800 last:border-r-0"
+                                        >
+                                          {header}
+                                        </th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-800">
+                                    {tableData.rows.map((row, rowIdx) => (
+                                      <tr key={rowIdx} className="hover:bg-gray-900/50 transition">
+                                        {row.map((cell, cellIdx) => (
+                                          <td
+                                            key={cellIdx}
+                                            className="px-3 py-2 text-sm font-mono text-gray-200 align-top border-r border-gray-900 last:border-r-0 whitespace-pre-wrap break-words"
+                                          >
+                                            {cell || <span className="text-gray-500">-</span>}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ) : parsedJSON ? (
+                            <div className="p-4 space-y-2">
+                              <div className="text-xs text-gray-400 font-mono uppercase tracking-wide">JSON</div>
+                              <div className="bg-gray-900/70 border border-gray-800 rounded-md p-3">
+                                <JsonViewer data={parsedJSON} />
+                              </div>
+                            </div>
+                          ) : keyValueLines ? (
+                            <div className="p-4">
+                              <div className="space-y-1 font-mono text-xs sm:text-sm text-gray-100">
+                                {keyValueLines.map((line, lineIdx) => {
+                                  const paddingLeft = `${line.indentLevel * 16}px`
+
+                                  if (line.type === 'pair') {
+                                    return (
+                                      <div
+                                        key={`${lineIdx}-pair`}
+                                        className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 items-start"
+                                        style={{ paddingLeft }}
+                                      >
+                                        <div className="text-gray-400">
+                                          {line.key}
+                                        </div>
+                                        <div className="whitespace-pre-wrap text-gray-100">
+                                          {line.value && line.value.trim()
+                                            ? line.value
+                                            : <span className="text-gray-500">—</span>}
+                                        </div>
+                                      </div>
+                                    )
+                                  }
+
+                                  if (!line.raw) {
+                                    return <div key={`${lineIdx}-spacer`} className="h-2" />
+                                  }
+
+                                  return (
+                                    <div
+                                      key={`${lineIdx}-text`}
+                                      className="whitespace-pre-wrap text-gray-300"
+                                      style={{ paddingLeft }}
+                                    >
+                                      {line.raw}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <pre className="text-gray-200 text-sm font-mono leading-relaxed p-4 whitespace-pre-wrap break-words">
+                              {formattedOutput}
+                            </pre>
+                          )}
                         </div>
                       </div>
                     ) : null
                   })()}
                 </div>
-              ))}
+              )
+              })}
             </div>
           )}
         </div>

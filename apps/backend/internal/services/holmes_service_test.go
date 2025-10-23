@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"robusta-web/backend/internal/models"
 
 	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -81,6 +84,38 @@ func setupHolmesTestDB(t *testing.T) *db.Database {
 	require.NoError(t, err)
 
 	return &db.Database{DB: database}
+}
+
+type mockPayloadStorage struct {
+	data    map[string][]byte
+	lastKey string
+}
+
+func newMockPayloadStorage() *mockPayloadStorage {
+	return &mockPayloadStorage{
+		data: make(map[string][]byte),
+	}
+}
+
+func (m *mockPayloadStorage) Save(ctx context.Context, prefix string, data []byte, contentType string) (string, error) {
+	cleanPrefix := strings.Trim(prefix, "/")
+	if cleanPrefix == "" {
+		cleanPrefix = "rca-results"
+	}
+	key := fmt.Sprintf("%s/%s", cleanPrefix, uuid.NewString())
+	m.data[key] = append([]byte(nil), data...)
+	m.lastKey = key
+	return key, nil
+}
+
+func (m *mockPayloadStorage) Get(ctx context.Context, key string) ([]byte, error) {
+	if data, ok := m.data[key]; ok {
+		return append([]byte(nil), data...), nil
+	}
+	return nil, fmt.Errorf("从MinIO获取对象失败: %w", minio.ErrorResponse{
+		Code:       "NoSuchKey",
+		StatusCode: http.StatusNotFound,
+	})
 }
 
 func TestHolmesService_TriggerAnalysis(t *testing.T) {
@@ -157,7 +192,8 @@ func TestHolmesService_TriggerAnalysis(t *testing.T) {
 	require.NoError(t, err)
 
 	// 创建HolmesService
-	service := NewHolmesService(database, cfg)
+	storage := newMockPayloadStorage()
+	service := NewHolmesService(database, cfg, storage)
 
 	// 触发分析
 	rcaRun, err := service.TriggerAnalysis(context.Background(), alert.ID.String(), "standard")
@@ -176,6 +212,17 @@ func TestHolmesService_TriggerAnalysis(t *testing.T) {
 	assert.Equal(t, "completed", updatedRun.Status)
 	assert.NotNil(t, updatedRun.Summary)
 	assert.Equal(t, "Test analysis completed", *updatedRun.Summary)
+	assert.NotEmpty(t, updatedRun.RawPayloadKey)
+	_, exists := storage.data[updatedRun.RawPayloadKey]
+	assert.True(t, exists)
+	var cached RCACachedResult
+	err = json.Unmarshal(storage.data[updatedRun.RawPayloadKey], &cached)
+	require.NoError(t, err)
+	assert.Equal(t, updatedRun.ID.String(), cached.RunID)
+	assert.Equal(t, alert.ID.String(), cached.AlertID)
+	assert.NotNil(t, cached.Analysis)
+	assert.Equal(t, "completed", cached.Analysis.Status)
+	assert.Equal(t, updatedRun.RawPayloadKey, cached.StorageKey)
 }
 
 func TestHolmesService_GetAnalysisByAlertID(t *testing.T) {
@@ -191,7 +238,8 @@ func TestHolmesService_GetAnalysisByAlertID(t *testing.T) {
 		},
 	}
 
-	service := NewHolmesService(database, cfg)
+	storage := newMockPayloadStorage()
+	service := NewHolmesService(database, cfg, storage)
 
 	// 创建测试数据
 	alertID := uuid.New()
@@ -247,7 +295,8 @@ func TestHolmesService_GetAnalysisStats(t *testing.T) {
 		},
 	}
 
-	service := NewHolmesService(database, cfg)
+	storage := newMockPayloadStorage()
+	service := NewHolmesService(database, cfg, storage)
 
 	// 创建测试集群和告警
 	cluster := &models.Cluster{
@@ -369,7 +418,8 @@ func TestHolmesService_HandleAnalysisError(t *testing.T) {
 	err := database.DB.Create(alert).Error
 	require.NoError(t, err)
 
-	service := NewHolmesService(database, cfg)
+	storage := newMockPayloadStorage()
+	service := NewHolmesService(database, cfg, storage)
 
 	// 触发分析（应该失败）
 	rcaRun, err := service.TriggerAnalysis(context.Background(), alert.ID.String(), "standard")
@@ -385,4 +435,204 @@ func TestHolmesService_HandleAnalysisError(t *testing.T) {
 	assert.Equal(t, "failed", updatedRun.Status)
 	assert.NotNil(t, updatedRun.ErrorMessage)
 	assert.Contains(t, *updatedRun.ErrorMessage, "500")
+}
+
+func TestHolmesService_GetCachedResult(t *testing.T) {
+	database := setupHolmesTestDB(t)
+	storage := newMockPayloadStorage()
+
+	cfg := &config.Config{
+		HolmesGPT: config.HolmesGPTConfig{
+			URL:            "http://localhost:8081",
+			TimeoutSeconds: 300,
+			Enabled:        true,
+			DefaultDepth:   "standard",
+			Model:          "test-model",
+			ProxyAuthToken: "",
+		},
+	}
+
+	service := NewHolmesService(database, cfg, storage)
+
+	alertID := uuid.New()
+	runID := uuid.New()
+	now := time.Now()
+
+	alert := &models.Alert{
+		BaseModel: models.BaseModel{
+			ID: alertID,
+		},
+		Fingerprint: "cached-alert",
+		ClusterID:   "cluster-1",
+		Title:       "Cached Alert",
+		Severity:    "high",
+		Status:      "firing",
+	}
+	require.NoError(t, database.DB.Create(alert).Error)
+
+	cached := RCACachedResult{
+		Version:  "v1",
+		RunID:    runID.String(),
+		AlertID:  alertID.String(),
+		CachedAt: now,
+		Depth:    "standard",
+		Analysis: &HolmesAnalysisResponse{
+			ID:          "analysis-cached",
+			Status:      "completed",
+			Summary:     "Cached summary",
+			StartedAt:   now.Add(-5 * time.Minute),
+			CompletedAt: &now,
+		},
+	}
+
+	payload, err := json.Marshal(cached)
+	require.NoError(t, err)
+	key, err := storage.Save(context.Background(), fmt.Sprintf("rca-results/%s", alertID.String()), payload, "application/json")
+	require.NoError(t, err)
+
+	run := &models.RCARun{
+		BaseModel: models.BaseModel{
+			ID:        runID,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		AlertID:       alertID,
+		Status:        "completed",
+		StartedAt:     now.Add(-10 * time.Minute),
+		CompletedAt:   &now,
+		RawPayloadKey: key,
+	}
+	require.NoError(t, database.DB.Create(run).Error)
+
+	result, err := service.GetCachedResult(context.Background(), alertID.String())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, cached.RunID, result.RunID)
+	if assert.NotNil(t, result.Analysis) {
+		assert.Equal(t, cached.Analysis.ID, result.Analysis.ID)
+		assert.Equal(t, cached.Analysis.Summary, result.Analysis.Summary)
+	}
+	assert.Equal(t, run.RawPayloadKey, result.StorageKey)
+
+	// 通过运行ID获取缓存
+	resultByRun, err := service.GetCachedResultByRunID(context.Background(), runID.String())
+	require.NoError(t, err)
+	require.NotNil(t, resultByRun)
+	assert.Equal(t, cached.RunID, resultByRun.RunID)
+	assert.Equal(t, run.RawPayloadKey, resultByRun.StorageKey)
+}
+
+func TestHolmesService_FinalizeStreamRun_Success(t *testing.T) {
+	database := setupHolmesTestDB(t)
+	storage := newMockPayloadStorage()
+
+	cfg := &config.Config{
+		HolmesGPT: config.HolmesGPTConfig{
+			URL:            "http://localhost:8081",
+			TimeoutSeconds: 300,
+			Enabled:        true,
+			DefaultDepth:   "standard",
+			Model:          "test-model",
+			ProxyAuthToken: "",
+		},
+	}
+
+	service := NewHolmesService(database, cfg, storage)
+
+	alert := &models.Alert{
+		BaseModel: models.BaseModel{
+			ID: uuid.New(),
+		},
+		Fingerprint: "stream-alert",
+		ClusterID:   "cluster-stream",
+		Title:       "Stream Alert",
+		Severity:    "high",
+		Status:      "firing",
+	}
+	require.NoError(t, database.DB.Create(alert).Error)
+
+	run, err := service.StartStreamRun(alert.ID.String())
+	require.NoError(t, err)
+	require.NotNil(t, run)
+
+	chunks := []string{
+		"data: {\"type\":\"analysis\",\"data\":{\"step\":1}}\n\n",
+		"data: {\"type\":\"complete\",\"data\":{}}\n\n",
+	}
+
+	metadata := map[string]interface{}{
+		"summary": "最终结论",
+	}
+
+	service.FinalizeStreamRun(context.Background(), run, "standard", chunks, metadata, nil)
+
+	var storedRun models.RCARun
+	err = database.DB.Where("id = ?", run.ID).First(&storedRun).Error
+	require.NoError(t, err)
+	assert.Equal(t, "completed", storedRun.Status)
+	assert.NotNil(t, storedRun.CompletedAt)
+	assert.Equal(t, "最终结论", func() string {
+		if storedRun.Summary != nil {
+			return *storedRun.Summary
+		}
+		return ""
+	}())
+	assert.NotEmpty(t, storedRun.RawPayloadKey)
+
+	data, ok := storage.data[storedRun.RawPayloadKey]
+	assert.True(t, ok)
+
+	var cached RCACachedResult
+	err = json.Unmarshal(data, &cached)
+	require.NoError(t, err)
+	assert.Equal(t, run.ID.String(), cached.RunID)
+	assert.Equal(t, alert.ID.String(), cached.AlertID)
+	assert.ElementsMatch(t, chunks, cached.StreamChunks)
+	assert.Equal(t, "最终结论", cached.Metadata["summary"])
+}
+
+func TestHolmesService_FinalizeStreamRun_Error(t *testing.T) {
+	database := setupHolmesTestDB(t)
+	storage := newMockPayloadStorage()
+
+	cfg := &config.Config{
+		HolmesGPT: config.HolmesGPTConfig{
+			URL:            "http://localhost:8081",
+			TimeoutSeconds: 300,
+			Enabled:        true,
+			DefaultDepth:   "standard",
+			Model:          "test-model",
+			ProxyAuthToken: "",
+		},
+	}
+
+	service := NewHolmesService(database, cfg, storage)
+
+	alert := &models.Alert{
+		BaseModel: models.BaseModel{
+			ID: uuid.New(),
+		},
+		Fingerprint: "stream-alert-err",
+		ClusterID:   "cluster-stream",
+		Title:       "Stream Alert Err",
+		Severity:    "high",
+		Status:      "firing",
+	}
+	require.NoError(t, database.DB.Create(alert).Error)
+
+	run, err := service.StartStreamRun(alert.ID.String())
+	require.NoError(t, err)
+
+	streamErr := fmt.Errorf("stream interrupted")
+	service.FinalizeStreamRun(context.Background(), run, "standard", nil, nil, streamErr)
+
+	var storedRun models.RCARun
+	err = database.DB.Where("id = ?", run.ID).First(&storedRun).Error
+	require.NoError(t, err)
+	assert.Equal(t, "failed", storedRun.Status)
+	assert.NotNil(t, storedRun.CompletedAt)
+	assert.NotNil(t, storedRun.ErrorMessage)
+	assert.Contains(t, *storedRun.ErrorMessage, "stream interrupted")
+	_, ok := storage.data[storage.lastKey]
+	assert.False(t, ok)
 }

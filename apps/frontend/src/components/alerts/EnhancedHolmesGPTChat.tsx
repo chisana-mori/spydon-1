@@ -5,11 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { 
-  Brain, 
-  Play, 
-  Square, 
-  RotateCcw, 
+import {
+  Brain,
+  Play,
+  Square,
+  RotateCcw,
   Download,
   Loader2,
   AlertCircle,
@@ -17,7 +17,8 @@ import {
   MessageSquare,
   Settings,
   Volume2,
-  VolumeX
+  VolumeX,
+  Clock
 } from 'lucide-react'
 import { Alert } from '@/types/api'
 import { ChatMessage, HolmesStructuredData, HolmesTaskItem, HolmesTaskSection, formatSummaryText } from './ChatMessage'
@@ -27,6 +28,8 @@ import { zhCN } from 'date-fns/locale'
 interface EnhancedHolmesGPTChatProps {
   alert: Alert
   showCard?: boolean  // 控制是否显示外层Card
+  cachedResult?: any  // 缓存的RCA结果
+  loadingCache?: boolean  // 是否正在加载缓存
 }
 
 interface AnalysisMessage {
@@ -53,6 +56,13 @@ interface AnalysisState {
   completedSteps?: number
 }
 
+interface StreamProcessor {
+  appendChunk: (chunk: string) => boolean
+  finalize: (status?: AnalysisState['status']) => void
+  processAnalysisData: (payload: any) => void
+  processDataItem: (payload: any) => void
+}
+
 interface ChatSettings {
   autoScroll: boolean
   soundEnabled: boolean
@@ -60,9 +70,11 @@ interface ChatSettings {
   language: 'zh-CN' | 'en-US'
 }
 
-export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({ 
-  alert, 
-  showCard = true 
+export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
+  alert,
+  showCard = true,
+  cachedResult,
+  loadingCache = false
 }) => {
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
     status: 'idle',
@@ -82,13 +94,26 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   const [pinnedSummaryData, setPinnedSummaryData] = useState<HolmesStructuredData | undefined>(undefined)
   const tasksMessageIdRef = useRef<string>('tasks-pinned')
   const summaryMessageIdRef = useRef<string>('summary-pinned')
-  
-  
+  const [isReplayingCache, setIsReplayingCache] = useState(false)
+
+  const restartAnalysis = useCallback(() => {
+    setAnalysisState({
+      status: 'idle',
+      messages: [],
+      totalSteps: 0,
+      completedSteps: 0
+    })
+    allTasksCompletedRef.current = false
+    setPinnedTasksData(undefined)
+    setPinnedSummaryData(undefined)
+  }, [])
+
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [isUserNearBottom, setIsUserNearBottom] = useState(true)
   const [showScrollToLatest, setShowScrollToLatest] = useState(false)
   const lastContentSignatureRef = useRef<string>('')
+  const lastReplayedCacheKeyRef = useRef<string | null>(null)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     requestAnimationFrame(() => {
@@ -162,6 +187,128 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
     })
     return () => cancelAnimationFrame(frame)
   }, [analysisState.messages, pinnedTasksData, pinnedSummaryData, handleScroll])
+
+  // 加载缓存结果并回放
+  useEffect(() => {
+    if (!cachedResult) {
+      lastReplayedCacheKeyRef.current = null
+    }
+  }, [cachedResult])
+
+  useEffect(() => {
+    if (!cachedResult || loadingCache || isReplayingCache) {
+      return
+    }
+
+    const runId = cachedResult.run_id || cachedResult.runId || cachedResult.RunID
+    const cacheKey = runId || (cachedResult.cached_at ? `${cachedResult.cached_at}` : JSON.stringify(cachedResult))
+
+    if (!cacheKey) {
+      console.warn('缓存结果缺少可识别的运行ID，将跳过自动回放')
+      return
+    }
+
+    if (lastReplayedCacheKeyRef.current === cacheKey) {
+      return
+    }
+
+    if (analysisState.status !== 'idle' || analysisState.messages.length > 0) {
+      restartAnalysis()
+    }
+
+    lastReplayedCacheKeyRef.current = cacheKey
+    console.log('✅ 找到RCA缓存，将自动回放:', cachedResult)
+    replayCachedResult(cachedResult)
+  }, [cachedResult, loadingCache, isReplayingCache, analysisState.status, analysisState.messages.length, restartAnalysis])
+
+  const buildCachedSSEChunks = (cached: any): string[] => {
+    if (Array.isArray(cached?.stream_chunks) && cached.stream_chunks.length > 0) {
+      return cached.stream_chunks
+    }
+
+    const events: string[] = []
+    const pushEvent = (payload: any) => {
+      events.push(`data: ${JSON.stringify(payload)}\n\n`)
+    }
+
+    if (cached?.analysis) {
+      pushEvent({ type: 'analysis', data: cached.analysis })
+    }
+
+    const fullText = cached?.metadata?.full_text
+    if (fullText) {
+      pushEvent({ type: 'analysis', data: { content: fullText } })
+    }
+
+    const summary = cached?.metadata?.summary
+    if (summary) {
+      pushEvent({ type: 'analysis', data: { content: summary, summary } })
+    }
+
+    if (events.length) {
+      pushEvent({ type: 'complete', data: {} })
+      events.push('data: [DONE]\n\n')
+    }
+
+    return events
+  }
+
+  // 回放缓存的RCA结果
+  const replayCachedResult = async (cached: any) => {
+    setIsReplayingCache(true)
+    console.log('🎬 开始回放缓存的RCA结果')
+
+    try {
+      const chunks = buildCachedSSEChunks(cached)
+
+      if (!chunks.length) {
+        console.warn('⚠️ 缓存中没有可用的内容')
+        setAnalysisState({
+          status: 'error',
+          messages: [],
+          error: '缓存中没有可回放的HolmesGPT数据'
+        })
+        return
+      }
+
+      setAnalysisState({
+        status: 'analyzing',
+        messages: [],
+        totalSteps: 0,
+        completedSteps: 0
+      })
+      allTasksCompletedRef.current = false
+      setPinnedTasksData(undefined)
+      setPinnedSummaryData(undefined)
+
+      const baseDate = cached?.cached_at ? new Date(cached.cached_at) : new Date()
+      const timestampFactory = () => format(baseDate, 'HH:mm:ss', { locale: zhCN })
+      const processor = createStreamProcessor({
+        initialTimestamp: timestampFactory(),
+        timestampFactory
+      })
+
+      for (const chunk of chunks) {
+        if (typeof chunk !== 'string') continue
+        const shouldStop = processor.appendChunk(chunk)
+        if (shouldStop) {
+          break
+        }
+      }
+
+      processor.finalize('completed')
+      playNotificationSound()
+    } catch (error) {
+      console.error('❌ 回放缓存结果失败:', error)
+      setAnalysisState({
+        status: 'error',
+        messages: [],
+        error: '加载缓存结果失败'
+      })
+    } finally {
+      setIsReplayingCache(false)
+    }
+  }
 
   // 构建 HolmesGPT 调查请求
   const buildInvestigateRequest = () => {
@@ -826,6 +973,404 @@ Analysis Requirements:
     return sections.length ? sections.join('\n\n') : undefined
   }
 
+  const createStreamProcessor = (options: {
+    initialTimestamp: string
+    timestampFactory: () => string
+  }): StreamProcessor => {
+    let buffer = ''
+    let completed = false
+
+    let currentAssistantMessage: AnalysisMessage = {
+      id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      role: 'assistant',
+      content: '',
+      timestamp: options.initialTimestamp,
+      isStreaming: true,
+      toolCalls: []
+    }
+
+    setAnalysisState(prev => ({
+      ...prev,
+      messages: [...prev.messages, currentAssistantMessage]
+    }))
+
+    const syncCurrentMessage = () => {
+      const progress = parseProgress(currentAssistantMessage.structuredData)
+
+      setAnalysisState(prev => {
+        const exists = prev.messages.some(msg => msg.id === currentAssistantMessage.id)
+        const messages = exists
+          ? prev.messages.map(msg => (msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg))
+          : [...prev.messages, currentAssistantMessage]
+
+        return {
+          ...prev,
+          messages,
+          totalSteps: progress.total,
+          completedSteps: progress.completed
+        }
+      })
+    }
+
+    const mergePinnedTasks = (structured?: HolmesStructuredData) => {
+      if (!structured) return undefined
+
+      let merged: HolmesStructuredData | undefined
+      setPinnedTasksData(prev => {
+        merged = mergeHolmesStructuredData(prev, structured)
+        return merged
+      })
+
+      if (merged) {
+        const progress = parseProgress(merged)
+        setAnalysisState(prev => ({
+          ...prev,
+          totalSteps: progress.total,
+          completedSteps: progress.completed
+        }))
+
+        const allTasks =
+          merged.tasks ||
+          merged.taskSections?.flatMap(section => section.tasks) ||
+          []
+
+        if (allTasks.length > 0 && allTasks.every(task => task.status === 'completed')) {
+          allTasksCompletedRef.current = true
+        }
+      }
+
+      return merged
+    }
+
+    const appendSummary = (summary: string) => {
+      if (!summary) return
+      setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary }))
+    }
+
+    const startNewAssistantMessage = () => {
+      currentAssistantMessage = {
+        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        role: 'assistant',
+        content: '',
+        timestamp: options.timestampFactory(),
+        isStreaming: true,
+        toolCalls: []
+      }
+
+      setAnalysisState(prev => ({
+        ...prev,
+        messages: [...prev.messages, currentAssistantMessage]
+      }))
+    }
+
+    const processDataItem = (item: any, eventType?: string) => {
+      if (!item) return
+      console.log('Processing data item:', item)
+
+      if (eventType === 'ai_answer_end') {
+        let summaryText = ''
+        if (typeof item.analysis === 'string' && item.analysis.trim()) {
+          summaryText = appendTextChunk(summaryText, item.analysis.trim())
+        }
+
+        if (item.sections) {
+          try {
+            const sectionSummary = formatSummaryText(JSON.stringify({ sections: item.sections }))
+            if (sectionSummary && sectionSummary.trim()) {
+              summaryText = appendTextChunk(summaryText, sectionSummary.trim())
+            }
+          } catch (error) {
+            console.warn('Failed to format ai_answer_end sections:', error)
+          }
+        }
+
+        let combinedStructured: HolmesStructuredData | undefined
+
+        if (item.sections) {
+          const sectionStructured = extractHolmesStructuredData(item.sections)
+          combinedStructured = mergeHolmesStructuredData(combinedStructured, sectionStructured)
+        }
+
+        if (summaryText.trim()) {
+          combinedStructured = mergeHolmesStructuredData(combinedStructured, { summary: summaryText.trim() })
+        }
+
+        if (combinedStructured) {
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            structuredData: mergeHolmesStructuredData(currentAssistantMessage.structuredData, combinedStructured),
+            content: summaryText.trim()
+              ? appendTextChunk(currentAssistantMessage.content, summaryText.trim())
+              : currentAssistantMessage.content,
+            isStreaming: true
+          }
+          syncCurrentMessage()
+          setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, combinedStructured))
+        }
+
+        return
+      }
+
+      if (item.role === 'tool' && item.tool_call_id) {
+        if (item.name === 'TodoWrite') {
+          console.log('TodoWrite tool result received (unified branch)')
+          const structured = extractHolmesStructuredData(item)
+          mergePinnedTasks(structured)
+          return
+        }
+
+        const toolCall = {
+          name: item.name,
+          input: item.description,
+          output: item.result,
+          status: (item.result?.status === 'success'
+            ? 'success'
+            : item.result?.status === 'error'
+            ? 'error'
+            : 'pending') as 'pending' | 'success' | 'error',
+          command: item.result?.invocation || item.description || ''
+        }
+
+        console.log('=== CREATING TOOL CALL MESSAGE ===')
+        console.log('Tool call data:', toolCall)
+
+        const toolCallMessage: AnalysisMessage = {
+          id: `tool-${item.tool_call_id || Date.now()}`,
+          role: 'assistant',
+          content: '',
+          timestamp: options.timestampFactory(),
+          isStreaming: false,
+          toolCalls: [toolCall]
+        }
+
+        if (currentAssistantMessage.content.trim()) {
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            isStreaming: false
+          }
+
+          setAnalysisState(prev => {
+            const exists = prev.messages.some(msg => msg.id === currentAssistantMessage.id)
+            const updated = exists
+              ? prev.messages.map(msg =>
+                  msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
+                )
+              : [...prev.messages, currentAssistantMessage]
+
+            return {
+              ...prev,
+              messages: [...updated, toolCallMessage]
+            }
+          })
+
+          startNewAssistantMessage()
+        } else {
+          setAnalysisState(prev => ({
+            ...prev,
+            messages: [...prev.messages, toolCallMessage]
+          }))
+        }
+
+        console.log('Tool call message created:', toolCallMessage)
+        console.log('=== END TOOL CALL MESSAGE CREATION ===')
+        return
+      }
+
+      if (item.content && typeof item.content === 'string') {
+        if (allTasksCompletedRef.current) {
+          appendSummary(item.content)
+          return
+        }
+
+        const structured = extractHolmesStructuredData(item)
+        if (structured?.summary) {
+          appendSummary(structured.summary)
+          structured.summary = undefined
+        }
+
+        const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+        currentAssistantMessage = {
+          ...currentAssistantMessage,
+          structuredData: mergedStructured,
+          content: appendTextChunk(currentAssistantMessage.content, item.content),
+          isStreaming: true
+        }
+        syncCurrentMessage()
+        return
+      }
+
+      if (item.tool_name && item.id && !item.role) {
+        console.log('Tool call started:', item.tool_name, item.id)
+        return
+      }
+
+      if (item.type === 'analysis' || item.type === 'analysis_chunk') {
+        const payload = item.data ?? item.content
+
+        if (payload && typeof payload === 'object') {
+          const structured = extractHolmesStructuredData(payload)
+          const hasTodo = structured?.taskSections?.some(section => section.id === 'todo-write-main')
+          if (hasTodo) {
+            mergePinnedTasks(structured)
+            return
+          }
+
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            structuredData: mergedStructured,
+            isStreaming: true
+          }
+          syncCurrentMessage()
+          return
+        }
+
+        if (typeof payload === 'string') {
+          if (allTasksCompletedRef.current) {
+            appendSummary(payload)
+          } else {
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: payload })
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergedStructured,
+              content: appendTextChunk(currentAssistantMessage.content, payload),
+              isStreaming: true
+            }
+            syncCurrentMessage()
+          }
+        }
+      }
+    }
+
+    const processAnalysisData = (analysisData: any) => {
+      console.log('Processing analysis data:', analysisData)
+
+      if (typeof analysisData === 'string') {
+        if (allTasksCompletedRef.current) {
+          appendSummary(analysisData)
+        } else {
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: analysisData })
+          currentAssistantMessage = {
+            ...currentAssistantMessage,
+            structuredData: mergedStructured,
+            content: appendTextChunk(currentAssistantMessage.content, analysisData),
+            isStreaming: true
+          }
+          syncCurrentMessage()
+        }
+        return
+      }
+
+      if (Array.isArray(analysisData)) {
+        analysisData.forEach(item => processDataItem(item))
+        return
+      }
+
+      if (analysisData && typeof analysisData === 'object') {
+        processDataItem(analysisData)
+      }
+    }
+
+    const markCompleted = () => {
+      if (completed) {
+        return
+      }
+
+      currentAssistantMessage = {
+        ...currentAssistantMessage,
+        isStreaming: false
+      }
+      syncCurrentMessage()
+      setAnalysisState(prev => ({
+        ...prev,
+        status: 'completed'
+      }))
+      completed = true
+    }
+
+    let currentEventType: string | null = null
+
+    const appendChunk = (chunk: string): boolean => {
+      buffer += chunk
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      let stop = false
+
+      for (const line of lines) {
+        if (line === '') {
+          currentEventType = null
+          continue
+        }
+
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim()
+          continue
+        }
+        if (!line.startsWith('data: ')) {
+          continue
+        }
+
+        const rawData = line.slice(6)
+
+        if (!rawData || rawData === '[DONE]') {
+          continue
+        }
+
+        if (rawData === '{"type":"complete","data":{}}') {
+          console.log('Analysis complete signal received (unified)')
+          markCompleted()
+          stop = true
+          continue
+        }
+
+        try {
+          const data = JSON.parse(rawData)
+
+          if (data.type === 'analysis' && data.data !== undefined) {
+            processAnalysisData(data.data)
+          } else if (Array.isArray(data)) {
+            data.forEach(item => processDataItem(item, currentEventType || undefined))
+          } else {
+            processDataItem(data, currentEventType || undefined)
+          }
+        } catch (error) {
+          console.error('JSON parse error:', error, 'Line:', line)
+        }
+      }
+
+      return stop
+    }
+
+    const finalize = (status: AnalysisState['status'] = 'completed') => {
+      if (status === 'completed') {
+        markCompleted()
+      } else if (!completed) {
+        currentAssistantMessage = {
+          ...currentAssistantMessage,
+          isStreaming: false
+        }
+        syncCurrentMessage()
+      }
+
+      setAnalysisState(prev => ({
+        ...prev,
+        status: status === 'completed' && prev.status === 'error' ? prev.status : status
+      }))
+
+      if (status === 'completed') {
+        completed = true
+      }
+    }
+
+    return {
+      appendChunk,
+      finalize,
+      processAnalysisData,
+      processDataItem
+    }
+  }
+
   // 开始分析
   const startAnalysis = async () => {
     const controller = new AbortController()
@@ -868,419 +1413,37 @@ Analysis Requirements:
         throw new Error('无法读取响应流')
       }
 
-      let currentAssistantMessage: AnalysisMessage = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: '',
-        timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
-        isStreaming: true,
-        toolCalls: []
-      }
-
-      setAnalysisState(prev => ({
-        ...prev,
-        messages: [...prev.messages, currentAssistantMessage]
-      }))
-      
+      const timestampFactory = () => format(new Date(), 'HH:mm:ss', { locale: zhCN })
+      const processor = createStreamProcessor({
+        initialTimestamp: timestampFactory(),
+        timestampFactory
+      })
 
       const decoder = new TextDecoder()
-      let buffer = ''
-
-      // 处理单个数据项的函数
-      const processDataItem = (item: any) => {
-        console.log('Processing data item:', item)
-        
-        // 0. 优先检查是否为工具调用结果 - 创建独立的工具调用消息
-        if (item.role === 'tool' && item.tool_call_id) {
-          // 对于 TodoWrite，不创建独立消息，直接更新任务卡片
-          if (item.name === 'TodoWrite') {
-            console.log('TodoWrite tool result received (early branch) - update structured data only')
-            const structured = extractHolmesStructuredData(item)
-            const mergedStructured = mergeHolmesStructuredData(pinnedTasksData, structured)
-
-            // 当所有任务完成后，标记进入结论阶段
-            if (mergedStructured) {
-              const allTasks = mergedStructured.tasks || mergedStructured.taskSections?.flatMap(s => s.tasks) || []
-              if (allTasks.length > 0 && allTasks.every(t => t.status === 'completed')) {
-                console.log('All tasks completed (early branch), expecting final summary.')
-                allTasksCompletedRef.current = true
-              }
-              const progress = parseProgress(mergedStructured)
-              setAnalysisState(prev => ({
-                ...prev,
-                totalSteps: progress.total,
-                completedSteps: progress.completed
-              }))
-            }
-            setPinnedTasksData(mergedStructured)
-            return
-          }
-          const toolCall = {
-            name: item.name,
-            input: item.description,
-            output: item.result,
-            status: (item.result?.status === 'success' ? 'success' : item.result?.status === 'error' ? 'error' : 'pending') as 'pending' | 'success' | 'error',
-            command: item.result?.invocation || item.description || ''
-          }
-          
-          console.log('=== CREATING TOOL CALL MESSAGE ===')
-          console.log('Tool call data:', toolCall)
-          
-          // 创建独立的工具调用消息，插入时间线
-          const toolCallMessage: AnalysisMessage = {
-            id: `tool-${item.tool_call_id || Date.now()}`,
-            role: 'assistant',
-            content: '', // 工具调用消息没有文本内容
-            timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
-            isStreaming: false,
-            toolCalls: [toolCall]
-          }
-          
-          // 先完成当前的助手消息（如果有内容的话）
-          if (currentAssistantMessage.content.trim()) {
-            currentAssistantMessage = {
-              ...currentAssistantMessage,
-              isStreaming: false
-            }
-            
-            setAnalysisState(prev => ({
-              ...prev,
-              messages: [
-                ...prev.messages.map(msg => 
-                  msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
-                ),
-                toolCallMessage // 添加工具调用消息
-              ]
-            }))
-            
-            // 创建新的助手消息用于后续内容
-            currentAssistantMessage = {
-              id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-              role: 'assistant',
-              content: '',
-              timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
-              isStreaming: true,
-              toolCalls: []
-            }
-            // 追加新的助手消息，确保随后的增量更新可定位
-            setAnalysisState(prev => ({
-              ...prev,
-              messages: [...prev.messages, currentAssistantMessage]
-            }))
-          } else {
-            // 如果当前助手消息没有内容，直接添加工具调用消息
-            setAnalysisState(prev => ({
-              ...prev,
-              messages: [...prev.messages, toolCallMessage]
-            }))
-          }
-          
-          console.log('Tool call message created:', toolCallMessage)
-          console.log('=== END TOOL CALL MESSAGE CREATION ===')
-        }
-        
-        // 1. 处理文本内容
-        else if (item.content && typeof item.content === 'string') {
-          // 若任务全部完成，将文本归入固定“分析结论”卡片，避免插入中部
-          if (allTasksCompletedRef.current) {
-            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: item.content }))
-            // 不再把结论文本追加到中间消息，保证结论出现在底部
-            return
-          }
-          // 否则按过程文本/计划解析
-          const structured = extractHolmesStructuredData(item)
-          // 若解析出了summary（例如isFinalReport），也固定到底部卡片，并从结构中移除
-          if (structured?.summary) {
-            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: structured.summary }))
-            structured.summary = undefined
-          }
-          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
-          currentAssistantMessage = {
-            ...currentAssistantMessage,
-            structuredData: mergedStructured,
-            content: appendTextChunk(currentAssistantMessage.content, item.content),
-            isStreaming: true
-          }
-          updateMessageState()
-        }
-        
-        // 2. 处理工具调用开始（tool_name + id）
-        else if (item.tool_name && item.id && !item.role) {
-          console.log('Tool call started:', item.tool_name, item.id)
-          // 可以在这里显示工具调用开始的状态
-        }
-        
-        // 3. 处理结构化数据或任务更新
-        else if (item.type === 'analysis' || item.type === 'analysis_chunk') {
-          const payload = item.data ?? item.content
-
-          if (payload && typeof payload === 'object') {
-            const structured = extractHolmesStructuredData(payload)
-            const hasTodo = structured?.taskSections?.some(s => s.id === 'todo-write-main')
-            if (hasTodo) {
-              const mergedPinned = mergeHolmesStructuredData(pinnedTasksData, structured)
-              setPinnedTasksData(mergedPinned)
-              const progress = parseProgress(mergedPinned)
-              setAnalysisState(prev => ({
-                ...prev,
-                totalSteps: progress.total,
-                completedSteps: progress.completed
-              }))
-              return
-            }
-            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
-            currentAssistantMessage = {
-              ...currentAssistantMessage,
-              structuredData: mergedStructured,
-              isStreaming: true
-            }
-            updateMessageState()
-          }
-        }
-      }
-      
-      // 更新消息状态的辅助函数
-      const updateMessageState = () => {
-        const progress = parseProgress(currentAssistantMessage.structuredData)
-        
-        setAnalysisState(prev => {
-          const exists = prev.messages.some(msg => msg.id === currentAssistantMessage.id)
-          return {
-            ...prev,
-            messages: exists
-              ? prev.messages.map(msg =>
-                  msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
-                )
-              : [...prev.messages, currentAssistantMessage],
-            totalSteps: progress.total,
-            completedSteps: progress.completed
-          }
-        })
-      }
-
-      // 处理SSE格式的分析数据
-      const processAnalysisData = (analysisData: any) => {
-        console.log('Processing analysis data:', analysisData)
-        
-        // 1. 处理AI消息内容
-        if (analysisData.content && typeof analysisData.content === 'string') {
-          console.log('Processing AI message content:', analysisData.content);
-          if (allTasksCompletedRef.current) {
-            // 结论阶段：固定在底部
-            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: analysisData.content }))
-            return
-          }
-          // 过程阶段：解析为进度/计划
-          const structured = extractHolmesStructuredData(analysisData)
-          if (structured?.summary) {
-            // 若模型直接给了带标题的总结，仍固定到底部
-            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: structured.summary }))
-            structured.summary = undefined
-          }
-
-          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
-          currentAssistantMessage = {
-            ...currentAssistantMessage,
-            structuredData: mergedStructured,
-            content: appendTextChunk(currentAssistantMessage.content, analysisData.content),
-            isStreaming: true
-          }
-          updateMessageState()
-        }
-        
-        // 2. 处理工具调用开始
-        else if (analysisData.tool_name && analysisData.id) {
-          console.log('Tool call started:', analysisData.tool_name, analysisData.id)
-          // 可以在这里显示工具调用开始的状态
-        }
-        
-        // 3. 处理工具调用结果
-        else if (analysisData.role === 'tool' && analysisData.tool_call_id) {
-          const toolCall = {
-            name: analysisData.name,
-            input: analysisData.description,
-            output: analysisData.result,
-            status: (analysisData.result?.status === 'success' ? 'success' : analysisData.result?.status === 'error' ? 'error' : 'pending') as 'pending' | 'success' | 'error',
-            command: analysisData.result?.invocation || analysisData.description || ''
-          }
-          
-          console.log('=== CREATING TOOL CALL MESSAGE ===')
-          console.log('Tool call data:', toolCall)
-          console.log('Tool name:', analysisData.name)
-          
-          // 对于TodoWrite工具，只更新固定任务卡片，不创建独立的工具调用消息
-          if (analysisData.name === 'TodoWrite') {
-            console.log('Processing TodoWrite result - updating structured data only')
-            const structured = extractHolmesStructuredData(analysisData)
-            const mergedStructured = mergeHolmesStructuredData(pinnedTasksData, structured)
-
-            if (mergedStructured) {
-              const allTasks = mergedStructured.tasks || mergedStructured.taskSections?.flatMap(s => s.tasks) || [];
-              if (allTasks.length > 0 && allTasks.every(t => t.status === 'completed')) {
-                  console.log('All tasks completed, expecting final summary.');
-                  allTasksCompletedRef.current = true;
-              }
-              const progress = parseProgress(mergedStructured)
-              setAnalysisState(prev => ({
-                ...prev,
-                totalSteps: progress.total,
-                completedSteps: progress.completed
-              }))
-            }
-            setPinnedTasksData(mergedStructured)
-            return // 直接返回，不创建工具调用消息
-          }
-          
-          // 对于其他工具，创建独立的工具调用消息，插入时间线
-          const toolCallMessage: AnalysisMessage = {
-            id: `tool-${analysisData.tool_call_id || Date.now()}`,
-            role: 'assistant',
-            content: '', // 工具调用消息没有文本内容
-            timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
-            isStreaming: false,
-            toolCalls: [toolCall]
-          }
-          
-          // 先完成当前的助手消息（如果有内容的话）
-          if (currentAssistantMessage.content.trim()) {
-            currentAssistantMessage = {
-              ...currentAssistantMessage,
-              isStreaming: false
-            }
-            
-            setAnalysisState(prev => ({
-              ...prev,
-              messages: [
-                ...prev.messages.map(msg => 
-                  msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
-                ),
-                toolCallMessage // 添加工具调用消息
-              ]
-            }))
-            
-            // 创建新的助手消息用于后续内容
-            currentAssistantMessage = {
-              id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-              role: 'assistant',
-              content: '',
-              timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN }),
-              isStreaming: true,
-              toolCalls: []
-            }
-            // 追加新的助手消息，确保随后的增量更新可定位
-            setAnalysisState(prev => ({
-              ...prev,
-              messages: [...prev.messages, currentAssistantMessage]
-            }))
-          } else {
-            // 如果当前助手消息没有内容，直接添加工具调用消息
-            setAnalysisState(prev => ({
-              ...prev,
-              messages: [...prev.messages, toolCallMessage]
-            }))
-          }
-          
-          console.log('Tool call message created:', toolCallMessage)
-          console.log('=== END TOOL CALL MESSAGE CREATION ===')
-        }
-        
-        // 4. 处理最终分析结论（ai_answer_end的data是字符串）
-        else if (typeof analysisData === 'string') {
-          console.log('Final analysis conclusion received');
-          if (allTasksCompletedRef.current) {
-            // 最终文本固定到底部结论卡片
-            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: analysisData }))
-          } else {
-            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: analysisData })
-            currentAssistantMessage = {
-              ...currentAssistantMessage,
-              structuredData: mergedStructured,
-              content: appendTextChunk(currentAssistantMessage.content, analysisData),
-              isStreaming: true,
-            }
-            updateMessageState()
-          }
-        }
-      }
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            // 处理 SSE 事件类型（忽略，下一行是数据）
-            continue
-          } else if (line.startsWith('data: ')) {
-            try {
-              const rawData = line.slice(6)
-              
-              // 处理特殊的结束标记
-              if (rawData === '{"type":"complete","data":{}}') {
-                console.log('Analysis complete signal received')
-                // 完成分析
-                currentAssistantMessage = {
-                  ...currentAssistantMessage,
-                  isStreaming: false
-                }
-                setAnalysisState(prev => {
-                  const exists = prev.messages.some(msg => msg.id === currentAssistantMessage.id)
-                  const updatedMessages = exists
-                    ? prev.messages.map(msg => msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg)
-                    : [...prev.messages, currentAssistantMessage]
-                  return {
-                    status: 'completed',
-                    messages: updatedMessages,
-                    totalSteps: prev.totalSteps,
-                    completedSteps: prev.completedSteps
-                  }
-                })
-                break
-              }
-              
-              const data = JSON.parse(rawData)
-              
-              // 处理SSE格式的数据 {"type":"analysis","data":{...}}
-              if (data.type === 'analysis' && data.data) {
-                processAnalysisData(data.data)
-              }
-              // 处理数组格式的数据流（向后兼容）
-              else if (Array.isArray(data)) {
-                data.forEach(item => processDataItem(item))
-              } 
-              // 处理直接的数据项
-              else {
-                processDataItem(data)
-              }
-              
-            } catch (error) {
-              console.error('JSON parse error:', error, 'Line:', line)
-            }
+        if (done) {
+          const remaining = decoder.decode()
+          if (remaining) {
+            processor.appendChunk(remaining)
           }
+          break
+        }
+
+        if (!value) {
+          continue
+        }
+
+        const chunk = decoder.decode(value, { stream: true })
+        const shouldStop = processor.appendChunk(chunk)
+        if (shouldStop) {
+          break
         }
       }
-      
-      // 正常结束时，确保最后的消息被标记为完成
-      if (currentAssistantMessage.content.trim()) {
-        currentAssistantMessage = {
-          ...currentAssistantMessage,
-          isStreaming: false
-        }
-        
-        setAnalysisState(prev => ({
-          status: 'completed',
-          messages: prev.messages.map(msg => 
-            msg.id === currentAssistantMessage.id ? currentAssistantMessage : msg
-          ),
-          totalSteps: prev.totalSteps,
-          completedSteps: prev.completedSteps
-        }))
-      }
-      
+
+      processor.finalize('completed')
+
       playNotificationSound()
       
     } catch (error: any) {
@@ -1307,19 +1470,6 @@ Analysis Requirements:
     if (abortController) {
       abortController.abort()
     }
-  }
-
-  // 重新分析
-  const restartAnalysis = () => {
-    setAnalysisState({
-      status: 'idle',
-      messages: [],
-      totalSteps: 0,
-      completedSteps: 0
-    })
-    allTasksCompletedRef.current = false;
-    setPinnedTasksData(undefined)
-    setPinnedSummaryData(undefined)
   }
 
   // 下载分析结果
@@ -1623,11 +1773,25 @@ Analysis Requirements:
           >
             <Settings className="h-4 w-4" />
           </Button>
-          
-          {analysisState.status === 'idle' && (
+
+          {/* 显示缓存状态提示 */}
+          {cachedResult && analysisState.status === 'completed' && !isReplayingCache && (
+            <Badge variant="outline" className="text-xs">
+              <Clock className="h-3 w-3 mr-1" />
+              缓存结果 ({format(new Date(cachedResult.cached_at), 'MM-dd HH:mm', { locale: zhCN })})
+            </Badge>
+          )}
+
+          {analysisState.status === 'idle' && !loadingCache && (
             <Button onClick={startAnalysis} size="sm">
               <Play className="h-4 w-4 mr-2" />
               触发RCA分析
+            </Button>
+          )}
+          {loadingCache && (
+            <Button disabled size="sm">
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              加载缓存中...
             </Button>
           )}
           {analysisState.status === 'analyzing' && (
