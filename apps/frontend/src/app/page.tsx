@@ -113,7 +113,7 @@ export default function Dashboard() {
       {/* Welcome Header */}
       <div className="flex flex-col space-y-2">
         <h1 className="text-3xl font-bold text-foreground">
-          欢迎使用 Robusta Hub! 👋
+          欢迎使用 Spydon! 👋
         </h1>
         <p className="text-muted-foreground">
           这是您的告警管理概览，查看最新的集群状态和告警信息。

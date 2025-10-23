@@ -19,10 +19,10 @@ const dancingScript = Dancing_Script({
 });
 
 export const metadata: Metadata = {
-  title: "Robusta Hub · 智能告警管理平台",
+  title: "Spydon · 智能告警管理平台",
   description: "基于Next.js的现代化运维告警管理平台，提供多集群监控、告警分析与根因定位能力",
   keywords: ["告警管理", "Kubernetes", "根因分析", "运维自动化", "监控平台"],
-  authors: [{ name: "Robusta Team" }],
+  authors: [{ name: "Spydon Team" }],
 };
 
 export const viewport: Viewport = {

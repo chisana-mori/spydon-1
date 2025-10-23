@@ -1,6 +1,6 @@
 # Robusta Frontend (Next.js)
 
-This frontend is built with Next.js (App Router) + TypeScript + Tailwind CSS (v4). It provides the management console for Robusta Hub.
+This frontend is built with Next.js (App Router) + TypeScript + Tailwind CSS (v4). It provides the management console for Spydon.
 
 ## Getting Started
 

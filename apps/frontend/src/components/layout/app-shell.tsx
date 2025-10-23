@@ -317,7 +317,7 @@ export function AppShell({ children }: AppShellProps) {
               </div>
               <div>
                 <span className="text-lg font-bold text-foreground">
-                  Robusta Hub
+                  Spydon
                 </span>
               </div>
             </div>
@@ -399,7 +399,7 @@ export function AppShell({ children }: AppShellProps) {
                 <Menu className="h-5 w-5" />
               </Button>
               <div className="hidden md:flex items-center space-x-2 text-sm">
-                <span className="text-muted-foreground">Robusta Hub</span>
+                <span className="text-muted-foreground">Spydon</span>
                 <span className="text-muted-foreground">/</span>
                 <span className="font-medium text-foreground">{activeNav?.name ?? '仪表盘'}</span>
               </div>
