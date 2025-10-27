@@ -1,0 +1,43 @@
+FROM --platform=linux/amd64 node:24-bullseye AS deps
+WORKDIR /opt/app
+
+# 安装 bun（使用 curl 的官方脚本）
+RUN apt-get update \
+    && apt-get install -y curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://bun.sh/install | bash \
+    && ln -s /root/.bun/bin/bun /usr/local/bin/bun
+
+ENV BUN_INSTALL=/root/.bun
+ENV PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# 复制包描述文件以安装依赖
+COPY package.json package-lock.json ./
+
+# 使用 bun 安装全部依赖（包含 devDependencies），若未生成 bun.lockb 则创建空锁文件
+RUN bun install \
+    && if [ ! -f bun.lockb ]; then touch bun.lockb; fi
+
+FROM --platform=linux/amd64 node:24-bullseye
+ENV WORKSPACE_DIR=/workspace
+ENV NODE_ENV=development
+ENV BUN_INSTALL=/root/.bun
+ENV PATH=/root/.bun/bin:/workspace/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+WORKDIR /workspace
+
+# 复制 bun 可执行文件及离线依赖缓存
+COPY --from=deps /root/.bun /root/.bun
+COPY --from=deps /opt/app/node_modules /opt/offline-cache/node_modules
+COPY --from=deps /opt/app/package.json /opt/offline-cache/package.json
+COPY --from=deps /opt/app/package-lock.json /opt/offline-cache/package-lock.json
+COPY --from=deps /opt/app/bun.lockb /opt/offline-cache/bun.lockb
+
+# 注入入口脚本
+COPY docker/dev-base-entrypoint.sh /usr/local/bin/offline-entrypoint.sh
+RUN chmod +x /usr/local/bin/offline-entrypoint.sh
+
+VOLUME ["/workspace"]
+
+ENTRYPOINT ["offline-entrypoint.sh"]
+CMD ["bun", "run", "dev"]

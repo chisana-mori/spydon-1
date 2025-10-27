@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wayne API Service</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #fef3c7; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #d97706; text-align: center; }
+        .info { background: #fef3c7; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦇 Wayne API Service</h1>
+        <div class="info">
+            <h3>Service Information</h3>
+            <p><strong>Service Name:</strong> Wayne API Service</p>
+            <p><strong>Port:</strong> 8082</p>
+            <p><strong>Traefik Route:</strong> /wayneapi → / (stripped)</p>
+            <p><strong>Status:</strong> ✅ Running</p>
+        </div>
+        <div class="info">
+            <h3>API Endpoints</h3>
+            <p>GET /api/v1/bat-signals - List all bat signals</p>
+            <p>POST /api/v1/bat-signals - Create new bat signal</p>
+            <p>GET /api/v1/gadgets - List available gadgets</p>
+            <p>POST /api/v1/alerts - Send security alert</p>
+        </div>
+        <p><em>This is a sample API service running on port 8082</em></p>
+    </div>
+</body>
+</html>

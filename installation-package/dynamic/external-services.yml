@@ -1,0 +1,125 @@
+http:
+  routers:
+    # Navy Service Router
+    navy-router:
+      rule: "PathPrefix(`/navy`)"
+      service: "navy-service"
+      entryPoints:
+        - "web"
+      middlewares:
+        - "navy-pathrewrite"
+      priority: 100
+
+    # Wayne API Router
+    wayneapi-router:
+      rule: "PathPrefix(`/wayneapi`)"
+      service: "wayneapi-service"
+      entryPoints:
+        - "web"
+      middlewares:
+        - "wayneapi-pathrewrite"
+      priority: 100
+
+    # Wayne Service Router
+    wayne-router:
+      rule: "PathPrefix(`/wayne`)"
+      service: "wayne-service"
+      entryPoints:
+        - "web"
+      middlewares:
+        - "wayne-pathrewrite"
+      priority: 100
+
+    # Spydon Service Router
+    spydon-router:
+      rule: "PathPrefix(`/spydon`)"
+      service: "spydon-service"
+      entryPoints:
+        - "web"
+      middlewares:
+        - "spydon-pathrewrite"
+      priority: 100
+
+    # Spydon Frontend Router
+    spydon-fe-router:
+      rule: "PathPrefix(`/spydon-fe`)"
+      service: "spydon-fe-service"
+      entryPoints:
+        - "web"
+      middlewares:
+        - "spydon-fe-pathrewrite"
+      priority: 100
+
+  services:
+    # Navy Service (localhost:8081)
+    navy-service:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:8081"
+      serversTransport: "default-service-transport"
+
+    # Wayne API Service (localhost:8082)
+    wayneapi-service:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:8082"
+      serversTransport: "default-service-transport"
+
+    # Wayne Service (localhost:8083)
+    wayne-service:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:8083"
+      serversTransport: "default-service-transport"
+
+    # Spydon Service (localhost:8086)
+    spydon-service:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:8086"
+      serversTransport: "default-service-transport"
+
+    # Spydon Frontend Service (localhost:3000)
+    spydon-fe-service:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:3000"
+      serversTransport: "default-service-transport"
+
+  middlewares:
+    # Replace /navy prefix with root-relative path (handles `/navy` and `/navy/...`)
+    navy-pathrewrite:
+      replacePathRegex:
+        regex: "^/navy(?:/(.*))?$"
+        replacement: "/$1"
+
+    # Replace /wayneapi prefix with root-relative path
+    wayneapi-pathrewrite:
+      replacePathRegex:
+        regex: "^/wayneapi(?:/(.*))?$"
+        replacement: "/$1"
+
+    # Replace /wayne prefix with root-relative path
+    wayne-pathrewrite:
+      replacePathRegex:
+        regex: "^/wayne(?:/(.*))?$"
+        replacement: "/$1"
+
+    # Replace /spydon prefix with root-relative path
+    spydon-pathrewrite:
+      replacePathRegex:
+        regex: "^/spydon(?:/(.*))?$"
+        replacement: "/$1"
+
+    # Replace /spydon-fe prefix with root-relative path
+    spydon-fe-pathrewrite:
+      replacePathRegex:
+        regex: "^/spydon-fe(?:/(.*))?$"
+        replacement: "/$1"
+
+  serversTransports:
+    default-service-transport:
+      forwardingTimeouts:
+        dialTimeout: "30s"
+        responseHeaderTimeout: "0s"
+        idleConnTimeout: "0s"

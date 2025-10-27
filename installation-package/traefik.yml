@@ -1,0 +1,37 @@
+api:
+  dashboard: true
+  insecure: true
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  docker:
+    exposedByDefault: false
+    network: host
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+serverTransports:
+  insecureSkipVerify: true
+
+# Enable metrics
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addServicesLabels: true
+
+# Enable access logs
+log:
+  level: INFO
+
+accessLog:
+  filePath: "/var/log/traefik/access.log"
+  format: json
+  fields:
+    names:
+      ClientUsername: client_username
+    defaultMode: keep
+  bufferingSize: 100

@@ -1,18 +1,32 @@
 version: '3.8'
 
-# External Services Documentation
-# ================================
-#
-# The following services run as local processes on localhost:
-#
-# Navy Service:  - Running on localhost:8081 (external process)
-# Wayne Service: - Running on localhost:8082 (external process)
-# Wayne API:    - Running on localhost:8083 (external process)
-#
-# These services are not managed by Docker Compose and must be started separately.
-
 services:
-  # PostgreSQL数据库
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx
+    platform: linux/amd64
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./logs:/var/log/nginx
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - robusta-network
+    restart: unless-stopped
+
+  # External Backend Services (Local Processes)
+  # NOTE: These services run as local processes on localhost
+  # Navy Service:  Running on localhost:8081 (external process)
+  # Wayne API Service: Running on localhost:8082 (external process)
+  # Wayne Service: Running on localhost:8083 (external process)
+  # Spydon Service: Running on localhost:8086 (external process)
+  # Spydon Frontend: Running on localhost:3000 (external process)
+  # Traefik will route to these external services via host network
+
+    # PostgreSQL数据库
   postgres:
     image: postgres:15-alpine
     container_name: robusta-postgres
@@ -71,6 +85,20 @@ services:
       retries: 3
     networks:
       - robusta-network
+    restart: unless-stopped
+
+  # Spydon 前端开发容器（使用离线基础镜像）
+  spydon-fe:
+    image: robusta-frontend-offline-base:node24
+    container_name: spydon-fe
+    platform: linux/amd64
+    environment:
+      WORKSPACE_DIR: /workspace
+    volumes:
+      - /home/hny/spydon/apps/frontend:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    network_mode: host
     restart: unless-stopped
 volumes:
   postgres_data:

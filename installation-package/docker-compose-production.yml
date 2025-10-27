@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=host"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--serverstransport.insecureskipverify=true"
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+    restart: unless-stopped
+
+  # Navy Service - Port 8081
+  navy-service:
+    image: nginx:alpine
+    container_name: navy-service
+    ports:
+      - "8081:80"
+    volumes:
+      - ./configs/navy.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.navy.rule=Host(`localhost`) && PathPrefix(`/navy`)"
+      - "traefik.http.routers.navy.entrypoints=websecure"
+      - "traefik.http.routers.navy.tls=false"
+      - "traefik.http.middlewares.navy-stripprefix.stripprefix.prefixes=/navy"
+      - "traefik.http.routers.navy.middlewares=navy-stripprefix"
+      - "traefik.http.services.navy.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  # Wayne API Service - Port 8082
+  wayneapi-service:
+    image: nginx:alpine
+    container_name: wayneapi-service
+    ports:
+      - "8082:80"
+    volumes:
+      - ./configs/wayneapi.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wayneapi.rule=Host(`localhost`) && PathPrefix(`/wayneapi`)"
+      - "traefik.http.routers.wayneapi.entrypoints=websecure"
+      - "traefik.http.routers.wayneapi.tls=false"
+      - "traefik.http.middlewares.wayneapi-stripprefix.stripprefix.prefixes=/wayneapi"
+      - "traefik.http.routers.wayneapi.middlewares=wayneapi-stripprefix"
+      - "traefik.http.services.wayneapi.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  # Wayne Service - Port 8083
+  wayne-service:
+    image: nginx:alpine
+    container_name: wayne-service
+    ports:
+      - "8083:80"
+    volumes:
+      - ./configs/wayne.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wayne.rule=Host(`localhost`) && PathPrefix(`/wayne`)"
+      - "traefik.http.routers.wayne.entrypoints=websecure"
+      - "traefik.http.routers.wayne.tls=false"
+      - "traefik.http.middlewares.wayne-stripprefix.stripprefix.prefixes=/wayne"
+      - "traefik.http.routers.wayne.middlewares=wayne-stripprefix"
+      - "traefik.http.services.wayne.loadbalancer.server.port=80"
+    restart: unless-stopped
+
+  # Database Services
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: myapp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
