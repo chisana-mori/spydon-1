@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Parser Test</title>
+</head>
+<body>
+    <h1>Enrichment Parser Test</h1>
+    <div id="output"></div>
+    
+    <script type="module">
+        const testData = {
+            "id": "c67815ae-132e-4cca-a3f5-f4cb4c820b8b",
+            "title": "⚠️ Kubernetes Warning",
+            "enrichments": [
+                {
+                    "blocks": [
+                        {
+                            "headers": ["reason", "type", "time", "message"],
+                            "rows": [
+                                ["FailedCreate", "Warning", 1761295501000.0, "Error message 1"],
+                                ["FailedCreate", "Warning", 1761294501000.0, "Error message 2"]
+                            ],
+                            "table_name": "Related Events",
+                            "column_renderers": {
+                                "time": "DATETIME"
+                            }
+                        }
+                    ],
+                    "enrichment_type": {
+                        "_value_": "k8s_events",
+                        "_name_": "k8s_events"
+                    },
+                    "title": "Related Events"
+                }
+            ]
+        };
+
+        // 简化的 cleanPythonObject
+        function cleanPythonObject(obj) {
+            if (obj === null || obj === undefined) {
+                return obj;
+            }
+
+            if (typeof obj === 'object' && '_value_' in obj) {
+                return obj._value_;
+            }
+
+            if (Array.isArray(obj)) {
+                return obj.map(cleanPythonObject);
+            }
+
+            if (typeof obj === 'object') {
+                const cleaned = {};
+                for (const key in obj) {
+                    if (key.startsWith('_') && key.endsWith('_')) {
+                        continue;
+                    }
+                    cleaned[key] = cleanPythonObject(obj[key]);
+                }
+                return cleaned;
+            }
+
+            return obj;
+        }
+
+        console.log('Original data:', testData);
+        const cleaned = cleanPythonObject(testData);
+        console.log('Cleaned data:', cleaned);
+        console.log('Enrichments:', cleaned.enrichments);
+        console.log('First enrichment:', cleaned.enrichments[0]);
+        console.log('First block:', cleaned.enrichments[0].blocks[0]);
+        
+        document.getElementById('output').innerHTML = `
+            <h2>Test Results:</h2>
+            <pre>${JSON.stringify(cleaned, null, 2)}</pre>
+        `;
+    </script>
+</body>
+</html>

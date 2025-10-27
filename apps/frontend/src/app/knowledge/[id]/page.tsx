@@ -1,0 +1,168 @@
+"use client"
+
+import React from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { RobustaAPI } from '@/lib/api'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ArrowLeft, Edit, Calendar, Tag, AlertCircle } from 'lucide-react'
+import Link from 'next/link'
+import { KnowledgeViewer } from '@/components/knowledge/KnowledgeViewer'
+
+export default function KnowledgeViewPage() {
+  const params = useParams()
+  const router = useRouter()
+  const id = params.id as string
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['knowledge-view', id],
+    queryFn: () => RobustaAPI.getKnowledgeById(id, true),
+    enabled: !!id,
+  })
+
+  const article = data?.data?.article
+  const manifest = data?.data?.manifest
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            返回
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center text-muted-foreground">加载中...</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (error || !article) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            返回
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center text-muted-foreground">未找到该条目</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* 头部操作栏 */}
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          返回列表
+        </Button>
+        <Button asChild>
+          <Link href={`/knowledge/${id}/edit` as any}>
+            <Edit className="h-4 w-4 mr-2" />
+            编辑
+          </Link>
+        </Button>
+      </div>
+
+      {/* 文章信息卡片 */}
+      <Card>
+        <CardHeader className="space-y-4">
+          {/* 状态标签 */}
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                article.status === 'published'
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+              }`}
+            >
+              {article.status === 'published' ? '已发布' : '草稿'}
+            </span>
+            <span className="text-xs text-muted-foreground">版本 v{article.version}</span>
+          </div>
+
+          {/* 标题 */}
+          <CardTitle className="text-3xl font-bold">{article.title}</CardTitle>
+
+          {/* 元信息 */}
+          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              <span>告警规则：</span>
+              <code className="px-2 py-0.5 bg-muted rounded text-foreground font-mono text-xs">
+                {article.alert_rule_name}
+              </code>
+            </div>
+
+            {article.severity && (
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4" />
+                <span>严重级别：</span>
+                <span
+                  className={`font-medium ${
+                    article.severity === 'critical'
+                      ? 'text-red-600 dark:text-red-400'
+                      : article.severity === 'high'
+                      ? 'text-orange-600 dark:text-orange-400'
+                      : article.severity === 'medium'
+                      ? 'text-yellow-600 dark:text-yellow-400'
+                      : 'text-blue-600 dark:text-blue-400'
+                  }`}
+                >
+                  {article.severity}
+                </span>
+              </div>
+            )}
+
+            {article.updated_at && (
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                <span>更新时间：</span>
+                <span className="font-medium text-foreground">
+                  {new Date(article.updated_at).toLocaleString('zh-CN')}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* 标签 */}
+          {article.tags && article.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {article.tags.map((tag: string, index: number) => (
+                <span
+                  key={index}
+                  className="px-2.5 py-0.5 bg-primary/10 text-primary rounded-full text-xs font-medium"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </CardHeader>
+      </Card>
+
+      {/* 内容查看器 */}
+      <Card>
+        <CardContent className="pt-6">
+          {manifest ? (
+            <KnowledgeViewer manifest={manifest} />
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">暂无内容</div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

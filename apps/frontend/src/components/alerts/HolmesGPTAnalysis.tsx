@@ -196,11 +196,10 @@ Analysis Requirements:
                   setIsComplete(true)
                   break
                 default:
-                  console.log('未知事件类型:', event.type, event.data)
+                  // Unknown event type
               }
             }
           } catch (parseError) {
-            console.warn('解析流数据失败:', parseError, 'Line:', line)
             // 尝试将整行作为分析文本处理
             if (line.trim() && !line.startsWith('data: ')) {
               setAnalysis(prev => prev + line + '\n')
@@ -214,7 +213,6 @@ Analysis Requirements:
       if (err.name === 'AbortError') {
         toast.info('分析已停止')
       } else {
-        console.error('HolmesGPT 分析错误:', err)
         setError(err.message || '分析失败')
         toast.error(`分析失败: ${err.message}`)
       }

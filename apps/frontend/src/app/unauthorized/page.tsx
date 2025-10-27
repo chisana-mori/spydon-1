@@ -108,7 +108,7 @@ export default function UnauthorizedPage() {
                 授权后如何访问？
               </h3>
               <p className="text-sm text-muted-foreground ml-8">
-                管理员授权后，请点击下方的"刷新权限"按钮，或重新登录系统即可正常访问。
+                管理员授权后，请点击下方的&quot;刷新权限&quot;按钮，或重新登录系统即可正常访问。
               </p>
             </div>
           </div>
@@ -119,7 +119,7 @@ export default function UnauthorizedPage() {
             <AlertDescription>
               <p className="font-semibold mb-1">需要帮助？</p>
               <p className="text-sm text-muted-foreground">
-                请联系系统管理员，说明您需要访问权限。管理员可以在"用户管理"页面为您授权。
+                请联系系统管理员，说明您需要访问权限。管理员可以在&quot;用户管理&quot;页面为您授权。
               </p>
             </AlertDescription>
           </Alert>
@@ -146,7 +146,7 @@ export default function UnauthorizedPage() {
 
           {/* 提示信息 */}
           <p className="text-xs text-center text-muted-foreground pt-2">
-            如果您已获得授权，请点击"刷新权限状态"按钮更新您的访问权限
+            如果您已获得授权，请点击&quot;刷新权限状态&quot;按钮更新您的访问权限
           </p>
         </CardContent>
       </Card>

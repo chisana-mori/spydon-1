@@ -17,6 +17,7 @@ import {
   History
 } from 'lucide-react'
 import { Alert } from '@/types/api'
+import AlertKnowledgePanel from '@/components/alerts/AlertKnowledgePanel'
 import { EnhancedHolmesGPTChat } from './EnhancedHolmesGPTChat'
 import { RawPayloadViewer } from './RawPayloadViewer'
 import { format } from 'date-fns'
@@ -24,7 +25,7 @@ import { zhCN } from 'date-fns/locale'
 
 interface AlertAnalysisIntegrationProps {
   alert: Alert
-  defaultTab?: 'enhanced' | 'raw'
+  defaultTab?: 'enhanced' | 'raw' | 'knowledge'
 }
 
 export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> = ({
@@ -63,17 +64,14 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
           const cacheData = await cacheResponse.json()
           if (cacheData.cache_hit && cacheData.data) {
             setCachedResult(cacheData.data)
-            console.log('✅ 找到RCA缓存，将自动回放:', cacheData.data)
           } else {
             setCachedResult(null)
-            console.log('ℹ️ 未找到RCA缓存')
           }
         } else if (cacheResponse.status === 404) {
           setCachedResult(null)
-          console.log('ℹ️ 该告警尚未进行过RCA分析')
         }
       } catch (error) {
-        console.error('获取分析历史或缓存失败:', error)
+        // Failed to fetch analysis history or cache
       } finally {
         setLoadingCache(false)
       }
@@ -96,11 +94,8 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
         const data = await response.json()
         if (data.cache_hit && data.data) {
           setCachedResult(data.data)
-        } else {
-          console.warn('指定运行未找到缓存结果:', historyId)
         }
       } else if (response.status === 404) {
-        console.warn('历史分析尚未生成缓存，运行ID:', historyId)
         setCachedResult({
           run_id: historyId,
           alert_id: alert.id,
@@ -110,15 +105,12 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
           },
           stream_chunks: []
         })
-      } else {
-        const text = await response.text()
-        console.error('获取历史分析缓存失败:', response.status, text)
       }
 
       window.scrollTo({ top: 0, behavior: 'smooth' })
       setActiveTab('enhanced')
     } catch (error) {
-      console.error('查看历史记录失败:', error)
+      // Failed to view history
     } finally {
       setLoadingCache(false)
     }
@@ -280,14 +272,18 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
       {/* 分析选项卡 */}
       <div className="min-h-[600px]">
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="h-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsList className="grid w-full grid-cols-3 mb-4">
             <TabsTrigger value="enhanced" className="flex items-center space-x-2">
               <Brain className="h-4 w-4" />
               <span>增强分析</span>
             </TabsTrigger>
             <TabsTrigger value="raw" className="flex items-center space-x-2">
               <Settings className="h-4 w-4" />
-              <span>原始数据</span>
+              <span>上下文摘要</span>
+            </TabsTrigger>
+            <TabsTrigger value="knowledge" className="flex items-center space-x-2">
+              <History className="h-4 w-4" />
+              <span>知识库</span>
             </TabsTrigger>
           </TabsList>
 
@@ -309,6 +305,10 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
                 alertTitle={alert.title}
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="knowledge" className="min-h-[400px]">
+            <AlertKnowledgePanel alertRuleName={alert.title} />
           </TabsContent>
         </Tabs>
       </div>

@@ -44,8 +44,6 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error getting presigned URL:', error);
-    
     return NextResponse.json(
       { 
         error: 'Failed to get presigned URL',

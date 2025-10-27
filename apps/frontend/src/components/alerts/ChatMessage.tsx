@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -206,7 +206,6 @@ const decodeEscapedUnicode = (value: string): string => {
 
     return normalized
   } catch (error) {
-    console.warn('Failed to decode Unicode escapes:', error)
     return value
   }
 }
@@ -441,6 +440,61 @@ const parseCLIKeyValueLines = (text: string): ParsedKeyValueLine[] | null => {
   return result
 }
 
+const CommandBlock: FC<{ command: string }> = ({ command }) => {
+  const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
+
+  return (
+    <div className="px-4 py-3 border-b border-slate-600">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-green-400 text-xs font-medium flex items-center space-x-1">
+          <span>执行命令:</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0 hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          onClick={() => copyToClipboard(command)}
+          title={isCopied ? '已复制' : '复制命令'}
+        >
+          {isCopied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+        </Button>
+      </div>
+      <div className="bg-slate-700 rounded-md px-3 py-2 border border-slate-500">
+        <pre className="text-green-300 text-sm font-mono leading-relaxed whitespace-pre-wrap break-all">
+          {command}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+const SummaryCommandBlock: FC<{ children: string }> = ({ children }) => {
+  const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
+  
+  // 提取命令文本
+  const commandText = typeof children === 'string' ? children : String(children)
+
+  return (
+    <div className="relative my-3 bg-slate-800 rounded-lg overflow-hidden border border-slate-600 shadow-sm">
+      <div className="flex items-center justify-between bg-slate-700 px-3 py-2 border-b border-slate-600">
+        <span className="text-slate-200 text-xs font-mono">命令</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0 hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          onClick={() => copyToClipboard(commandText)}
+          title={isCopied ? '已复制' : '复制命令'}
+        >
+          {isCopied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+        </Button>
+      </div>
+      <pre className="text-slate-100 text-sm font-mono leading-relaxed p-3 whitespace-pre-wrap break-all overflow-x-auto">
+        {commandText}
+      </pre>
+    </div>
+  )
+}
+
 const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
 
@@ -590,6 +644,8 @@ export const ChatMessage: FC<ChatMessageProps> = ({
   structuredData
 }) => {
   const { isCopied: isAnalysisCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
+  const { isCopied: isProgressCopied, copyToClipboard: copyProgress } = useCopyToClipboard({ timeout: 2000 })
+  const { isCopied: isSummaryCopied, copyToClipboard: copySummary } = useCopyToClipboard({ timeout: 2000 })
 
   // 简单的 JSON 检测
   const isJsonContent = (text: string): boolean => {
@@ -944,9 +1000,20 @@ export const ChatMessage: FC<ChatMessageProps> = ({
 
         {progressText && (
           <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 shadow-sm">
-            <div className="flex items-center space-x-2 text-blue-800 mb-3">
-              <ListChecks className="h-5 w-5" />
-              <span className="font-semibold text-base">排查进度</span>
+            <div className="flex items-center justify-between text-blue-800 mb-3">
+              <div className="flex items-center space-x-2">
+                <ListChecks className="h-5 w-5" />
+                <span className="font-semibold text-base">排查进度</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 hover:bg-blue-100 text-blue-600 hover:text-blue-800 transition-colors"
+                onClick={() => copyProgress(progressText)}
+                title={isProgressCopied ? '已复制' : '复制进度'}
+              >
+                {isProgressCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
             </div>
             <div className="prose prose-sm max-w-none text-blue-900">
               <ReactMarkdown 
@@ -969,9 +1036,20 @@ export const ChatMessage: FC<ChatMessageProps> = ({
 
         {formattedSummary && (
           <div className="rounded-lg border border-green-200 bg-green-50/80 p-4 shadow-sm">
-            <div className="flex items-center space-x-2 text-green-800 mb-3">
-              <CheckCircle2 className="h-5 w-5" />
-              <span className="font-semibold text-base">分析结论</span>
+            <div className="flex items-center justify-between text-green-800 mb-3">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="h-5 w-5" />
+                <span className="font-semibold text-base">分析结论</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 hover:bg-green-100 text-green-600 hover:text-green-800 transition-colors"
+                onClick={() => copySummary(formattedSummary)}
+                title={isSummaryCopied ? '已复制' : '复制结论'}
+              >
+                {isSummaryCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
             </div>
             <div className="prose prose-sm max-w-none text-green-900">
               <ReactMarkdown 
@@ -984,11 +1062,20 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                   ul: ({ children }) => <ul className="list-disc list-inside space-y-1 mb-3 text-sm">{children}</ul>,
                   ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 mb-3 text-sm">{children}</ol>,
                   strong: ({ children }) => <strong className="font-semibold text-green-800">{children}</strong>,
-                  code: ({ children }) => (
-                    <code className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded text-sm font-mono">
-                      {children}
-                    </code>
-                  ),
+                  code: ({ node, className, children, ...props }: any) => {
+                    const match = /language-(\w+)/.exec(className || '')
+                    const isCodeBlock = match || className
+                    
+                    // 代码块：使用带复制功能的命令块
+                    if (isCodeBlock && typeof children === 'string' && children.includes('\n')) {
+                      const codeString = String(children).replace(/\n$/, '')
+                      return <SummaryCommandBlock>{codeString}</SummaryCommandBlock>
+                    }
+                    
+                    // 内联代码：直接渲染为普通文本
+                    return <>{children}</>
+                  },
+                  pre: ({ children }) => <>{children}</>,
                   blockquote: ({ children }) => (
                     <blockquote className="border-l-4 border-green-300 pl-4 py-2 bg-green-100 rounded-r-lg mb-3">
                       {children}
@@ -1162,8 +1249,11 @@ export const ChatMessage: FC<ChatMessageProps> = ({
           {toolCalls && toolCalls.length > 0 && (
             <div className="space-y-3">
               {toolCalls.map((tool, index) => {
-                const schemaVersion = tool.output?.result?.schema_version || tool.output?.schema_version
+                // 提取执行结果和错误信息
                 const resultStatus = tool.output?.result?.status || tool.status
+                const errorMessage = tool.output?.result?.error || tool.output?.error
+                const statusMessage = tool.output?.result?.status_message
+                
                 const statusVariant =
                   resultStatus === 'success'
                     ? 'default'
@@ -1177,134 +1267,93 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                       ? '失败'
                       : '执行中'
 
+                // 提取执行命令
+                let command = tool.command || ''
+                if (!command) {
+                  if (typeof tool.input === 'string') {
+                    command = tool.input
+                  } else if (tool.input?.command) {
+                    command = tool.input.command
+                  } else if (tool.input?.description) {
+                    command = tool.input.description
+                  } else if (tool.output?.result?.invocation) {
+                    command = tool.output.result.invocation
+                  } else if (tool.output?.invocation) {
+                    command = tool.output.invocation
+                  }
+                }
+
+                // 提取输出数据
+                let output = ''
+                let returnCode = null
+                
+                if (tool.output?.result?.data) {
+                  output = tool.output.result.data
+                  returnCode = tool.output.result.return_code
+                } else if (tool.output?.data) {
+                  output = tool.output.data
+                } else if (typeof tool.output === 'string') {
+                  output = tool.output
+                }
+
+                // 如果有错误，优先显示错误信息
+                const hasError = resultStatus === 'error' || resultStatus === 'failed' || errorMessage
+                
+                // 如果有错误，显示错误信息；否则尝试解析表格或键值对
+                let displayContent = null
+                let tableData = null
+                let keyValueLines = null
+                
+                if (hasError) {
+                  // 错误情况：显示错误信息
+                  displayContent = errorMessage || statusMessage || '执行失败'
+                } else if (output) {
+                  // 成功情况：尝试解析表格
+                  tableData = parseCLIITable(output)
+                  if (!tableData) {
+                    // 不是表格，尝试解析键值对
+                    keyValueLines = parseCLIKeyValueLines(output)
+                  }
+                  if (!tableData && !keyValueLines) {
+                    // 既不是表格也不是键值对，直接显示文本
+                    displayContent = output
+                  }
+                }
+
                 return (
-                  <div key={index} className="bg-gray-900 rounded-lg overflow-hidden shadow-md border border-gray-700">
-                  {/* 工具头部 - Linux终端风格 */}
-                  <div className="bg-gradient-to-r from-gray-800 to-gray-700 px-4 py-3 flex items-center justify-between border-b border-gray-600">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex items-center space-x-1">
-                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                  <div key={index} className="bg-slate-800 rounded-lg overflow-hidden shadow-md border border-slate-600">
+                    {/* 工具头部 - Linux终端风格 */}
+                    <div className="bg-gradient-to-r from-slate-700 to-slate-600 px-4 py-3 flex items-center justify-between border-b border-slate-500">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-1">
+                          <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                          <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                        </div>
+                        <span className="text-green-400 font-mono text-sm">$</span>
+                        <span className="text-white text-sm font-medium">{tool.name}</span>
                       </div>
-                      <span className="text-green-400 font-mono text-sm">$</span>
-                      <span className="text-white text-sm font-medium">{tool.name}</span>
-                      {schemaVersion && (
-                        <span className="text-xs text-blue-200 font-mono bg-blue-900/40 border border-blue-700 px-2 py-0.5 rounded-full">
-                          {schemaVersion}
-                        </span>
-                      )}
+                      <Badge 
+                        variant={statusVariant}
+                        className="text-xs font-mono"
+                      >
+                        {statusLabel}
+                      </Badge>
                     </div>
-                    <Badge 
-                      variant={statusVariant}
-                      className="text-xs font-mono"
-                    >
-                      {statusLabel}
-                    </Badge>
-                  </div>
-                  
-                  {/* 执行命令 */}
-                  {(() => {
-                    let command = tool.command || ''
-                    if (!command) {
-                      if (typeof tool.input === 'string') {
-                        command = tool.input
-                      } else if (tool.input?.command) {
-                        command = tool.input.command
-                      } else if (tool.input?.description) {
-                        command = tool.input.description
-                      } else if (tool.output?.result?.invocation) {
-                        command = tool.output.result.invocation
-                      } else if (tool.output?.invocation) {
-                        command = tool.output.invocation
-                      }
-                    }
                     
-                    return command ? (
-                      <div className="px-4 py-3 border-b border-gray-700">
-                        <div className="text-green-400 text-xs font-medium mb-2 flex items-center space-x-1">
-                          <span>执行命令:</span>
-                        </div>
-                        <div className="bg-gray-800 rounded-md px-3 py-2 border border-gray-600">
-                          <pre className="text-green-300 text-sm font-mono leading-relaxed whitespace-pre-wrap break-all">
-                            {command}
-                          </pre>
-                        </div>
-                      </div>
-                    ) : null
-                  })()}
-                  
-                  {/* 输出结果 */}
-                  {(() => {
-                    let output = ''
-                    let returnCode = null
+                    {/* 执行命令 */}
+                    {command && <CommandBlock command={command} />}
                     
-                    if (tool.output?.result?.data) {
-                      output = tool.output.result.data
-                      returnCode = tool.output.result.return_code
-                    } else if (tool.output?.data) {
-                      output = tool.output.data
-                    } else if (typeof tool.output === 'string') {
-                      output = tool.output
-                    } else if (tool.output) {
-                      output = JSON.stringify(tool.output, null, 2)
-                    }
-                    
-                    // 格式化输出内容，改善可读性
-                    const formatOutput = (text: string): string => {
-                      if (!text) return text
-
-                      // 检测是否为YAML格式
-                      if (text.includes('apiVersion:') || text.includes('kind:') || text.includes('metadata:')) {
-                        // YAML格式：改善缩进和间距
-                        const lines = text.split('\n')
-                        const formattedLines: string[] = []
-                        
-                        for (let i = 0; i < lines.length; i++) {
-                          const line = lines[i]
-                          const nextLine = lines[i + 1]
-                          
-                          // 为顶级键（如apiVersion, kind, metadata等）前添加间距
-                          if (line.match(/^[a-zA-Z][^:]*:/) && !line.startsWith('  ') && formattedLines.length > 0) {
-                            formattedLines.push('')
-                          }
-                          
-                          formattedLines.push(line)
-                          
-                          // 在metadata和spec等大段落后添加额外间距
-                          if (line.match(/^(metadata|spec|status):\s*$/) && nextLine && nextLine.startsWith('  ')) {
-                            // 不添加额外行，保持紧凑
-                          }
-                        }
-                        
-                        return formattedLines.join('\n')
-                      }
-                      
-                      // 检测kubectl事件表格格式
-                      if (text.includes('LAST SEEN') || text.includes('TYPE') || text.includes('REASON')) {
-                        // 表格格式：保持原有对齐
-                        return text
-                      }
-
-                      // JSON格式：确保正确缩进
-                      try {
-                        const parsed = JSON.parse(text)
-                        return JSON.stringify(parsed, null, 2)
-                      } catch {
-                        return text
-                      }
-                    }
-                    
-                    const tableData = output ? parseCLIITable(output) : null
-                    const formattedOutput = formatOutput(output)
-                    const parsedJSON = !tableData ? safeParseJSON(formattedOutput) : null
-                    const keyValueLines = !tableData && !parsedJSON && formattedOutput
-                      ? parseCLIKeyValueLines(formattedOutput)
-                      : null
-                    return output ? (
+                    {/* 输出结果或错误信息 */}
+                    {(displayContent || tableData || keyValueLines) && (
                       <div className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2 mb-3">
-                          <div className="text-blue-400 text-xs font-medium">执行结果:</div>
+                          <div className={cn(
+                            "text-xs font-medium",
+                            hasError ? "text-red-400" : "text-blue-400"
+                          )}>
+                            {hasError ? '错误信息:' : '执行结果:'}
+                          </div>
                           {returnCode !== null && (
                             <div className={`text-xs px-2 py-0.5 rounded ${
                               returnCode === 0 
@@ -1314,41 +1363,43 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                               退出码: {returnCode}
                             </div>
                           )}
-                          {tool.output?.result?.status_message && (
+                          {statusMessage && !hasError && (
                             <div className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-100">
-                              {tool.output.result.status_message}
+                              {statusMessage}
                             </div>
                           )}
                         </div>
-                        <div className="bg-gray-950 rounded-md border border-gray-700 overflow-hidden">
-                          <div className="bg-gray-800 px-3 py-1 border-b border-gray-700">
-                            <span className="text-gray-400 text-xs font-mono">输出</span>
-                          </div>
-                          {tableData ? (
+                        
+                        {/* 表格展示 */}
+                        {tableData ? (
+                          <div className="bg-slate-900 rounded-md border border-slate-600 overflow-hidden">
+                            <div className="bg-slate-700 px-3 py-1 border-b border-slate-600">
+                              <span className="text-slate-200 text-xs font-mono">表格</span>
+                            </div>
                             <div className="p-4">
-                              <div className="overflow-x-auto rounded border border-gray-800">
-                                <table className="min-w-full divide-y divide-gray-800">
-                                  <thead className="bg-gray-900/60">
+                              <div className="overflow-x-auto rounded border border-slate-600">
+                                <table className="min-w-full divide-y divide-slate-600">
+                                  <thead className="bg-slate-800">
                                     <tr>
                                       {tableData.headers.map((header, idx) => (
                                         <th
                                           key={idx}
-                                          className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-blue-200 border-r border-gray-800 last:border-r-0"
+                                          className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-cyan-300 border-r border-slate-600 last:border-r-0"
                                         >
                                           {header}
                                         </th>
                                       ))}
                                     </tr>
                                   </thead>
-                                  <tbody className="divide-y divide-gray-800">
+                                  <tbody className="divide-y divide-slate-700">
                                     {tableData.rows.map((row, rowIdx) => (
-                                      <tr key={rowIdx} className="hover:bg-gray-900/50 transition">
+                                      <tr key={rowIdx} className="hover:bg-slate-800/50 transition">
                                         {row.map((cell, cellIdx) => (
                                           <td
                                             key={cellIdx}
-                                            className="px-3 py-2 text-sm font-mono text-gray-200 align-top border-r border-gray-900 last:border-r-0 whitespace-pre-wrap break-words"
+                                            className="px-3 py-2 text-sm font-mono text-slate-100 align-top border-r border-slate-700 last:border-r-0 whitespace-pre-wrap break-words"
                                           >
-                                            {cell || <span className="text-gray-500">-</span>}
+                                            {cell || <span className="text-slate-400">-</span>}
                                           </td>
                                         ))}
                                       </tr>
@@ -1357,16 +1408,15 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                                 </table>
                               </div>
                             </div>
-                          ) : parsedJSON ? (
-                            <div className="p-4 space-y-2">
-                              <div className="text-xs text-gray-400 font-mono uppercase tracking-wide">JSON</div>
-                              <div className="bg-gray-900/70 border border-gray-800 rounded-md p-3">
-                                <JsonViewer data={parsedJSON} />
-                              </div>
+                          </div>
+                        ) : keyValueLines ? (
+                          /* 键值对展示 */
+                          <div className="bg-slate-900 rounded-md border border-slate-600 overflow-hidden">
+                            <div className="bg-slate-700 px-3 py-1 border-b border-slate-600">
+                              <span className="text-slate-200 text-xs font-mono">详情</span>
                             </div>
-                          ) : keyValueLines ? (
                             <div className="p-4">
-                              <div className="space-y-1 font-mono text-xs sm:text-sm text-gray-100">
+                              <div className="space-y-1 font-mono text-xs sm:text-sm text-slate-100">
                                 {keyValueLines.map((line, lineIdx) => {
                                   const paddingLeft = `${line.indentLevel * 16}px`
 
@@ -1377,13 +1427,13 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                                         className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 items-start"
                                         style={{ paddingLeft }}
                                       >
-                                        <div className="text-gray-400">
+                                        <div className="text-cyan-300">
                                           {line.key}
                                         </div>
-                                        <div className="whitespace-pre-wrap text-gray-100">
+                                        <div className="whitespace-pre-wrap text-slate-100">
                                           {line.value && line.value.trim()
                                             ? line.value
-                                            : <span className="text-gray-500">—</span>}
+                                            : <span className="text-slate-400">—</span>}
                                         </div>
                                       </div>
                                     )
@@ -1396,7 +1446,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                                   return (
                                     <div
                                       key={`${lineIdx}-text`}
-                                      className="whitespace-pre-wrap text-gray-300"
+                                      className="whitespace-pre-wrap text-slate-200"
                                       style={{ paddingLeft }}
                                     >
                                       {line.raw}
@@ -1405,17 +1455,36 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                                 })}
                               </div>
                             </div>
-                          ) : (
-                            <pre className="text-gray-200 text-sm font-mono leading-relaxed p-4 whitespace-pre-wrap break-words">
-                              {formattedOutput}
+                          </div>
+                        ) : (
+                          /* 普通文本或错误信息展示 */
+                          <div className={cn(
+                            "rounded-md border overflow-hidden",
+                            hasError ? "bg-red-950 border-red-700" : "bg-slate-900 border-slate-600"
+                          )}>
+                            <div className={cn(
+                              "px-3 py-1 border-b",
+                              hasError ? "bg-red-900 border-red-700" : "bg-slate-700 border-slate-600"
+                            )}>
+                              <span className={cn(
+                                "text-xs font-mono",
+                                hasError ? "text-red-300" : "text-slate-200"
+                              )}>
+                                {hasError ? '错误' : '输出'}
+                              </span>
+                            </div>
+                            <pre className={cn(
+                              "text-sm font-mono leading-relaxed p-4 whitespace-pre-wrap break-words",
+                              hasError ? "text-red-200" : "text-slate-100"
+                            )}>
+                              {displayContent}
                             </pre>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
-                    ) : null
-                  })()}
-                </div>
-              )
+                    )}
+                  </div>
+                )
               })}
             </div>
           )}

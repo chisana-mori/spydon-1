@@ -26,6 +26,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 		return err
 	}
 	holmesService := services.NewHolmesService(database, cfg, objectStorage)
+	knowledgeService := services.NewKnowledgeService(database, objectStorage)
 	authService := services.NewAuthService(database, cfg)
 	userService := services.NewUserService(database)
 	apiKeyService := services.NewAPIKeyService(database)
@@ -62,6 +63,7 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	userHandler := NewUserHandler(userService)
 	apiKeyHandler := NewAPIKeyHandler(apiKeyService)
 	healthHandler := NewHealthHandler(database)
+	knowledgeHandler := NewKnowledgeHandler(knowledgeService)
 
 	// 全局中间件
 	router.Use(middleware.CORSMiddleware())
@@ -106,7 +108,6 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 	ingestGroup.Use(middleware.AuditLogMiddleware())
 	{
 		ingestGroup.POST("/alert", ingestHandler.IngestAlert)
-		ingestGroup.POST("/rca", ingestHandler.IngestRCA)
 	}
 
 	// 用户资料API（仅需要登录，不需要管理员权限）
@@ -191,6 +192,28 @@ func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) 
 
 		// API Key管理（管理员查看所有）
 		adminGroup.GET("/apikeys", apiKeyHandler.ListAllAPIKeys)
+	}
+
+	// 知识库API
+	// 只读接口：需要登录
+	kbRead := v1.Group("/knowledge")
+	kbRead.Use(middleware.CookieAuthMiddleware(cfg))
+	kbRead.Use(middleware.AuditLogMiddleware())
+	{
+		kbRead.GET("", knowledgeHandler.List)
+		kbRead.GET(":id", knowledgeHandler.GetByID)
+	}
+	// 写接口：管理员
+	kbWrite := v1.Group("/knowledge")
+	kbWrite.Use(middleware.CookieAuthMiddleware(cfg))
+	kbWrite.Use(middleware.RequireAdmin())
+	kbWrite.Use(middleware.AuditLogMiddleware())
+	{
+		kbWrite.POST("", knowledgeHandler.Create)
+		kbWrite.PUT(":id", knowledgeHandler.Update)
+		kbWrite.POST(":id/publish", knowledgeHandler.Publish)
+		kbWrite.POST("/upload/presign", knowledgeHandler.PresignUpload)
+		kbWrite.DELETE(":id", knowledgeHandler.Delete)
 	}
 
 	return nil

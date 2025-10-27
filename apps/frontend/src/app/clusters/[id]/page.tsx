@@ -1,5 +1,6 @@
 'use client'
 
+import { use } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,13 +21,13 @@ import { formatDistanceToNow, format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
 interface ClusterDetailPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
-  const id = params.id
+  const { id } = use(params)
 
   // 获取集群详情
   const { data: clusterData, isLoading } = useQuery({

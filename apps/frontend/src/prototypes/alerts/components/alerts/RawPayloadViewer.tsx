@@ -9,27 +9,29 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Download, 
   Eye, 
-  Code, 
   FileText, 
   Loader2, 
   AlertCircle,
   Copy,
-  Check
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { minioClient } from '@prototypes/alerts/lib/minio-client';
 import { RawPayloadData, RawDataViewMode } from '@prototypes/alerts/types/alerts';
+import { Finding } from '@prototypes/alerts/types/enrichment';
+import { parseFinding } from '@prototypes/alerts/lib/enrichment-parser';
+import { EnrichmentRenderer } from '@prototypes/alerts/components/enrichment/EnrichmentRenderer';
 
 interface RawPayloadViewerProps {
   rawPayloadKey: string;
   alertId: string;
-  alertTitle: string;
+  alertTitle?: string;
   className?: string;
 }
 
 export function RawPayloadViewer({ 
   rawPayloadKey, 
   alertId, 
-  alertTitle,
   className 
 }: RawPayloadViewerProps) {
   const [loading, setLoading] = useState(false);
@@ -37,6 +39,7 @@ export function RawPayloadViewer({
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<RawDataViewMode>('formatted');
   const [copied, setCopied] = useState(false);
+  const [finding, setFinding] = useState<Finding | null>(null);
 
   // 加载原始数据
   const loadRawData = async () => {
@@ -80,6 +83,19 @@ export function RawPayloadViewer({
 
       if (rawData) {
         setData(rawData);
+        
+        // 尝试解析为 Finding
+        try {
+          console.log('Raw data:', rawData.data);
+          const parsed = parseFinding(rawData.data);
+          console.log('Parsed finding:', parsed);
+          console.log('Enrichments:', parsed.enrichments);
+          console.log('Enrichments length:', parsed.enrichments?.length);
+          setFinding(parsed);
+        } catch (parseErr) {
+          console.error('Failed to parse as Finding:', parseErr);
+          setFinding(null);
+        }
       } else {
         setError('无法获取原始数据');
       }
@@ -101,7 +117,7 @@ export function RawPayloadViewer({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('复制失败:', err);
+      // Copy failed
     }
   };
 
@@ -232,28 +248,83 @@ export function RawPayloadViewer({
               </Button>
             </div>
 
-            {/* 数据展示 */}
+            {/* 数据展示 - 使用 Tabs 切换视图 */}
             <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as RawDataViewMode)}>
               <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="formatted">格式化</TabsTrigger>
+                <TabsTrigger value="formatted" className="flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  美化视图
+                </TabsTrigger>
                 <TabsTrigger value="json">JSON</TabsTrigger>
                 <TabsTrigger value="yaml">YAML</TabsTrigger>
                 <TabsTrigger value="raw">原始</TabsTrigger>
               </TabsList>
               
-              <TabsContent value={viewMode} className="mt-4">
+              {/* 美化视图 - 仅显示解析后的 Enrichments */}
+              <TabsContent value="formatted" className="mt-4">
+                {/* 调试信息 */}
+                <div className="mb-4 p-4 bg-muted rounded text-xs space-y-1">
+                  <div>Finding: {finding ? '✅' : '❌'}</div>
+                  <div>Enrichments: {finding?.enrichments ? '✅' : '❌'}</div>
+                  <div>Enrichments length: {finding?.enrichments?.length || 0}</div>
+                  {finding?.enrichments && finding.enrichments.length > 0 && (
+                    <div>First enrichment title: {finding.enrichments[0].title}</div>
+                  )}
+                </div>
+                
+                {finding && finding.enrichments && finding.enrichments.length > 0 ? (
+                  <div className="space-y-4">
+                    {/* 仅显示 Enrichments 列表，不显示 Finding 基本信息 */}
+                    {finding.enrichments.map((enrichment, idx) => (
+                      <EnrichmentRenderer
+                        key={idx}
+                        enrichment={enrichment}
+                        index={idx}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      无法解析为结构化数据，请切换到其他视图查看原始内容
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </TabsContent>
+              
+              {/* JSON 视图 */}
+              <TabsContent value="json" className="mt-4">
                 <div className="relative">
-                  <pre className="bg-muted p-4 rounded-lg overflow-auto max-h-96 text-sm">
-                    <code>{formatData(data.data, viewMode)}</code>
+                  <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-auto max-h-[600px] text-xs">
+                    <code>{formatData(data.data, 'json')}</code>
+                  </pre>
+                </div>
+              </TabsContent>
+              
+              {/* YAML 视图 */}
+              <TabsContent value="yaml" className="mt-4">
+                <div className="relative">
+                  <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-auto max-h-[600px] text-xs">
+                    <code>{formatData(data.data, 'yaml')}</code>
+                  </pre>
+                </div>
+              </TabsContent>
+              
+              {/* 原始视图 */}
+              <TabsContent value="raw" className="mt-4">
+                <div className="relative">
+                  <pre className="bg-slate-950 text-slate-50 p-4 rounded-lg overflow-auto max-h-[600px] text-xs">
+                    <code>{formatData(data.data, 'raw')}</code>
                   </pre>
                 </div>
               </TabsContent>
             </Tabs>
 
             {/* 元数据信息 */}
-            <div className="text-sm text-muted-foreground space-y-1">
+            <div className="text-sm text-muted-foreground space-y-1 pt-2 border-t">
               <div>最后修改: {data.lastModified.toLocaleString()}</div>
-              <div>存储键: <code className="bg-muted px-1 rounded">{data.key}</code></div>
+              <div>存储键: <code className="bg-muted px-1 rounded text-xs">{data.key}</code></div>
             </div>
           </div>
         )}

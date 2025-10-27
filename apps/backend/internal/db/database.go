@@ -50,18 +50,20 @@ func Initialize(databaseURL string) (*Database, error) {
 }
 
 func (d *Database) AutoMigrate() error {
-	err := d.DB.AutoMigrate(
-		&models.Cluster{},
-		&models.Alert{},
-		&models.RCARun{},
-		&models.AuditLog{},
-		&models.User{},
-		&models.RefreshToken{},
-		&models.APIKey{},
-	)
-	if err != nil {
-		return err
-	}
+    err := d.DB.AutoMigrate(
+        &models.Cluster{},
+        &models.Alert{},
+        &models.RCARun{},
+        &models.AuditLog{},
+        &models.User{},
+        &models.RefreshToken{},
+        &models.APIKey{},
+        &models.KnowledgeArticle{},
+        &models.KnowledgeArticleVersion{},
+    )
+    if err != nil {
+        return err
+    }
 
 	log.Println("数据库表结构迁移完成，正在手动创建外键...")
 
@@ -187,15 +189,30 @@ func (d *Database) CreateIndexes() error {
 		return fmt.Errorf("创建api_keys用户索引失败: %w", err)
 	}
 
-	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix
-		ON api_keys(key_prefix)
-	`).Error; err != nil {
-		return fmt.Errorf("创建api_keys前缀索引失败: %w", err)
-	}
+    if err := d.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix
+        ON api_keys(key_prefix)
+    `).Error; err != nil {
+        return fmt.Errorf("创建api_keys前缀索引失败: %w", err)
+    }
 
-	log.Println("数据库索引创建完成")
-	return nil
+    // knowledge 索引
+    if err := d.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_kb_rule_norm_status
+        ON knowledge_articles(alert_rule_name_normalized, status)
+    `).Error; err != nil {
+        return fmt.Errorf("创建knowledge_articles索引失败: %w", err)
+    }
+
+    if err := d.Exec(`
+        CREATE INDEX IF NOT EXISTS idx_kb_tags_gin
+        ON knowledge_articles USING GIN (tags)
+    `).Error; err != nil {
+        return fmt.Errorf("创建knowledge_articles GIN索引失败: %w", err)
+    }
+
+    log.Println("数据库索引创建完成")
+    return nil
 }
 
 // EnableExtensions 启用PostgreSQL扩展

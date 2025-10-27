@@ -16,7 +16,6 @@ export function useCopyToClipboard({
 
   const copyToClipboard = useCallback(async (text: string): Promise<boolean> => {
     if (!navigator?.clipboard) {
-      console.warn('Clipboard not supported')
       return false
     }
 
@@ -30,7 +29,6 @@ export function useCopyToClipboard({
       
       return true
     } catch (error) {
-      console.warn('Copy failed', error)
       setIsCopied(false)
       return false
     }

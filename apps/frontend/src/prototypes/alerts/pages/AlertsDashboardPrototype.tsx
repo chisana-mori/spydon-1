@@ -64,7 +64,7 @@ export default function AlertsDashboardPrototype() {
       const statsData = await alertsAPI.getAlertStats();
       setStats(statsData);
     } catch (err) {
-      console.error('Failed to load stats:', err);
+      // Failed to load stats
     }
   };
 
@@ -243,7 +243,6 @@ export default function AlertsDashboardPrototype() {
         alerts={alerts} 
         loading={loading}
         onAlertClick={(alert) => {
-          console.log('Alert clicked:', alert);
           // 这里可以添加更多的点击处理逻辑
         }}
       />

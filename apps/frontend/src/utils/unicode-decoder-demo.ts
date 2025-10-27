@@ -42,33 +42,10 @@ export const decodeEscapedUnicode = (value: string): string => {
     
     return value
   } catch (error) {
-    console.warn('Failed to decode Unicode escapes:', error)
     return value
   }
 }
 
 // 演示示例
-if (typeof window !== 'undefined') {
-  // 仅在浏览器环境中运行演示
-  console.group('Unicode解码演示')
-  
-  // 示例1: 简单的Unicode转义序列
-  const example1 = '\\u95ee\\u9898\\u5206\\u6790\\u62a5\\u544a'
-  console.log('输入:', example1)
-  console.log('输出:', decodeEscapedUnicode(example1))
-  console.log('期望: 问题分析报告')
-  
-  // 示例2: JSON对象中的Unicode转义
-  const example2 = '{"sections": {"\\u95ee\\u9898\\u5206\\u6790\\u62a5\\u544a": "## \\u95ee\\u9898\\u63cf\\u8ff0"}}'
-  console.log('\n输入:', example2)
-  console.log('输出:', decodeEscapedUnicode(example2))
-  
-  // 示例3: 混合内容
-  const example3 = 'Pod \\u5728 default \\u547d\\u540d\\u7a7a\\u95f4\\u4e2d\\u51fa\\u73b0\\u4e86 ImagePullBackOff'
-  console.log('\n输入:', example3)
-  console.log('输出:', decodeEscapedUnicode(example3))
-  console.log('期望: Pod 在 default 命名空间中出现了 ImagePullBackOff')
-  
-  console.groupEnd()
-}
+// Demo code removed - console logs disabled
 

@@ -171,14 +171,16 @@ export function AlertDetail({ alert, className }: AlertDetailProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {Object.entries(alert.annotations).map(([key, value]) => (
-                  <div key={key} className="space-y-1">
-                    <div className="text-sm font-medium">{key}</div>
-                    <div className="text-sm text-muted-foreground bg-muted p-2 rounded">
-                      {value}
+                {Object.entries(alert.annotations)
+                  .filter(([key]) => key !== 'enrichment_keys' && key !== 'investigate_uri')
+                  .map(([key, value]) => (
+                    <div key={key} className="space-y-1">
+                      <div className="text-sm font-medium">{key}</div>
+                      <div className="text-sm text-muted-foreground bg-muted p-2 rounded">
+                        {value}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </CardContent>
           </Card>

@@ -1,5 +1,6 @@
 'use client'
 
+import { use } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,13 +20,13 @@ import { RawPayloadViewer } from '@/components/alerts/RawPayloadViewer'
 import { AlertAnalysisIntegration } from '@/components/alerts/AlertAnalysisIntegration'
 
 interface AlertDetailPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default function AlertDetailPage({ params }: AlertDetailPageProps) {
-  const id = params.id
+  const { id } = use(params)
 
   // 获取告警详情
   const { data: alertData, isLoading } = useQuery({
@@ -303,16 +304,18 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
             </div>
             <div className="px-6 py-4">
               <div className="space-y-4">
-                {Object.entries(alert.annotations).map(([key, value]) => (
-                  <div key={key} className="space-y-2">
-                    <span className="font-medium text-gray-900 text-sm">{key}:</span>
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-gray-700 text-sm leading-relaxed">
-                        {String(value)}
-                      </p>
+                {Object.entries(alert.annotations)
+                  .filter(([key]) => key !== 'enrichment_keys' && key !== 'investigate_uri')
+                  .map(([key, value]) => (
+                    <div key={key} className="space-y-2">
+                      <span className="font-medium text-gray-900 text-sm">{key}:</span>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-700 text-sm leading-relaxed">
+                          {String(value)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           </div>
@@ -324,6 +327,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
         alert={alert} 
         defaultTab="enhanced" 
       />
+
     </div>
   )
 }

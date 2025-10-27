@@ -18,8 +18,10 @@ import (
 
 // PayloadStorage 用于存储原始大文本或JSON数据的抽象接口
 type PayloadStorage interface {
-	Save(ctx context.Context, prefix string, data []byte, contentType string) (string, error)
-	Get(ctx context.Context, key string) ([]byte, error)
+    Save(ctx context.Context, prefix string, data []byte, contentType string) (string, error)
+    Get(ctx context.Context, key string) ([]byte, error)
+    PutAt(ctx context.Context, key string, data []byte, contentType string) error
+    PresignPut(ctx context.Context, key string, ttl time.Duration, contentType string) (string, error)
 }
 
 // ObjectStorageService 基于MinIO的对象存储实现
@@ -91,7 +93,10 @@ func (s *ObjectStorageService) Save(ctx context.Context, prefix string, data []b
 	}
 
 	reader := bytes.NewReader(data)
-	uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	
+	// 使用独立的上下文，避免父上下文取消影响上传
+	// 如果父上下文已经取消，我们仍然尝试完成上传
+	uploadCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	_, err := s.client.PutObject(uploadCtx, s.bucket, objectKey, reader, int64(len(data)), minio.PutObjectOptions{
@@ -127,4 +132,44 @@ func (s *ObjectStorageService) Get(ctx context.Context, key string) ([]byte, err
 	}
 
 	return buffer.Bytes(), nil
+}
+
+// PutAt 以指定对象键写入（用于 manifest 等固定路径）
+func (s *ObjectStorageService) PutAt(ctx context.Context, key string, data []byte, contentType string) error {
+    if key == "" {
+        return fmt.Errorf("对象键不能为空")
+    }
+    if contentType == "" {
+        contentType = "application/octet-stream"
+    }
+    reader := bytes.NewReader(data)
+    uploadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+    defer cancel()
+
+    _, err := s.client.PutObject(uploadCtx, s.bucket, key, reader, int64(len(data)), minio.PutObjectOptions{
+        ContentType: contentType,
+    })
+    if err != nil {
+        return fmt.Errorf("上传对象失败: %w", err)
+    }
+    return nil
+}
+
+// PresignPut 生成预签名PUT URL（限制TTL与Content-Type）
+func (s *ObjectStorageService) PresignPut(ctx context.Context, key string, ttl time.Duration, contentType string) (string, error) {
+    if key == "" {
+        return "", fmt.Errorf("对象键不能为空")
+    }
+    if ttl <= 0 {
+        ttl = 10 * time.Minute
+    }
+    reqParams := make(url.Values)
+    if contentType != "" {
+        reqParams.Set("response-content-type", contentType)
+    }
+    urlObj, err := s.client.PresignedPutObject(ctx, s.bucket, key, ttl)
+    if err != nil {
+        return "", fmt.Errorf("生成预签名URL失败: %w", err)
+    }
+    return urlObj.String(), nil
 }

@@ -1,0 +1,138 @@
+nameOverride: robusta
+fullnameOverride: robusta
+clusterName: robusta-kind
+
+# runner:
+#   log_level: DEBUG
+#   image:
+#     repository: robustadev/robusta-runner
+#     tag: "0.28.1"
+#     pullPolicy: IfNotPresent
+
+# prometheusStack:
+#   enabled: true
+
+# # Forwarder 配置
+# forwarder:
+  # image:
+  #   repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/robusta-forwarder
+  #   tag: "0.28.1"
+  #   pullPolicy: IfNotPresent
+
+# # Kubewatch 配置
+# kubewatch:
+#   image:
+#     repository: us-central1-docker.pkg.dev/genuine-flight-317411/devel/kubewatch
+#     tag: "0.28.1"
+#     pullPolicy: IfNotPresent
+
+# 全局 Prometheus 配置
+globalConfig:
+  prometheus_url: http://prometheus.robusta.svc.cluster.local:9090
+  investigation_type: "PrometheusAlert"
+  context: {}
+  cluster_name: robusta-kind
+
+# Runner 配置
+runner:
+  additionalEnvVars:
+  - name: WEBHOOK_API_KEY
+    value: "rsk_rqDbQnga1CJXUjABWLZSZCsz8ieg-FzXwKxvy5-yqSI="
+  - name: WEBHOOK_CLUSTER_ID
+    value: "robusta-kind"
+
+# 启用 HolmesGPT
+enableHolmesGPT: true
+
+# HolmesGPT 配置
+holmes:
+  enablePostProcessing: true
+  additionalEnvVars:
+  - name: OVERRIDE_MAX_CONTENT_SIZE
+    value: "200000"
+  - name: OVERRIDE_MAX_OUTPUT_TOKEN
+    value: "18192"
+  modelList:
+    # openrouter_deepseek:
+    #   model: openrouter/deepseek/deepseek-v3.1-terminus
+    #   api_key: "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"
+    #   api_base: https://openrouter.ai/api/v1
+    #   temperature: 0
+    deepseek:  
+      model: deepseek/deepseek-chat 
+      api_key: "sk-d8a509507c05475aa65956c50866d63d"  
+      api_base: https://api.deepseek.com/v1
+      temperature: 0
+  
+  # 启用内置工具集
+  toolsets:
+    robusta:
+      enabled: true
+    kubernetes/core:
+      enabled: true
+    kubernetes/logs:
+      enabled: true
+    helm/core:
+      enabled: true
+    internet/core:
+      enabled: true
+    prometheus/metrics:
+      enabled: true
+      config:
+        prometheus_url: http://prometheus.robusta.svc.cluster.local:9090
+
+# 邮件通知配置
+sinksConfig:
+  - webhook_sink:
+      size_limit: 100000000
+      name: hub_webhook
+      format: json
+      # 通过 hub-proxy 访问后端（hub-proxy 会透传 headers）
+      url: "http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook"
+      authorization: "Bearer rsk_fNKhXrltaRNAJq7eIlqXCJkUjhMPsEuPVBds3QWGyt8="
+      aggregation_key: "$finding_title-$finding_severity"
+  
+  # - mail_sink:
+  #     name: holmes_email_sink
+  #     mailto: "mailtos://heningyu21%40126.com:Wangy241008%2A@smtp.126.com:465?from=heningyu21%40126.com&to=heningyu21@gmail.com"
+  #     with_header: true
+
+# 自定义 Playbooks
+customPlaybooks:
+  # 发送 Prometheus 告警到邮件（HolmesGPT 会自动分析）
+  - name: PrometheusAlertsToEmail
+    triggers:
+      - on_prometheus_alert: {}
+    actions:
+      - create_finding:
+          title: "$alert_name"
+          description: |
+            告警详情:
+            - 告警名称: $alert_name
+            - 集群: $cluster_name
+            - 命名空间: $namespace
+            - 严重程度: $severity
+            - 描述: $description
+
+            HolmesGPT 将自动分析此告警并提供根因分析。
+          severity: HIGH
+          aggregation_key: "$alert_name"
+      - default_enricher: {}
+      - alert_graph_enricher: {}
+      - foreign_logs_enricher: {}
+      - node_graph_enricher: {}
+      - node_running_pods_enricher: {}
+      - node_allocatable_resources_enricher: {}
+      - node_dmesg_enricher: {}
+      - alert_definition_enricher: {}
+      - logs_enricher: {}
+      # - ask_holmes:
+      #     investigation_type: "analyze_problems"  # 必需字段  
+      #     ask: "Please analyze this Kubernetes issue and provide root cause analysis"
+      #     context: {}
+      #     aggregation_key: "Alert-$alertname-$fingerprint"
+    sinks:
+      - "hub_webhook"
+
+playbookRepos: {}
+playbooksPersistentVolume: false

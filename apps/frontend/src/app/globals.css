@@ -1,6 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Pacifico&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "../styles/_variables.css";
+@import "../styles/_keyframe-animations.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -160,7 +162,7 @@
   .form-input-height {
     @apply h-11 flex items-center;
   }
-  
+
   /* 自定义滚动条样式 */
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
@@ -179,5 +181,108 @@
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #9ca3af;
+  }
+
+  /* Code block highlighting styles */
+  pre {
+    @apply bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto;
+  }
+
+  pre code {
+    @apply text-sm font-mono;
+  }
+
+  /* Lowlight syntax highlighting colors */
+  .hljs-attr { @apply text-blue-400; }
+  .hljs-attribute { @apply text-blue-400; }
+  .hljs-literal { @apply text-blue-400; }
+  .hljs-meta { @apply text-slate-500; }
+  .hljs-meta-string { @apply text-green-400; }
+  .hljs-number { @apply text-orange-400; }
+  .hljs-operator { @apply text-slate-300; }
+  .hljs-punctuation { @apply text-slate-300; }
+  .hljs-property { @apply text-blue-400; }
+  .hljs-regexp { @apply text-red-400; }
+  .hljs-string { @apply text-green-400; }
+  .hljs-symbol { @apply text-orange-400; }
+  .hljs-tag { @apply text-red-400; }
+  .hljs-template-tag { @apply text-red-400; }
+  .hljs-template-variable { @apply text-green-400; }
+  .hljs-type { @apply text-blue-400; }
+  .hljs-variable { @apply text-slate-100; }
+  .hljs-title { @apply text-blue-300; }
+  .hljs-title.class_ { @apply text-yellow-300; }
+  .hljs-title.class_.inherited__ { @apply text-green-300; }
+  .hljs-title.function_ { @apply text-blue-300; }
+  .hljs-keyword { @apply text-purple-400; }
+  .hljs-built_in { @apply text-cyan-400; }
+  .hljs-name { @apply text-red-400; }
+  .hljs-section { @apply text-yellow-300; }
+  .hljs-selector-attr { @apply text-orange-400; }
+  .hljs-selector-class { @apply text-yellow-300; }
+  .hljs-selector-id { @apply text-yellow-300; }
+  .hljs-selector-pseudo { @apply text-orange-400; }
+  .hljs-selector-tag { @apply text-red-400; }
+  .hljs-subst { @apply text-slate-300; }
+  .hljs-cdata { @apply text-slate-500; }
+  .hljs-comment { @apply text-slate-500; }
+  .hljs-quote { @apply text-slate-500; }
+
+  /* TipTap Editor Styles - Ensure headings are visually distinct */
+  .ProseMirror h1 {
+    @apply text-3xl font-bold mt-6 mb-4 text-foreground;
+  }
+
+  .ProseMirror h2 {
+    @apply text-2xl font-bold mt-5 mb-3 text-foreground;
+  }
+
+  .ProseMirror h3 {
+    @apply text-xl font-bold mt-4 mb-2 text-foreground;
+  }
+
+  .ProseMirror p {
+    @apply text-base my-2;
+  }
+
+  .ProseMirror ul {
+    @apply list-disc list-outside ml-6 my-2;
+  }
+
+  .ProseMirror ol {
+    @apply list-decimal list-outside ml-6 my-2;
+  }
+
+  .ProseMirror blockquote {
+    @apply border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic my-4;
+  }
+
+  .ProseMirror code {
+    @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono;
+  }
+
+  .ProseMirror pre {
+    @apply bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto my-4;
+  }
+
+  .ProseMirror pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .ProseMirror hr {
+    @apply border-t border-gray-300 dark:border-gray-600 my-6;
+  }
+
+  .ProseMirror img {
+    @apply max-w-full h-auto rounded-lg my-4;
+  }
+
+  /* Placeholder styling */
+  .ProseMirror p.is-editor-empty:first-child::before {
+    @apply text-gray-400 dark:text-gray-500;
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
   }
 }

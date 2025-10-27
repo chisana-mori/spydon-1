@@ -16,10 +16,10 @@ import {
   Bell,
   Menu,
   X,
-  BarChart3,
   Shield,
   Activity,
   Users,
+  BookOpen,
   Moon,
   Sun,
   Monitor,
@@ -57,6 +57,12 @@ const navigation: NavigationItem[] = [
     description: '系统概览',
   },
   {
+    name: '经验指南',
+    href: '/knowledge',
+    icon: BookOpen,
+    description: '经验沉淀与编辑',
+  },
+  {
     name: '告警管理',
     href: '/alerts',
     icon: AlertTriangle,
@@ -67,12 +73,6 @@ const navigation: NavigationItem[] = [
     href: '/clusters',
     icon: Server,
     description: '集群状态',
-  },
-  {
-    name: '分析报告',
-    href: '/reports',
-    icon: BarChart3,
-    description: '数据分析',
   },
   {
     name: '权限管理',
