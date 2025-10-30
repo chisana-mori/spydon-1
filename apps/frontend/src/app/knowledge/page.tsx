@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { resolveAppPath } from '@/config'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RobustaAPI } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -86,7 +87,7 @@ export default function KnowledgeHomePage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">经验指南</h1>
         <Button asChild>
-          <Link href="/knowledge/new">新建条目</Link>
+          <Link href={resolveAppPath('/knowledge/new')}>新建条目</Link>
         </Button>
       </div>
 
@@ -160,7 +161,7 @@ export default function KnowledgeHomePage() {
                   {/* 标题 - 弹性宽度 */}
                   <div className="flex-1 min-w-0 px-4">
                     <Link
-                      href={`/knowledge/${it.id}` as any}
+                      href={resolveAppPath(`/knowledge/${it.id}`)}
                       className="text-base font-medium text-gray-900 hover:text-blue-600 transition-colors block truncate"
                     >
                       {it.title}
@@ -193,10 +194,10 @@ export default function KnowledgeHomePage() {
                   {/* 操作按钮 - 固定宽度 */}
                   <div className="w-44 flex-shrink-0 flex items-center justify-end gap-2">
                     <Button variant="outline" asChild size="sm" className="h-8">
-                      <Link href={`/knowledge/${it.id}` as any}>查看</Link>
+                      <Link href={resolveAppPath(`/knowledge/${it.id}`)}>查看</Link>
                     </Button>
                     <Button asChild size="sm" className="h-8">
-                      <Link href={`/knowledge/${it.id}/edit` as any}>编辑</Link>
+                      <Link href={resolveAppPath(`/knowledge/${it.id}/edit`)}>编辑</Link>
                     </Button>
                     <Button 
                       variant="outline" 
@@ -302,4 +303,3 @@ export default function KnowledgeHomePage() {
     </div>
   )
 }
-

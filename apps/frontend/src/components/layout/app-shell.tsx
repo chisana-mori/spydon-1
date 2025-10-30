@@ -2,9 +2,8 @@
 
 import { useState, useEffect, type ReactNode } from 'react'
 import { useThemeStore } from '@/stores/themeStore'
-import { appConfig } from '@/config'
+import { appConfig, resolveAppPath, stripAppBasePath } from '@/config'
 import Link from 'next/link'
-import type { Route } from 'next'
 import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -28,14 +27,19 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { toast } from 'sonner'
 
-const BACKEND_ORIGIN = (() => {
-  try {
-    return new URL(appConfig.apiBaseUrl).origin
-  } catch (error) {
-    return 'http://localhost:8080'
+const resolveBackendUrl = (path: string) => {
+  // 如果是完整的 URL，直接返回
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path
   }
-})()
+  
+  // 否则拼接 backendBaseUrl + path
+  const backendBase = appConfig.backendBaseUrl.replace(/\/+$/, '')
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${backendBase}${normalizedPath}`
+}
 
 interface AppShellProps {
   children: ReactNode
@@ -43,7 +47,7 @@ interface AppShellProps {
 
 type NavigationItem = {
   name: string
-  href?: Route
+  href?: string
   icon: LucideIcon
   description: string
   children?: NavigationItem[]
@@ -97,7 +101,8 @@ const navigation: NavigationItem[] = [
 
 export function AppShell({ children }: AppShellProps) {
   const { theme, setTheme } = useThemeStore()
-  const pathname = usePathname()
+  const pathname = usePathname() || '/'
+  const normalizedPathname = stripAppBasePath(pathname)
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
@@ -110,14 +115,14 @@ export function AppShell({ children }: AppShellProps) {
     navigation.forEach((item) => {
       if (item.children) {
         const hasActiveChild = item.children.some((child) =>
-          child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+          child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
         )
         if (hasActiveChild && !expandedMenus.includes(item.name)) {
           setExpandedMenus((prev) => [...prev, item.name])
         }
       }
     })
-  }, [pathname])
+  }, [normalizedPathname, expandedMenus])
 
   const toggleMenu = (menuName: string) => {
     setExpandedMenus((prev) =>
@@ -128,20 +133,34 @@ export function AppShell({ children }: AppShellProps) {
   // 权限检查：非管理员用户重定向到未授权页面
   useEffect(() => {
     // 跳过加载状态和未授权页面本身
-    if (authLoading || pathname === '/unauthorized') return
+    if (authLoading || normalizedPathname === '/unauthorized') return
 
     // 如果用户已登录但不是管理员，重定向到未授权页面
     if (user && !user.is_admin) {
-      router.push('/unauthorized')
+      router.push(resolveAppPath('/unauthorized'))
     }
-  }, [user, authLoading, pathname, router])
+  }, [user, authLoading, normalizedPathname, router])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleAuthRequired = () => {
+      toast.error('登录状态已失效，正在跳转到登录页面...')
+      // 自动跳转到CAS登录页面
+      setTimeout(() => {
+        const serviceTarget = encodeURIComponent(window.location.href)
+        const casLoginUrl = resolveBackendUrl(appConfig.casLoginPath || '/auth/cas/login')
+        const separator = casLoginUrl.includes('?') ? '&' : '?'
+        window.location.href = `${casLoginUrl}${separator}service=${serviceTarget}`
+      }, 1000) // 延迟1秒让用户看到提示
+    }
+    window.addEventListener('robusta-auth-required', handleAuthRequired)
+    return () => {
+      window.removeEventListener('robusta-auth-required', handleAuthRequired)
+    }
+  }, [])
 
   const resolveCasLoginUrl = () => {
-    const target = appConfig.casLoginPath.trim() || '/auth/cas/login'
-    if (target.startsWith('http://') || target.startsWith('https://')) {
-      return target
-    }
-    return `${BACKEND_ORIGIN}${target}`
+    return resolveBackendUrl(appConfig.casLoginPath || '/auth/cas/login')
   }
 
   const handleCASLogin = () => {
@@ -156,7 +175,9 @@ export function AppShell({ children }: AppShellProps) {
   const handleCASLogout = () => {
     if (typeof window === 'undefined') return
     const redirectTarget = encodeURIComponent(window.location.origin)
-    window.location.href = `${BACKEND_ORIGIN}${appConfig.casLogoutPath}?redirect=${redirectTarget}`
+    const logoutUrl = resolveBackendUrl(appConfig.casLogoutPath || '/auth/cas/logout')
+    const separator = logoutUrl.includes('?') ? '&' : '?'
+    window.location.href = `${logoutUrl}${separator}redirect=${redirectTarget}`
   }
 
   const toggleTheme = () => {
@@ -181,11 +202,11 @@ export function AppShell({ children }: AppShellProps) {
 
   const activeNav = navigation.find((item) => {
     if (item.href) {
-      return item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+      return item.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(item.href)
     }
     if (item.children) {
       return item.children.some((child) =>
-        child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+        child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
       )
     }
     return false
@@ -198,7 +219,7 @@ export function AppShell({ children }: AppShellProps) {
     // 如果有子菜单
     if (item.children) {
       const hasActiveChild = item.children.some((child) =>
-        child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+        child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
       )
 
       return (
@@ -233,13 +254,14 @@ export function AppShell({ children }: AppShellProps) {
           {isExpanded && (
             <div className="mt-1 space-y-1 pl-3">
               {item.children.map((child) => {
-                const isActive = child.href && (child.href === '/' ? pathname === '/' : pathname.startsWith(child.href))
+                const isActive = child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
                 const ChildIcon = child.icon
+                const childHref = child.href ? resolveAppPath(child.href) : '#'
 
                 return (
                   <Link
                     key={child.name}
-                    href={child.href!}
+                    href={childHref}
                     className={cn(
                       'group flex items-center space-x-2.5 px-3 py-1.5 rounded-md text-sm transition-all duration-200',
                       isActive
@@ -267,12 +289,13 @@ export function AppShell({ children }: AppShellProps) {
     }
 
     // 没有子菜单的普通菜单项
-    const isActive = item.href && (item.href === '/' ? pathname === '/' : pathname.startsWith(item.href))
+    const isActive = item.href && (item.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(item.href))
+    const itemHref = item.href ? resolveAppPath(item.href) : '#'
 
     return (
       <Link
         key={item.name}
-        href={item.href!}
+        href={itemHref}
         className={cn(
           'group flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 relative',
           isActive

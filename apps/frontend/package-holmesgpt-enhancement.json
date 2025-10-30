@@ -116,21 +116,15 @@
     ]
   },
   "features": {
-    "basic_analysis": {
-      "description": "基础 HolmesGPT 分析功能",
-      "components": ["ChatStyleHolmesGPTAnalysis", "ChatMessage"],
+    "holmesgpt_chat": {
+      "description": "HolmesGPT 增强分析组件（同时覆盖基础能力与聊天体验）",
+      "components": ["EnhancedHolmesGPTChat", "ChatMessage"],
       "features": [
         "实时流式分析",
         "任务进度显示",
         "Markdown 渲染",
         "代码高亮",
-        "JSON 数据解析"
-      ]
-    },
-    "enhanced_chat": {
-      "description": "增强聊天界面",
-      "components": ["EnhancedHolmesGPTChat"],
-      "features": [
+        "JSON 数据解析",
         "设置面板",
         "音效提示",
         "进度统计",

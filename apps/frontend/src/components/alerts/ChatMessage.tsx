@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -468,63 +468,127 @@ const CommandBlock: FC<{ command: string }> = ({ command }) => {
   )
 }
 
-const SummaryCommandBlock: FC<{ children: string }> = ({ children }) => {
+const SummaryCommandBlock: FC<{ children: string; label?: string }> = ({ children, label = '命令' }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
   
-  // 提取命令文本
-  const commandText = typeof children === 'string' ? children : String(children)
+  // 提取并格式化命令文本
+  const commandText = (typeof children === 'string' ? children : String(children))
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+$/, '')
+    .trim()
 
   return (
-    <div className="relative my-3 bg-slate-800 rounded-lg overflow-hidden border border-slate-600 shadow-sm">
-      <div className="flex items-center justify-between bg-slate-700 px-3 py-2 border-b border-slate-600">
-        <span className="text-slate-200 text-xs font-mono">命令</span>
+    <div className="relative my-3 bg-gray-900 rounded-lg overflow-hidden border-2 border-gray-700 shadow-md">
+      <div className="flex items-center justify-between bg-gradient-to-r from-gray-800 to-gray-700 px-4 py-2.5 border-b border-gray-600">
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+          </div>
+          <span className="text-green-400 text-xs font-semibold ml-2">$</span>
+          <span className="text-gray-300 text-xs font-medium">{label}</span>
+        </div>
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 hover:bg-slate-600 text-slate-300 hover:text-white transition-colors"
+          className="h-7 w-7 p-0 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors rounded"
           onClick={() => copyToClipboard(commandText)}
           title={isCopied ? '已复制' : '复制命令'}
         >
-          {isCopied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+          {isCopied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
         </Button>
       </div>
-      <pre className="text-slate-100 text-sm font-mono leading-relaxed p-3 whitespace-pre-wrap break-all overflow-x-auto">
-        {commandText}
-      </pre>
+      <div className="bg-gray-900 p-4 overflow-x-auto">
+        <SyntaxHighlighter
+          language="bash"
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            padding: 0,
+            background: 'transparent',
+            fontSize: '13px',
+            lineHeight: '1.6',
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+            }
+          }}
+        >
+          {commandText}
+        </SyntaxHighlighter>
+      </div>
     </div>
   )
+}
+
+const extractCodeText = (children: React.ReactNode): string => {
+  return React.Children.toArray(children)
+    .map(child => {
+      if (typeof child === 'string' || typeof child === 'number') {
+        return String(child)
+      }
+      if (React.isValidElement(child)) {
+        const nestedChildren = (child.props as any)?.children
+        return nestedChildren ? extractCodeText(nestedChildren) : ''
+      }
+      return ''
+    })
+    .join('')
+}
+
+const normalizeLanguageHint = (langHint?: string): string => {
+  if (!langHint) return ''
+  const normalized = langHint.trim().toLowerCase()
+  if (['shell', 'sh', 'zsh'].includes(normalized)) {
+    return 'bash'
+  }
+  return normalized
+}
+
+const detectCodeLanguage = (langHint: string | undefined, code: string): string => {
+  const normalizedHint = normalizeLanguageHint(langHint)
+  if (normalizedHint && programmingLanguages[normalizedHint]) {
+    return normalizedHint
+  }
+  if (normalizedHint === 'text') {
+    return 'text'
+  }
+
+  const trimmed = code.trim()
+  if (!trimmed) {
+    return normalizedHint || ''
+  }
+
+  if (/(kubectl|helm|docker|sed|grep|nginx|systemctl|service|apt|yum|chmod|chown|scp|ssh|cp |mv |tail |head |cat |tee )/i.test(trimmed)) {
+    return 'bash'
+  }
+  if (trimmed.includes('apiVersion:') || trimmed.includes('kind:') || trimmed.includes('metadata:')) {
+    return 'yaml'
+  }
+  if (/^{[\s\S]*}$/.test(trimmed) || /^\[[\s\S]*\]$/.test(trimmed)) {
+    return 'json'
+  }
+  if (/(SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|CREATE TABLE)\s+/i.test(trimmed)) {
+    return 'sql'
+  }
+  if (trimmed.includes('<') && trimmed.includes('>') && trimmed.includes('</')) {
+    return 'html'
+  }
+
+  return normalizedHint || ''
+}
+
+const isShellLanguage = (lang: string): boolean => {
+  const normalized = normalizeLanguageHint(lang)
+  return normalized === 'bash'
 }
 
 const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
 
-  // 智能语言检测
-  const detectLanguage = (lang: string, code: string): string => {
-    const lowerLang = lang.toLowerCase()
-    
-    // 直接匹配
-    if (lowerLang && programmingLanguages[lowerLang]) {
-      return lowerLang
-    }
-    
-    // 基于内容检测
-    if (code.includes('kubectl ') || code.includes('docker ') || code.includes('helm ')) {
-      return 'bash'
-    }
-    if (code.includes('apiVersion:') || code.includes('kind:') || code.includes('metadata:')) {
-      return 'yaml'
-    }
-    if (code.includes('nslookup ') || code.includes('dig ') || code.includes('ping ')) {
-      return 'bash'
-    }
-    if (code.includes('SELECT ') || code.includes('FROM ') || code.includes('WHERE ')) {
-      return 'sql'
-    }
-    
-    return lowerLang || 'text'
-  }
-
-  const detectedLanguage = detectLanguage(language, value)
+  const detectedLanguage = detectCodeLanguage(language, value) || 'text'
   const displayName = languageDisplayNames[detectedLanguage] || detectedLanguage.toUpperCase()
   const lineCount = value.split('\n').length
 
@@ -1063,17 +1127,36 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                   ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 mb-3 text-sm">{children}</ol>,
                   strong: ({ children }) => <strong className="font-semibold text-green-800">{children}</strong>,
                   code: ({ node, className, children, ...props }: any) => {
-                    const match = /language-(\w+)/.exec(className || '')
-                    const isCodeBlock = match || className
+                    // 提取代码文本
+                    const codeString = String(children).replace(/\n$/, '')
+                    const isMultiline = codeString.includes('\n')
                     
-                    // 代码块：使用带复制功能的命令块
-                    if (isCodeBlock && typeof children === 'string' && children.includes('\n')) {
-                      const codeString = String(children).replace(/\n$/, '')
+                    // 提取语言标识
+                    const match = /language-(\w+)/.exec(className || '')
+                    const language = match ? match[1] : ''
+                    
+                    // 多行代码块
+                    if (isMultiline) {
+                      // 检测是否为命令（bash/shell/sh）
+                      const isCommand = /^(bash|shell|sh|zsh|cmd|powershell)$/i.test(language) || 
+                                       codeString.includes('kubectl ') || 
+                                       codeString.includes('sed ') ||
+                                       codeString.includes('echo ')
+                      
+                      if (isCommand) {
+                        return <SummaryCommandBlock>{codeString}</SummaryCommandBlock>
+                      }
+                      
+                      // 其他代码块使用完整的代码高亮
                       return <SummaryCommandBlock>{codeString}</SummaryCommandBlock>
                     }
                     
-                    // 内联代码：直接渲染为普通文本
-                    return <>{children}</>
+                    // 内联代码
+                    return (
+                      <code className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded text-sm font-mono border border-green-200">
+                        {children}
+                      </code>
+                    )
                   },
                   pre: ({ children }) => <>{children}</>,
                   blockquote: ({ children }) => (
@@ -1216,15 +1299,17 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                   em({ children }) {
                     return <em className="italic text-gray-600">{children}</em>
                   },
-                  code({ node, className, children, ...props }) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    const language = match ? match[1] : ''
+                  code({ className, children }) {
+                    const raw = extractCodeText(children)
+                    const normalized = raw.replace(/\r\n/g, '\n').replace(/\s+$/, '')
+                    const languageMatch = /language-([\w-]+)/.exec(className || '')
+                    const langHint = languageMatch ? languageMatch[1] : undefined
                     
-                    if (language && typeof children === 'string' && children.includes('\n')) {
+                    if (normalized.includes('\n')) {
                       return (
                         <CodeBlock
-                          language={language}
-                          value={children.replace(/\n$/, '')}
+                          language={detectCodeLanguage(langHint, normalized) || langHint || 'text'}
+                          value={normalized}
                         />
                       )
                     }
@@ -1232,9 +1317,8 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                     return (
                       <code 
                         className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono border"
-                        {...props}
                       >
-                        {children}
+                        {normalized || children}
                       </code>
                     )
                   }

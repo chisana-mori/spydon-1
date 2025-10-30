@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { resolveAppPath } from '@/config'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import KnowledgeEditor, { type KnowledgeEditorValue } from '@/components/knowledge/KnowledgeEditor'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -89,14 +90,15 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
-
-
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">编辑知识条目</h1>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push('/knowledge')}>返回</Button>
-          <Button onClick={handlePublish} disabled={submitting || !article}>发布</Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={() => router.push(resolveAppPath('/knowledge'))}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+            <path d="m12 19-7-7 7-7"/>
+            <path d="M19 12H5"/>
+          </svg>
+          返回列表
+        </Button>
+        <Button onClick={handlePublish} disabled={submitting || !article}>发布</Button>
       </div>
 
       <Card>

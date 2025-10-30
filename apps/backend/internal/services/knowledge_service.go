@@ -192,31 +192,32 @@ func (s *KnowledgeService) Publish(ctx context.Context, id string, changeSummary
 func (s *KnowledgeService) List(page, pageSize int) ([]models.KnowledgeArticle, int64, error) {
 	var items []models.KnowledgeArticle
 	var total int64
-	
+
 	offset := (page - 1) * pageSize
-	
+
 	// 获取总数
 	if err := s.db.DB.Model(&models.KnowledgeArticle{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	
+
 	// 获取分页数据
 	err := s.db.DB.Order("updated_at DESC").
 		Offset(offset).
 		Limit(pageSize).
 		Find(&items).Error
-	
+
 	return items, total, err
 }
 
-// GetByRule 获取规则名匹配的条目（默认按更新时间倒序）
+// GetByRule 获取规则名匹配的条目（支持模糊搜索，默认按更新时间倒序）
 func (s *KnowledgeService) GetByRule(rule string, limit int) ([]models.KnowledgeArticle, error) {
 	norm := s.Normalize(rule)
 	if limit <= 0 {
 		limit = 100 // 增加默认限制
 	}
 	var items []models.KnowledgeArticle
-	err := s.db.DB.Where("alert_rule_name_normalized = ?", norm).
+	// 使用 LIKE 进行模糊搜索
+	err := s.db.DB.Where("alert_rule_name_normalized LIKE ?", "%"+norm+"%").
 		Order("updated_at DESC").Limit(limit).Find(&items).Error
 	return items, err
 }
@@ -266,7 +267,7 @@ func (s *KnowledgeService) Delete(ctx context.Context, id string) error {
 	if err := s.db.DB.First(&art, "id = ?", id).Error; err != nil {
 		return err
 	}
-	
+
 	// 软删除
 	return s.db.DB.Delete(&art).Error
 }

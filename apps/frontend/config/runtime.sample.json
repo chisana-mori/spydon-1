@@ -1,5 +1,0 @@
-{
-  "apiBaseUrl": "https://your-api.example.com/api/v1",
-  "casLoginPath": "/auth/cas/login",
-  "casLogoutPath": "/auth/cas/logout"
-}

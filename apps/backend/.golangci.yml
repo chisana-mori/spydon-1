@@ -1,0 +1,258 @@
+# golangci-lint configuration file
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+output:
+  formats:
+    - format: colored-line-number
+      print-issued-lines: true
+      print-linter-name: true
+  sort-results: true
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment # Too strict for current codebase
+  shadow:
+    strict: true
+
+  gocyclo:
+    min-complexity: 15
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: robusta-web/backend
+
+  golint:
+    min-confidence: 0.8
+
+  misspell:
+    locale: US
+
+  lll:
+    line-length: 120
+
+  unused:
+    check-exported: false
+
+  unparam:
+    check-exported: false
+
+  nakedret:
+    max-func-lines: 30
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: false
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport # https://github.com/go-critic/go-critic/issues/845
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+
+  funlen:
+    lines: 100
+    statements: 50
+
+  gocognit:
+    min-complexity: 20
+
+  nestif:
+    min-complexity: 4
+
+  gomnd:
+    settings:
+      mnd:
+        checks: argument,case,condition,operation,return,assign
+
+  godot:
+    scope: all
+    exclude:
+      - "SPDX-License-Identifier:"
+    capital: false
+
+  nonamedreturns:
+    # Method names "New" and "NewContext" are excluded from this check
+    exclude:
+      - "New.*"
+      - "NewContext.*"
+
+  nolintlint:
+    allow-leading-space: true
+    allow-unused: false
+    require-explanation: false
+    require-specific: false
+
+  gosimple:
+    checks: [ "all" ]
+
+  staticcheck:
+    checks: [ "all" ]
+
+  stylecheck:
+    checks: [ "all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022" ]
+    # dot-imports: "ST1001"
+    # initialism: "ST1003"
+    # var-naming: "ST1003"
+
+linters:
+  disable-all: true
+  enable:
+    # Default enabled linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+
+    # Additional enabled linters
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - contextcheck
+    - cyclop
+    - dupl
+    - durationcheck
+    - errorlint
+    - exhaustive
+    - copyloopvar
+    - forbidigo
+    - forcetypeassert
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - gofmt
+    - gofumpt
+    - goimports
+    - mnd
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - lll
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - usetesting
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+
+  # Don't enable:
+  # - deadcode (deprecated)
+  # - varcheck (deprecated)
+  # - interfacer (deprecated)
+  # - structcheck (deprecated)
+  # - scopelint (deprecated)
+  # - maligned (deprecated)
+  # - golint (deprecated, use revive)
+
+issues:
+  exclude-dirs:
+    - vendor
+    - bin
+  exclude-files:
+    - ".*\\.pb\\.go$"
+    - ".*_generated\\.go$"
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - lll
+        - funlen
+        - gocognit
+
+    # Exclude known linter issues
+    - path: cmd/
+      linters:
+        - gochecknoinits
+
+    # Exclude shadow checking on err variables
+    - text: "shadow: declaration of \"err\""
+      linters:
+        - govet
+
+    # Exclude certain golint issues
+    - text: "should have a package comment"
+      linters:
+        - golint
+
+    # Exclude magic number warnings for common values
+    - text: "Magic number: [0-2]"
+      linters:
+        - gomnd
+
+    # Exclude long line errors for import blocks
+    - text: "line is .* characters"
+      source: "^import"
+      linters:
+        - lll
+
+    # Exclude funlen for main functions
+    - text: "Function 'main' has too many lines"
+      linters:
+        - funlen
+
+    # Exclude certain staticcheck issues
+    - text: "SA9003: empty branch"
+      linters:
+        - staticcheck
+
+    # Exclude error strings that should not be capitalized
+    - text: "ST1005: error strings should not be capitalized"
+      linters:
+        - stylecheck
+
+  uniq-by-line: true
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+
+severity:
+  default-severity: error
+  case-sensitive: false

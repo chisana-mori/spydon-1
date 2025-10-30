@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -24,22 +25,22 @@ func NewClusterService(database *db.Database) *ClusterService {
 
 // ClusterSummary 集群概览信息
 type ClusterSummary struct {
-	TotalClusters   int64                  `json:"total_clusters"`
-	ActiveClusters  int64                  `json:"active_clusters"`
-	TotalAlerts     int64                  `json:"total_alerts"`
-	CriticalAlerts  int64                  `json:"critical_alerts"`
-	ClusterStats    []ClusterStats         `json:"cluster_stats"`
-	AlertTrends     []AlertTrendData       `json:"alert_trends"`
+	TotalClusters  int64            `json:"total_clusters"`
+	ActiveClusters int64            `json:"active_clusters"`
+	TotalAlerts    int64            `json:"total_alerts"`
+	CriticalAlerts int64            `json:"critical_alerts"`
+	ClusterStats   []ClusterStats   `json:"cluster_stats"`
+	AlertTrends    []AlertTrendData `json:"alert_trends"`
 }
 
 // ClusterStats 单个集群统计信息
 type ClusterStats struct {
-	ClusterID      string    `json:"cluster_id"`
-	Name           string    `json:"name"`
-	Status         string    `json:"status"`
-	AlertCount     int64     `json:"alert_count"`
-	CriticalCount  int64     `json:"critical_count"`
-	LastHeartbeat  *time.Time `json:"last_heartbeat"`
+	ClusterID     string     `json:"cluster_id"`
+	Name          string     `json:"name"`
+	Status        string     `json:"status"`
+	AlertCount    int64      `json:"alert_count"`
+	CriticalCount int64      `json:"critical_count"`
+	LastHeartbeat *time.Time `json:"last_heartbeat"`
 }
 
 // AlertTrendData 告警趋势数据
@@ -49,22 +50,23 @@ type AlertTrendData struct {
 }
 
 // UpdateHeartbeat 更新集群心跳
-func (s *ClusterService) UpdateHeartbeat(cluster *models.Cluster) error {
+func (s *ClusterService) UpdateHeartbeat(ctx context.Context, cluster *models.Cluster) error {
 	now := time.Now()
 	cluster.LastHeartbeat = &now
 
 	// 使用cluster_id作为唯一标识
 	var existingCluster models.Cluster
-	result := s.db.Where("cluster_id = ?", cluster.ClusterID).First(&existingCluster)
+	db := s.dbWithContext(ctx)
+	result := db.Where("cluster_id = ?", cluster.ClusterID).First(&existingCluster)
 
 	if result.Error == nil {
 		// 集群已存在，更新信息
 		cluster.ID = existingCluster.ID
 		cluster.CreatedAt = existingCluster.CreatedAt
-		return s.db.Save(cluster).Error
+		return db.Save(cluster).Error
 	} else if result.Error == gorm.ErrRecordNotFound {
 		// 集群不存在，创建新的
-		return s.db.Create(cluster).Error
+		return db.Create(cluster).Error
 	} else {
 		// 其他错误
 		return result.Error
@@ -198,6 +200,13 @@ func (s *ClusterService) GetClusters(page, limit int, status string) ([]models.C
 	}
 
 	return clusters, total, nil
+}
+
+func (s *ClusterService) dbWithContext(ctx context.Context) *gorm.DB {
+	if ctx == nil {
+		return s.db.DB
+	}
+	return s.db.WithContext(ctx)
 }
 
 // GetClusterByID 根据ID获取集群

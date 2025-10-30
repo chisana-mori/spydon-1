@@ -2,20 +2,24 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"robusta-web/backend/internal/apperrors"
 	"robusta-web/backend/internal/config"
+	"robusta-web/backend/internal/constants"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // HolmesProxyHandler 负责将前端流式请求转发到 HolmesGPT
@@ -33,19 +37,20 @@ func NewHolmesProxyHandler(cfg *config.Config, holmesService *services.HolmesSer
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableCompression:    true,
+		DisableKeepAlives:     true,                                                       // 避免 SSE 重用断开的连接
+		TLSNextProto:          make(map[string]func(string, *tls.Conn) http.RoundTripper), // 禁用 HTTP/2，确保与上游代理兼容
 	}
 
 	return &HolmesProxyHandler{
 		cfg:           cfg,
 		holmesService: holmesService,
 		client: &http.Client{
-			Timeout:   0,
+			Timeout:   120 * time.Second,
 			Transport: transport,
 		},
 	}
@@ -67,18 +72,17 @@ type investigatePayload struct {
 // StreamInvestigate 透传 HolmesGPT 的 SSE 流
 func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 	if !h.cfg.HolmesGPT.Enabled {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "HolmesGPT 功能未启用",
-		})
+		AbortWithDomainError(c, apperrors.New(
+			http.StatusServiceUnavailable,
+			"HOLMESGPT_DISABLED",
+			"HolmesGPT 功能未启用",
+		))
 		return
 	}
 
 	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "读取请求体失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusBadRequest, constants.ErrorCodeBadRequest, "读取请求体失败", err.Error())
 		return
 	}
 
@@ -89,7 +93,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 	forceRefresh := false
 
 	if err := json.Unmarshal(requestBody, &payload); err != nil {
-		log.Printf("解析HolmesGPT请求体失败，将以透传方式继续: %v", err)
+		logger.L().Warn("解析HolmesGPT请求体失败，将以透传方式继续", zap.Error(err))
 	} else {
 		alertID = strings.TrimSpace(payload.Subject.AlertID)
 		depth = strings.TrimSpace(payload.Depth)
@@ -125,20 +129,20 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 			h.streamFromCache(c, cached)
 			return
 		} else if cacheErr != nil {
-			log.Printf("读取RCA缓存失败，继续走实时分析: %v", cacheErr)
+			logger.L().Warn("读取RCA缓存失败，继续走实时分析", zap.Error(cacheErr), zap.String("alert_id", alertID))
 		}
 	}
 
 	upstreamURL := strings.TrimRight(h.cfg.HolmesGPT.URL, "/") + "/api/stream/investigate"
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, upstreamURL, bytes.NewReader(requestBody))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "构造上游请求失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, constants.ErrorCodeInternal, "构造上游请求失败", err.Error())
 		return
 	}
 
+	// SSE 要求使用独立连接，防止复用旧连接导致流被截断
+	req.Close = true
+	req.Header.Set("Connection", "close")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
@@ -152,7 +156,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 		if run, runErr := h.holmesService.StartStreamRun(alertID); runErr == nil {
 			rcaRun = run
 		} else {
-			log.Printf("创建RCA流式运行记录失败: %v", runErr)
+			logger.L().Warn("创建RCA流式运行记录失败", zap.Error(runErr), zap.String("alert_id", alertID))
 		}
 	}
 
@@ -174,10 +178,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 		default:
 		}
 
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error":   "HolmesGPT 请求失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusBadGateway, "HOLMESGPT_UPSTREAM_FAILURE", "HolmesGPT 请求失败", err.Error())
 		return
 	}
 	defer resp.Body.Close()
@@ -188,18 +189,13 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 		if rcaRun != nil {
 			h.holmesService.FinalizeStreamRun(c.Request.Context(), rcaRun, depth, nil, metadata, streamErr)
 		}
-		c.JSON(resp.StatusCode, gin.H{
-			"error":   fmt.Sprintf("HolmesGPT 返回错误: %s", http.StatusText(resp.StatusCode)),
-			"details": string(body),
-		})
+		ErrorWithDetails(c, resp.StatusCode, "HOLMESGPT_ERROR", fmt.Sprintf("HolmesGPT 返回错误: %s", http.StatusText(resp.StatusCode)), string(body))
 		return
 	}
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "响应流不支持刷新",
-		})
+		InternalError(c, "STREAM_UNSUPPORTED", "响应流不支持刷新")
 		return
 	}
 
@@ -217,7 +213,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 				streamChunks = append(streamChunks, bufferedSSE)
 				bufferedSSE = ""
 			}
-			log.Printf("流式RCA分析完成，准备保存到MinIO。Chunks数量: %d, 错误: %v", len(streamChunks), streamErr)
+			logger.L().Info("流式RCA分析完成，准备保存到MinIO", zap.Int("chunk_count", len(streamChunks)), zap.Error(streamErr))
 			h.holmesService.FinalizeStreamRun(c.Request.Context(), rcaRun, depth, streamChunks, metadata, streamErr)
 		}
 	}()
@@ -265,9 +261,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 func (h *HolmesProxyHandler) streamFromCache(c *gin.Context, cached *services.RCACachedResult) {
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "响应流不支持刷新",
-		})
+		InternalError(c, "STREAM_UNSUPPORTED", "响应流不支持刷新")
 		return
 	}
 

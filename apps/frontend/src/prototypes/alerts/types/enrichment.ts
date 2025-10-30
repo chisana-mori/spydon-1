@@ -92,6 +92,38 @@ export interface TextFileBlock extends BaseBlock {
   contents?: string;
 }
 
+export interface KubernetesFieldDescriptor {
+  path: string;
+  label?: string;
+  value?: any;
+}
+
+export interface KubernetesFieldsBlock extends BaseBlock {
+  type: "kubernetes_fields" | "fields" | "kubernetes_fields_block";
+  title?: string;
+  fields: KubernetesFieldDescriptor[];
+  k8s_obj?: Record<string, any>;
+  explanations?: Record<string, string>;
+}
+
+export interface CallbackChoice {
+  label: string;
+  value: string;
+  description?: string;
+  danger?: boolean;
+}
+
+export interface CallbackBlock extends BaseBlock {
+  type: "callback";
+  title?: string;
+  description?: string;
+  callback_url?: string;
+  webhook_url?: string;
+  verb?: "GET" | "POST" | "PUT" | "DELETE";
+  choices: CallbackChoice[];
+  extra?: Record<string, any>;
+}
+
 export interface GraphBlock extends BaseBlock {
   type: "graph";
   filename?: string;
@@ -114,6 +146,8 @@ export type Block =
   | TableBlock
   | LinksBlock
   | TextFileBlock
+  | KubernetesFieldsBlock
+  | CallbackBlock
   | GraphBlock
   | GenericBlock;
 

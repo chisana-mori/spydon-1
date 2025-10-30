@@ -8,14 +8,15 @@ export interface ApiResponse<T = any> {
 
 export interface PaginationResponse<T> {
   data: T[]
-  total?: number
-  page?: number
-  page_size?: number
-  pagination?: {
+  pagination: {
     page: number
-    limit: number
+    page_size: number
     total: number
+    total_pages: number
   }
+  code?: string
+  message?: string
+  error?: string
 }
 
 // 集群相关类型

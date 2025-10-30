@@ -24,6 +24,14 @@ import { Alert } from '@/types/api'
 import { ChatMessage, HolmesStructuredData, HolmesTaskItem, HolmesTaskSection, formatSummaryText } from './ChatMessage'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import { appConfig } from '@/config'
+
+// 生成唯一ID的计数器
+let messageIdCounter = 0
+const generateUniqueId = (prefix: string = 'msg') => {
+  messageIdCounter++
+  return `${prefix}-${Date.now()}-${messageIdCounter}-${Math.random().toString(36).slice(2)}`
+}
 
 interface EnhancedHolmesGPTChatProps {
   alert: Alert
@@ -95,6 +103,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   const tasksMessageIdRef = useRef<string>('tasks-pinned')
   const summaryMessageIdRef = useRef<string>('summary-pinned')
   const [isReplayingCache, setIsReplayingCache] = useState(false)
+  const lastSummarySignatureRef = useRef<string | null>(null)
 
   const restartAnalysis = useCallback(() => {
     setAnalysisState({
@@ -106,6 +115,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
     allTasksCompletedRef.current = false
     setPinnedTasksData(undefined)
     setPinnedSummaryData(undefined)
+    lastSummarySignatureRef.current = null
   }, [])
 
   const scrollAreaRef = useRef<HTMLDivElement>(null)
@@ -253,6 +263,92 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
     return events
   }
 
+  const createCachedChunkIterable = (chunks: string[]): AsyncIterable<string> => ({
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) {
+        if (typeof chunk !== 'string') continue
+        if (!chunk) continue
+        yield chunk
+      }
+    }
+  })
+
+  const createResponseChunkIterable = (response: Response) => {
+    if (!response.body) {
+      throw new Error('无法读取响应流')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let completed = false
+
+    const iterable: AsyncIterable<string> = {
+      async *[Symbol.asyncIterator]() {
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+              completed = true
+              const remaining = decoder.decode()
+              if (remaining) {
+                yield remaining
+              }
+              break
+            }
+            if (value) {
+              yield decoder.decode(value, { stream: true })
+            }
+          }
+        } finally {
+          if (!completed) {
+            try {
+              await reader.cancel()
+            } catch (error) {
+              console.warn('取消 SSE 读取器失败:', error)
+            }
+          }
+          try {
+            reader.releaseLock()
+          } catch (error) {
+            console.warn('释放 SSE 读取器失败:', error)
+          }
+        }
+      }
+    }
+
+    const stop = async () => {
+      completed = true
+      try {
+        await reader.cancel()
+      } catch (error) {
+        console.warn('主动停止 SSE 读取器失败:', error)
+      }
+    }
+
+    return { iterable, stop }
+  }
+
+  const consumeSSEChunks = async (
+    iterable: AsyncIterable<string>,
+    processor: StreamProcessor,
+    options?: { onStop?: () => void | Promise<void> }
+  ): Promise<void> => {
+    for await (const chunk of iterable) {
+      if (!chunk) continue
+      const shouldStop = processor.appendChunk(chunk)
+      if (shouldStop) {
+        if (options?.onStop) {
+          try {
+            await options.onStop()
+          } catch (error) {
+            console.warn('停止 SSE 流时出错:', error)
+          }
+        }
+        break
+      }
+    }
+  }
+
   // 回放缓存的RCA结果
   const replayCachedResult = async (cached: any) => {
     setIsReplayingCache(true)
@@ -280,6 +376,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
       allTasksCompletedRef.current = false
       setPinnedTasksData(undefined)
       setPinnedSummaryData(undefined)
+      lastSummarySignatureRef.current = null
 
       const baseDate = cached?.cached_at ? new Date(cached.cached_at) : new Date()
       const timestampFactory = () => format(baseDate, 'HH:mm:ss', { locale: zhCN })
@@ -288,13 +385,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
         timestampFactory
       })
 
-      for (const chunk of chunks) {
-        if (typeof chunk !== 'string') continue
-        const shouldStop = processor.appendChunk(chunk)
-        if (shouldStop) {
-          break
-        }
-      }
+      await consumeSSEChunks(createCachedChunkIterable(chunks), processor)
 
       processor.finalize('completed')
       playNotificationSound()
@@ -568,6 +659,42 @@ Analysis Requirements:
     return `完成 ${completed} · 进行中 ${inProgress} · 待处理 ${pending}`
   }
 
+  const formatSectionsToMarkdown = (sections: Record<string, any>): string | undefined => {
+    if (!sections || typeof sections !== 'object') return undefined
+
+    const blocks: string[] = []
+
+    Object.entries(sections).forEach(([rawTitle, rawContent]) => {
+      if (rawContent === undefined || rawContent === null) {
+        return
+      }
+
+      const title = typeof rawTitle === 'string' ? formatSummaryText(rawTitle) : String(rawTitle)
+      const content = typeof rawContent === 'string'
+        ? formatSummaryText(rawContent)
+        : formatSummaryText(JSON.stringify(rawContent, null, 2))
+
+      const normalizedContent = content.trim()
+      if (!normalizedContent) {
+        return
+      }
+
+      blocks.push(`### ${title}\n${normalizedContent}`)
+    })
+
+    return blocks.length ? blocks.join('\n\n') : undefined
+  }
+
+  const looksLikeStructuredSummary = (text: string): boolean => {
+    const normalized = normalizePlainText(text)
+    if (!normalized) return false
+    if (normalized.startsWith('#')) return true
+    if (/(问题描述|根本原因|解决方案|预防建议)/.test(normalized)) return true
+    const lines = normalized.split('\n')
+    if (lines.length >= 4 && normalized.length >= 120) return true
+    return false
+  }
+
   const extractHolmesStructuredDataFromObject = (payload: any): HolmesStructuredData | undefined => {
     if (!payload || typeof payload !== 'object') return undefined
 
@@ -597,14 +724,10 @@ Analysis Requirements:
     let sectionsSummary: string | undefined
     if (payload.sections && typeof payload.sections === 'object') {
       try {
-        sectionsSummary = formatSummaryText(JSON.stringify({ sections: payload.sections }))
+        sectionsSummary = formatSectionsToMarkdown(payload.sections)
       } catch (error) {
         console.warn('Failed to format sections summary:', error)
       }
-    }
-
-    if (sectionsSummary) {
-      summaryParts.push(sectionsSummary)
     }
 
     // 检测是否为最终分析报告
@@ -620,6 +743,10 @@ Analysis Requirements:
       }
       planText = undefined
     } else {
+      if (sectionsSummary) {
+        summaryParts.push(sectionsSummary)
+      }
+
       if ((!planText || /^write\s*\[/i.test(planText)) && tasks && tasks.length) {
         planText = 'HolmesGPT 已生成调查任务清单，以下为建议的调查步骤。'
       }
@@ -635,7 +762,14 @@ Analysis Requirements:
     }
 
     if (analysisContent) {
-      summaryParts.push(analysisContent)
+      const normalizedAnalysis = analysisContent.trim()
+      const canonicalAnalysis = canonicalizeSummaryFragment(normalizedAnalysis)
+      const canonicalContent = typeof payload.content === 'string'
+        ? canonicalizeSummaryFragment(payload.content)
+        : null
+      if (!canonicalAnalysis || !canonicalContent || canonicalAnalysis !== canonicalContent) {
+        summaryParts.push(analysisContent)
+      }
     }
 
     if (summaryParts.length) {
@@ -967,8 +1101,11 @@ Analysis Requirements:
   }
 
   function buildSummarySignature(text: string): string | null {
+    if (!text || typeof text !== 'string') return null
     const canonical = canonicalizeSummaryFragment(text)
-    return canonical || null
+    if (!canonical) return null
+    // 添加长度信息以提高去重准确性
+    return `${canonical.length}:${canonical.substring(0, 100)}`
   }
 
   function collectCommands(payload: any): string[] {
@@ -1004,6 +1141,21 @@ Analysis Requirements:
         return lines.join('\n')
       })
       .join('\n')
+  }
+
+  const formatCommandsMarkdown = (commands?: string[]): string => {
+    if (!commands || commands.length === 0) return ''
+    const blocks: string[] = []
+    commands.forEach(cmd => {
+      const normalized = (cmd || '').replace(/\r\n/g, '\n').trim()
+      if (!normalized) {
+        return
+      }
+      blocks.push('```bash')
+      blocks.push(normalized)
+      blocks.push('```')
+    })
+    return blocks.join('\n\n')
   }
 
   const structuredDataToMarkdown = (
@@ -1046,10 +1198,11 @@ Analysis Requirements:
           sectionLines.push(tasksMarkdown)
         }
         if (section.commands?.length) {
-          sectionLines.push('  - 执行命令：')
-          section.commands.forEach(cmd => {
-            sectionLines.push(`    - \`${cmd}\``)
-          })
+          const commandsMarkdown = formatCommandsMarkdown(section.commands)
+          if (commandsMarkdown) {
+            sectionLines.push(`${heading('执行命令', 2)}`)
+            sectionLines.push(commandsMarkdown)
+          }
         }
       })
       if (sectionLines.length) {
@@ -1076,7 +1229,7 @@ Analysis Requirements:
     let lastAiAnswerSignature: string | null = null
 
     let currentAssistantMessage: AnalysisMessage = {
-      id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: generateUniqueId('assistant'),
       role: 'assistant',
       content: '',
       timestamp: options.initialTimestamp,
@@ -1137,17 +1290,55 @@ Analysis Requirements:
       return merged
     }
 
-    const appendSummary = (summary: string) => {
+    const appendSummary = (
+      summary: string,
+      extraStructured?: HolmesStructuredData
+    ) => {
       if (!summary) return
       const normalizedSummary = normalizePlainText(summary)
       if (!normalizedSummary) return
       const dedupedSummary = deduplicateSummaryBlocks(normalizedSummary)
-      setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, { summary: dedupedSummary }))
+      if (!dedupedSummary.trim()) return
+      
+      // 生成签名用于去重
+      const signature = buildSummarySignature(dedupedSummary)
+      if (signature && signature === lastSummarySignatureRef.current) {
+        console.log('检测到重复的summary，跳过添加')
+        return
+      }
+      
+      if (signature) {
+        lastSummarySignatureRef.current = signature
+      }
+      
+      setPinnedSummaryData(prev => {
+        const merged = mergeHolmesStructuredData(
+          prev,
+          extraStructured
+            ? { ...extraStructured, summary: dedupedSummary }
+            : { summary: dedupedSummary }
+        )
+        if (merged?.summary) {
+          merged.summary = deduplicateSummaryBlocks(merged.summary)
+        }
+        return merged
+      })
+    }
+
+    const removeSummaryFromStructuredData = (
+      data?: HolmesStructuredData
+    ): HolmesStructuredData | undefined => {
+      if (!data || data.summary === undefined) {
+        return data
+      }
+      const cloned: HolmesStructuredData = { ...data }
+      delete (cloned as any).summary
+      return cloned
     }
 
     const startNewAssistantMessage = () => {
       currentAssistantMessage = {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id: generateUniqueId('assistant'),
         role: 'assistant',
         content: '',
         timestamp: options.timestampFactory(),
@@ -1163,7 +1354,27 @@ Analysis Requirements:
 
     const processDataItem = (item: any, eventType?: string) => {
       if (!item) return
-      console.log('Processing data item:', item)
+      console.log('Processing data item:', item, 'eventType:', eventType)
+
+      // 处理 ai_message 事件 - 这些是中间过程消息，不是最终结论
+      if (eventType === 'ai_message') {
+        const messageContent = item.content || item.data?.content
+        if (messageContent && typeof messageContent === 'string') {
+          const normalized = normalizePlainText(messageContent)
+          if (normalized) {
+            // 作为进度文本添加到当前消息，不作为summary
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: normalized })
+            currentAssistantMessage = {
+              ...currentAssistantMessage,
+              structuredData: mergedStructured,
+              content: appendTextChunk(currentAssistantMessage.content, normalized),
+              isStreaming: true
+            }
+            syncCurrentMessage()
+          }
+        }
+        return
+      }
 
       if (eventType === 'ai_answer_end') {
         const payload = item && typeof item === 'object' && 'data' in item ? item.data : item
@@ -1210,27 +1421,22 @@ Analysis Requirements:
         }
 
         if (dedupedSummaryText.trim()) {
-          combinedStructured = mergeHolmesStructuredData(combinedStructured, { summary: dedupedSummaryText })
+          // 只添加到pinnedSummary，不添加到当前消息
+          appendSummary(dedupedSummaryText)
         }
 
+        // 不要将summary添加到当前消息的structuredData中
         if (combinedStructured) {
-          const normalizedContent = dedupedSummaryText.trim()
+          const structuredWithoutSummary = removeSummaryFromStructuredData(combinedStructured)
+          const mergedForMessage = removeSummaryFromStructuredData(
+            mergeHolmesStructuredData(currentAssistantMessage.structuredData, structuredWithoutSummary)
+          )
           currentAssistantMessage = {
             ...currentAssistantMessage,
-            structuredData: mergeHolmesStructuredData(currentAssistantMessage.structuredData, combinedStructured),
-            content: normalizedContent
-              ? appendTextChunk(currentAssistantMessage.content, normalizedContent)
-              : currentAssistantMessage.content,
+            structuredData: mergedForMessage,
             isStreaming: true
           }
           syncCurrentMessage()
-          setPinnedSummaryData(prev => {
-            const merged = mergeHolmesStructuredData(prev, combinedStructured)
-            if (merged?.summary) {
-              merged.summary = deduplicateSummaryBlocks(merged.summary)
-            }
-            return merged
-          })
         }
 
         return
@@ -1302,22 +1508,35 @@ Analysis Requirements:
       }
 
       if (item.content && typeof item.content === 'string') {
+        const textContent = normalizePlainText(item.content)
+        if (!textContent) {
+          return
+        }
+
         if (allTasksCompletedRef.current) {
-          appendSummary(item.content)
+          // 任务完成后，所有内容都作为summary处理
+          appendSummary(textContent)
           return
         }
 
         const structured = extractHolmesStructuredData(item)
+        const structuredForMessage = removeSummaryFromStructuredData(structured)
+
+        // 如果提取到了summary，只添加到pinnedSummary，不添加到消息内容
         if (structured?.summary) {
           appendSummary(structured.summary)
-          structured.summary = undefined
+          // 不要将summary添加到content中
         }
 
-        const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+        const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structuredForMessage)
+        
+        // 只有在没有summary的情况下才添加到content
+        const shouldAddToContent = !structured?.summary
+        
         currentAssistantMessage = {
           ...currentAssistantMessage,
           structuredData: mergedStructured,
-          content: appendTextChunk(currentAssistantMessage.content, item.content),
+          content: shouldAddToContent ? appendTextChunk(currentAssistantMessage.content, textContent) : currentAssistantMessage.content,
           isStreaming: true
         }
         syncCurrentMessage()
@@ -1340,7 +1559,14 @@ Analysis Requirements:
             return
           }
 
-          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structured)
+          const structuredForMessage = removeSummaryFromStructuredData(structured)
+
+          // 如果有summary，只添加到pinnedSummary
+          if (structured?.summary) {
+            appendSummary(structured.summary)
+          }
+
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structuredForMessage)
           currentAssistantMessage = {
             ...currentAssistantMessage,
             structuredData: mergedStructured,
@@ -1351,14 +1577,27 @@ Analysis Requirements:
         }
 
         if (typeof payload === 'string') {
+          const normalizedPayload = normalizePlainText(payload)
+          if (!normalizedPayload) {
+            return
+          }
+
+          // 检查是否看起来像结构化的summary
+          if (looksLikeStructuredSummary(normalizedPayload)) {
+            appendSummary(normalizedPayload)
+            return
+          }
+
+          // 如果所有任务已完成，将内容作为summary处理
           if (allTasksCompletedRef.current) {
-            appendSummary(payload)
+            appendSummary(normalizedPayload)
           } else {
-            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: payload })
+            // 否则作为进度文本处理
+            const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: normalizedPayload })
             currentAssistantMessage = {
               ...currentAssistantMessage,
               structuredData: mergedStructured,
-              content: appendTextChunk(currentAssistantMessage.content, payload),
+              content: appendTextChunk(currentAssistantMessage.content, normalizedPayload),
               isStreaming: true
             }
             syncCurrentMessage()
@@ -1368,28 +1607,31 @@ Analysis Requirements:
     }
 
     const processAnalysisData = (analysisData: any, eventType?: string) => {
-      console.log('Processing analysis data:', analysisData)
+      console.log('Processing analysis data:', analysisData, 'eventType:', eventType)
 
       if (typeof analysisData === 'string') {
         const trimmed = analysisData.trim()
 
-        if (eventType === 'ai_answer_end' || (allTasksCompletedRef.current && trimmed.length > 0)) {
+        // 只有 ai_answer_end 事件才作为summary处理
+        // ai_message 事件已经在 processDataItem 中单独处理
+        if (eventType === 'ai_answer_end') {
           if (trimmed) {
             const normalized = normalizePlainText(trimmed)
-            const summaryStructured: HolmesStructuredData = { summary: normalized }
             allTasksCompletedRef.current = true
+            appendSummary(normalized)
+            // 清理当前消息中的summary，确保不重复
             currentAssistantMessage = {
               ...currentAssistantMessage,
-              structuredData: mergeHolmesStructuredData(currentAssistantMessage.structuredData, summaryStructured),
-              content: appendTextChunk(currentAssistantMessage.content, normalized),
+              structuredData: removeSummaryFromStructuredData(currentAssistantMessage.structuredData),
+              content: '', // 清空content，避免重复显示
               isStreaming: true
             }
             syncCurrentMessage()
-            setPinnedSummaryData(prev => mergeHolmesStructuredData(prev, summaryStructured))
           }
           return
         }
 
+        // 尝试解析JSON
         if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
           try {
             const parsed = JSON.parse(trimmed)
@@ -1401,14 +1643,23 @@ Analysis Requirements:
             console.warn('Failed to parse analysis string as JSON:', error)
           }
         }
-        if (allTasksCompletedRef.current) {
-          appendSummary(analysisData)
+        
+        // 检查是否看起来像结构化的summary（只在非ai_message事件时）
+        if (eventType !== 'ai_message' && looksLikeStructuredSummary(trimmed)) {
+          appendSummary(trimmed)
+          return
+        }
+
+        // 如果所有任务已完成且不是ai_message事件，作为summary处理
+        if (allTasksCompletedRef.current && eventType !== 'ai_message') {
+          appendSummary(trimmed)
         } else {
-          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: analysisData })
+          // 否则作为进度文本处理
+          const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, { progressText: trimmed })
           currentAssistantMessage = {
             ...currentAssistantMessage,
             structuredData: mergedStructured,
-            content: appendTextChunk(currentAssistantMessage.content, analysisData),
+            content: appendTextChunk(currentAssistantMessage.content, trimmed),
             isStreaming: true
           }
           syncCurrentMessage()
@@ -1454,12 +1705,14 @@ Analysis Requirements:
 
       for (const line of lines) {
         if (line === '') {
+          // 空行表示一个事件结束，重置事件类型
           currentEventType = null
           continue
         }
 
         if (line.startsWith('event: ')) {
           currentEventType = line.slice(7).trim()
+          console.log('SSE Event Type:', currentEventType)
           continue
         }
         if (!line.startsWith('data: ')) {
@@ -1482,12 +1735,16 @@ Analysis Requirements:
         try {
           const data = JSON.parse(rawData)
 
+          // 使用当前的事件类型来处理数据
+          const effectiveEventType = currentEventType || data.type
+          console.log('Processing with event type:', effectiveEventType, 'data:', data)
+
           if (data.type === 'analysis' && data.data !== undefined) {
-            processAnalysisData(data.data, currentEventType || data.type)
+            processAnalysisData(data.data, effectiveEventType)
           } else if (Array.isArray(data)) {
-            data.forEach(item => processDataItem(item, currentEventType || undefined))
+            data.forEach(item => processDataItem(item, effectiveEventType))
           } else {
-            processDataItem(data, currentEventType || undefined)
+            processDataItem(data, effectiveEventType)
           }
         } catch (error) {
           console.error('JSON parse error:', error, 'Line:', line)
@@ -1548,9 +1805,14 @@ Analysis Requirements:
     allTasksCompletedRef.current = false;
     setPinnedTasksData(undefined)
     setPinnedSummaryData(undefined)
+    lastSummarySignatureRef.current = null
 
     try {
-      const response = await fetch('/api/holmesgpt/stream/investigate', {
+      // 构建 API 路径，包含 basePath（如果配置了）
+      const basePath = appConfig.basePath || ''
+      const apiPath = `${basePath}/api/holmesgpt/stream/investigate`
+      
+      const response = await fetch(apiPath, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1563,39 +1825,13 @@ Analysis Requirements:
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('无法读取响应流')
-      }
-
       const timestampFactory = () => format(new Date(), 'HH:mm:ss', { locale: zhCN })
       const processor = createStreamProcessor({
         initialTimestamp: timestampFactory(),
         timestampFactory
       })
-
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) {
-          const remaining = decoder.decode()
-          if (remaining) {
-            processor.appendChunk(remaining)
-          }
-          break
-        }
-
-        if (!value) {
-          continue
-        }
-
-        const chunk = decoder.decode(value, { stream: true })
-        const shouldStop = processor.appendChunk(chunk)
-        if (shouldStop) {
-          break
-        }
-      }
+      const { iterable, stop } = createResponseChunkIterable(response)
+      await consumeSSEChunks(iterable, processor, { onStop: stop })
 
       processor.finalize('completed')
 
@@ -1793,20 +2029,64 @@ Analysis Requirements:
           </div>
         ) : (
           <div className="space-y-0">
-            {analysisState.messages.map((message) => {
-              const sanitized = sanitizeStructuredData(message.structuredData)
-              return (
-                <ChatMessage
-                  key={message.id}
-                  role={message.role}
-                  content={message.content}
-                  timestamp={message.timestamp}
-                  isStreaming={message.isStreaming}
-                  toolCalls={message.toolCalls || []}
-                  structuredData={sanitized}
-                />
-              )
-            })}
+            {(() => {
+              const summarySignature = pinnedSummaryData?.summary ? buildSummarySignature(pinnedSummaryData.summary) : null
+              const seenContentSignatures = new Set<string>()
+
+              return analysisState.messages.map(message => {
+                const sanitized = sanitizeStructuredData(message.structuredData)
+                const contentSignature = message.content?.trim() ? buildSummarySignature(message.content) : null
+
+                if (message.role === 'assistant') {
+                  const hasToolCalls = Array.isArray(message.toolCalls) && message.toolCalls.length > 0
+                  const hasStructured = Boolean(sanitized)
+                  const hasContent = Boolean(message.content?.trim())
+                  
+                  // 如果消息什么都没有，直接隐藏
+                  if (!hasToolCalls && !hasStructured && !hasContent) {
+                    return null
+                  }
+
+                  // 如果消息的内容与底部固定的summary重复
+                  if (contentSignature && summarySignature && contentSignature === summarySignature) {
+                    // 如果只有重复的content，没有其他内容，则隐藏整个消息
+                    if (!hasToolCalls && !hasStructured) {
+                      console.log('隐藏与pinnedSummary重复的消息:', message.id)
+                      return null
+                    }
+                    // 如果有其他内容，只清空content
+                  }
+
+                  // 检查content是否与之前的消息重复
+                  if (contentSignature && !hasStructured && !hasToolCalls) {
+                    if (seenContentSignatures.has(contentSignature)) {
+                      console.log('隐藏重复的content消息:', message.id)
+                      return null
+                    }
+                    seenContentSignatures.add(contentSignature)
+                  }
+                }
+
+                // 如果content与pinnedSummary重复，清空content避免重复显示
+                let displayContent = message.content
+                if (message.role === 'assistant' && contentSignature && summarySignature && contentSignature === summarySignature) {
+                  console.log('清空与pinnedSummary重复的content:', message.id)
+                  displayContent = ''
+                }
+
+                return (
+                  <ChatMessage
+                    key={message.id}
+                    role={message.role}
+                    content={displayContent}
+                    timestamp={message.timestamp}
+                    isStreaming={message.isStreaming}
+                    toolCalls={message.toolCalls || []}
+                    structuredData={sanitized}
+                  />
+                )
+              })
+            })()}
             {pinnedTasksData && (() => {
               const prog = parseProgress(pinnedTasksData)
               const pinnedIsStreaming = analysisState.status === 'analyzing' && (!pinnedSummaryData) && (prog.total === 0 || prog.completed < prog.total)
@@ -1870,11 +2150,13 @@ Analysis Requirements:
     </div>
   )
 
-  // 过滤掉 TodoWrite 任务段，避免在普通消息中重复展示
+  // 过滤掉 TodoWrite 任务段和summary，避免在普通消息中重复展示
   function sanitizeStructuredData(data?: HolmesStructuredData): HolmesStructuredData | undefined {
     if (!data) return data
     let changed = false
     const next: HolmesStructuredData = { ...data }
+    
+    // 过滤掉 TodoWrite 任务段
     const hadSections = Array.isArray(next.taskSections) && next.taskSections.length > 0
     const filtered = hadSections ? next.taskSections!.filter(s => s.id !== 'todo-write-main') : []
     const removedTodo = hadSections && filtered.length !== next.taskSections!.length
@@ -1882,6 +2164,8 @@ Analysis Requirements:
       next.taskSections = filtered
       changed = true
     }
+    
+    // 如果是TodoWrite相关的消息，清理相关字段
     const isTodoLike = removedTodo || (typeof next.toolName === 'string' && next.toolName.toLowerCase().includes('todo'))
     if (isTodoLike) {
       if (next.planText) { next.planText = undefined as any; changed = true }
@@ -1890,16 +2174,21 @@ Analysis Requirements:
       // 避免顶层 tasks（若存在）残留导致重复
       if (next.tasks && next.tasks.length) { delete (next as any).tasks; changed = true }
     }
-    // 不在普通消息中展示结论，结论固定在底部
-    if ((next as any).summary) { delete (next as any).summary; changed = true }
+    
+    // 不在普通消息中展示结论，结论固定在底部的pinnedSummaryData中
+    if ((next as any).summary) { 
+      delete (next as any).summary
+      changed = true 
+    }
+    
     // 如果去除后不再包含任何可渲染的结构信息，则返回 undefined 以隐藏该卡片
     const hasRenderable = Boolean(
       next.planText ||
       (next as any).progressText ||
-      (next.taskSections && next.taskSections.length) ||
-      next.summary
+      (next.taskSections && next.taskSections.length)
     )
     if (!hasRenderable) return undefined
+    
     return changed ? next : data
   }
 

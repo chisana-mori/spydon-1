@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import { stripAppBasePath } from '@/config'
 import { AppShell } from './app-shell'
 
 interface ConditionalShellProps {
@@ -13,16 +14,16 @@ interface ConditionalShellProps {
  */
 export function ConditionalShell({ children }: ConditionalShellProps) {
   const pathname = usePathname()
+  const normalizedPathname = stripAppBasePath(pathname || '/')
 
   // 不需要AppShell的页面列表
   const noShellPages = ['/unauthorized']
 
   // 如果是特殊页面，直接渲染children
-  if (noShellPages.includes(pathname)) {
+  if (noShellPages.includes(normalizedPathname)) {
     return <>{children}</>
   }
 
   // 否则使用AppShell包装
   return <AppShell>{children}</AppShell>
 }
-

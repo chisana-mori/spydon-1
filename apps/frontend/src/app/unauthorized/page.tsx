@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { resolveAppPath } from '@/config'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -17,7 +18,7 @@ export default function UnauthorizedPage() {
   // 如果用户已经是管理员，重定向到首页
   useEffect(() => {
     if (!loading && user?.is_admin) {
-      router.push('/')
+      router.push(resolveAppPath('/'))
     }
   }, [user, loading, router])
 
@@ -26,7 +27,7 @@ export default function UnauthorizedPage() {
       await RobustaAPI.logout()
       toast.success('已退出登录')
       // 重定向到CAS登出或首页
-      window.location.href = '/auth/cas/logout'
+      window.location.href = resolveAppPath('/auth/cas/logout', { includeBasePath: true })
     } catch (error) {
       console.error('登出失败:', error)
       toast.error('登出失败，请重试')
@@ -37,7 +38,7 @@ export default function UnauthorizedPage() {
     await refresh()
     if (user?.is_admin) {
       toast.success('权限已更新，正在跳转...')
-      router.push('/')
+      router.push(resolveAppPath('/'))
     } else {
       toast.info('权限未变更，请联系管理员')
     }
@@ -153,4 +154,3 @@ export default function UnauthorizedPage() {
     </div>
   )
 }
-

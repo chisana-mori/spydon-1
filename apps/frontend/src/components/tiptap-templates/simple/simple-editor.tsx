@@ -193,7 +193,7 @@ export type SimpleEditorProps = {
   readOnly?: boolean
 }
 
-export function SimpleEditor({ variant = "full", embedHeight = 500, className, style, initialContent, onUpdate }: SimpleEditorProps) {
+export function SimpleEditor({ variant = "full", embedHeight = 500, className, style, initialContent, onUpdate, readOnly = false }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
   const [mobileView, setMobileView] = React.useState<
@@ -204,6 +204,7 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
   const editor = useEditor({
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
+    editable: !readOnly,
     editorProps: {
       attributes: {
         autocomplete: "off",
@@ -262,7 +263,7 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
 
   return (
     <div
-      className={`simple-editor-wrapper${className ? ` ${className}` : ""}`}
+      className={`simple-editor-wrapper${className ? ` ${className}` : ""}${readOnly ? " simple-editor-readonly" : ""}`}
       style={
         variant === "embed"
           ? {
@@ -275,29 +276,31 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
       }
     >
       <EditorContext.Provider value={{ editor }}>
-        <Toolbar
-          ref={toolbarRef}
-          style={{
-            ...(isMobile
-              ? {
-                  bottom: `calc(100% - ${height - rect.y}px)`,
-                }
-              : {}),
-          }}
-        >
-          {mobileView === "main" ? (
-            <MainToolbarContent
-              onHighlighterClick={() => setMobileView("highlighter")}
-              onLinkClick={() => setMobileView("link")}
-              isMobile={isMobile}
-            />
-          ) : (
-            <MobileToolbarContent
-              type={mobileView === "highlighter" ? "highlighter" : "link"}
-              onBack={() => setMobileView("main")}
-            />
-          )}
-        </Toolbar>
+        {!readOnly && (
+          <Toolbar
+            ref={toolbarRef}
+            style={{
+              ...(isMobile
+                ? {
+                    bottom: `calc(100% - ${height - rect.y}px)`,
+                  }
+                : {}),
+            }}
+          >
+            {mobileView === "main" ? (
+              <MainToolbarContent
+                onHighlighterClick={() => setMobileView("highlighter")}
+                onLinkClick={() => setMobileView("link")}
+                isMobile={isMobile}
+              />
+            ) : (
+              <MobileToolbarContent
+                type={mobileView === "highlighter" ? "highlighter" : "link"}
+                onBack={() => setMobileView("main")}
+              />
+            )}
+          </Toolbar>
+        )}
 
         <EditorContent
           editor={editor}

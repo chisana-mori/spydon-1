@@ -2,6 +2,7 @@
 
 import { use } from 'react'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -67,7 +68,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/clusters">
+            <Link href={resolveAppPath('/clusters')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               返回集群列表
             </Link>
@@ -87,7 +88,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/clusters">
+            <Link href={resolveAppPath('/clusters')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               返回集群列表
             </Link>
@@ -162,7 +163,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
       {/* 导航 */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/clusters">
+          <Link href={resolveAppPath('/clusters')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回集群列表
           </Link>
@@ -397,7 +398,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
               asChild
               className="bg-black text-white hover:bg-gray-800 px-6 py-2 rounded-lg font-medium"
             >
-              <Link href={`/alerts?cluster_id=${cluster.cluster_id}`}>
+              <Link href={resolveAppPath(`/alerts?cluster_id=${cluster.cluster_id}`)}>
                 查看全部
               </Link>
             </Button>
@@ -441,7 +442,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
 
                         <div className="flex-1">
                           <Link
-                            href={`/alerts/${alert.id}`}
+                            href={resolveAppPath(`/alerts/${alert.id}`)}
                             className="text-lg font-semibold text-gray-900 hover:text-blue-600 transition-colors"
                           >
                             {alert.title}
@@ -475,7 +476,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
                         size="sm"
                         className="ml-4 px-4 py-2 text-sm font-medium hover:bg-gray-50"
                       >
-                        <Link href={`/alerts/${alert.id}`}>
+                        <Link href={resolveAppPath(`/alerts/${alert.id}`)}>
                           查看详情
                         </Link>
                       </Button>

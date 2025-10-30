@@ -11,6 +11,8 @@ import { LinksBlock } from './LinksBlock';
 import { TextFileBlock } from './TextFileBlock';
 import { GraphBlock } from './GraphBlock';
 import { GenericBlock } from './GenericBlock';
+import { KubernetesFieldsBlock } from './KubernetesFieldsBlock';
+import { CallbackBlock } from './CallbackBlock';
 
 interface BlockRendererProps {
   block: Block;
@@ -48,6 +50,14 @@ export function BlockRenderer({ block }: BlockRendererProps) {
     
     case 'graph':
       return <GraphBlock block={block as any} />;
+
+    case 'kubernetes_fields':
+    case 'fields':
+    case 'kubernetes_fields_block':
+      return <KubernetesFieldsBlock block={block as any} />;
+
+    case 'callback':
+      return <CallbackBlock block={block as any} />;
     
     default:
       return <GenericBlock block={block as any} />;

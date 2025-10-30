@@ -3,10 +3,11 @@
   "private": true,
   "version": "0.2.0",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "bash scripts/dev-with-config.sh",
+    "build": "bash scripts/build-with-config.sh",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "config:show": "node scripts/load-config.mjs"
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.16",

@@ -6,7 +6,8 @@ import (
 
 // MaskEmail 对邮箱地址进行掩码处理
 // 示例: user@example.com -> u***@example.com
-//      longusername@example.com -> lon***@example.com
+//
+//	longusername@example.com -> lon***@example.com
 func MaskEmail(email string) string {
 	if email == "" {
 		return ""
@@ -31,7 +32,8 @@ func MaskEmail(email string) string {
 
 // MaskUsername 对用户名进行掩码处理
 // 示例: johndoe -> joh***
-//      ab -> a***
+//
+//	ab -> a***
 func MaskUsername(username string) string {
 	if username == "" {
 		return ""
@@ -112,4 +114,3 @@ func ShouldMaskForUser(currentUserID, targetUserID string, isAdmin bool) bool {
 	// 管理员查看其他用户时，需要掩码
 	return isAdmin
 }
-

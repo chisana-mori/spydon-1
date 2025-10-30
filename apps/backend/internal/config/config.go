@@ -3,7 +3,11 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+
+	"robusta-web/backend/internal/constants"
 
 	"github.com/spf13/viper"
 )
@@ -55,6 +59,7 @@ type MinIOConfig struct {
 type Config struct {
 	Environment string `mapstructure:"environment" json:"environment" yaml:"environment"`
 	Port        string `mapstructure:"port" json:"port" yaml:"port"`
+	BasePath    string `mapstructure:"base_path" json:"base_path" yaml:"base_path"` // 应用部署的基础路径，如 /spydon
 
 	DatabaseURL string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
 
@@ -65,6 +70,7 @@ type Config struct {
 	OIDCIssuer       string `mapstructure:"oidc_issuer" json:"oidc_issuer" yaml:"oidc_issuer"`
 	OIDCClientID     string `mapstructure:"oidc_client_id" json:"oidc_client_id" yaml:"oidc_client_id"`
 	OIDCClientSecret string `mapstructure:"oidc_client_secret" json:"oidc_client_secret" yaml:"oidc_client_secret"`
+	OIDCRedirectURL  string `mapstructure:"oidc_redirect_url" json:"oidc_redirect_url" yaml:"oidc_redirect_url"`
 
 	HolmesGPT HolmesGPTConfig `mapstructure:"holmes_gpt" json:"holmes_gpt" yaml:"holmes_gpt"`
 	CAS       CASConfig       `mapstructure:"cas" json:"cas" yaml:"cas"`
@@ -73,6 +79,7 @@ type Config struct {
 
 	RateLimitRPS int    `mapstructure:"rate_limit_rps" json:"rate_limit_rps" yaml:"rate_limit_rps"`
 	LogLevel     string `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
+	LogFilePath  string `mapstructure:"log_file" json:"log_file" yaml:"log_file"`
 }
 
 // Load 从 YAML 文件及环境变量加载配置
@@ -80,32 +87,41 @@ func Load() (*Config, error) {
 	v := viper.New()
 	setDefaults(v)
 
+	v.SetEnvPrefix("ROBUSTA")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
+	v.AutomaticEnv()
+
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile != "" {
-		if info, err := os.Stat(configFile); err == nil && info.IsDir() {
-			v.AddConfigPath(configFile)
-			v.SetConfigName("config")
-			v.SetConfigType("yaml")
-		} else {
-			if err != nil && !os.IsNotExist(err) {
-				return nil, fmt.Errorf("无法访问配置路径 %s: %w", configFile, err)
-			}
-			v.SetConfigFile(configFile)
+		info, err := os.Stat(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("无法访问配置路径 %s: %w", configFile, err)
+		}
+		if info.IsDir() {
+			configFile = filepath.Join(configFile, "config.yaml")
 		}
 	} else {
-		v.AddConfigPath("./config")
-		v.AddConfigPath(".")
-		v.SetConfigName("config")
-		v.SetConfigType("yaml")
+		candidates := []string{
+			filepath.Join("config", "config.yaml"),
+			filepath.Join("apps", "backend", "config", "config.yaml"),
+		}
+
+		for _, candidate := range candidates {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				configFile = candidate
+				break
+			}
+		}
+
+		if configFile == "" {
+			return nil, fmt.Errorf("未找到配置文件，请设置 CONFIG_FILE 或将配置文件放在以下路径之一: %s", strings.Join(candidates, ", "))
+		}
 	}
 
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.SetConfigFile(configFile)
 
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("读取配置文件失败: %w", err)
-		}
+		return nil, fmt.Errorf("读取配置文件失败: %w", err)
 	}
 
 	var cfg Config
@@ -118,7 +134,7 @@ func Load() (*Config, error) {
 
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("environment", "development")
-	v.SetDefault("port", "8080")
+	v.SetDefault("port", strconv.Itoa(constants.DefaultPort))
 
 	v.SetDefault("database_url", "postgres://postgres:password@localhost:5432/robusta_hub?sslmode=disable")
 
@@ -129,10 +145,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("oidc_issuer", "")
 	v.SetDefault("oidc_client_id", "")
 	v.SetDefault("oidc_client_secret", "")
+	v.SetDefault("oidc_redirect_url", "http://localhost:3000/auth/callback")
 
 	v.SetDefault("holmes_gpt.url", "http://localhost:8081")
 	v.SetDefault("holmes_gpt.api_key", "")
-	v.SetDefault("holmes_gpt.timeout_seconds", 300)
+	v.SetDefault("holmes_gpt.timeout_seconds", constants.DefaultHolmesTimeoutSeconds)
 	v.SetDefault("holmes_gpt.enabled", true)
 	v.SetDefault("holmes_gpt.default_depth", "standard")
 	v.SetDefault("holmes_gpt.model", "deepseek-reasoner")
@@ -147,14 +164,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cas.name_attribute", "displayName")
 	v.SetDefault("cas.roles_attribute", "roles")
 
-	v.SetDefault("minio.endpoint", "localhost:9000")
-	v.SetDefault("minio.access_key", "minioadmin")
-	v.SetDefault("minio.secret_key", "minioadmin")
-	v.SetDefault("minio.bucket_name", "robusta-artifacts")
+	v.SetDefault("minio.endpoint", constants.DefaultMinIOEndpoint)
+	v.SetDefault("minio.access_key", constants.DefaultMinIOAccessKey)
+	v.SetDefault("minio.secret_key", constants.DefaultMinIOAccessKey)
+	v.SetDefault("minio.bucket_name", constants.DefaultMinIOBucket)
 	v.SetDefault("minio.use_ssl", false)
 
-	v.SetDefault("rate_limit_rps", 100)
+	v.SetDefault("rate_limit_rps", constants.DefaultRateLimitRPS)
 	v.SetDefault("log_level", "info")
+	v.SetDefault("log_file", "server.log")
 
 	v.SetDefault("email.smtp_host", "")
 	v.SetDefault("email.smtp_port", 587)

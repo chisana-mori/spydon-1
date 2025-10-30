@@ -6,16 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"gorm.io/datatypes"
 )
 
@@ -49,31 +50,37 @@ func NewIngestHandler(
 func (h *IngestHandler) IngestAlert(c *gin.Context) {
 	rawBody, err := readAndRestoreBody(c)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "READ_BODY_ERROR", "读取请求体失败")
+		InternalError(c, "READ_BODY_ERROR", "读取请求体失败")
 		return
 	}
 
 	if len(rawBody) > 0 {
-		log.Printf("[Webhook] /ingest/alert 接收到原始数据: %s", string(rawBody))
+		logger.L().Debug("接收到告警原始数据", zap.Int("length", len(rawBody)))
 	}
 
 	var req IngestAlertRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "无效的请求数据", err.Error())
+	if derr := bindJSON(c, &req); derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	// 验证严重级别
 	if !isValidSeverity(req.Severity) {
-		respondError(c, http.StatusBadRequest, "INVALID_SEVERITY", "无效的严重级别")
+		BadRequest(c, "INVALID_SEVERITY", "无效的严重级别")
 		return
 	}
 
 	// 保存原始payload（可选）
 	payloadKey, err := savePayload(c.Request.Context(), h.storageService, fmt.Sprintf("alerts/%s", req.ClusterID), rawBody, "application/json")
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "SAVE_RAW_PAYLOAD_ERROR", "保存原始告警数据失败", err.Error())
+		ErrorWithDetails(c, http.StatusInternalServerError, "SAVE_RAW_PAYLOAD_ERROR", "保存原始告警数据失败", err.Error())
 		return
+	}
+
+	// 设置默认状态
+	status := req.Status
+	if status == "" {
+		status = "firing"
 	}
 
 	alert := &models.Alert{
@@ -82,7 +89,7 @@ func (h *IngestHandler) IngestAlert(c *gin.Context) {
 		Title:         req.Title,
 		Description:   req.Description,
 		Severity:      req.Severity,
-		Status:        getOrDefault(req.Status, "firing"),
+		Status:        status,
 		Labels:        toJSON(req.Labels),
 		Annotations:   toJSON(req.Annotations),
 		StartsAt:      req.StartsAt,
@@ -91,20 +98,22 @@ func (h *IngestHandler) IngestAlert(c *gin.Context) {
 	}
 
 	// 保存告警
-	if err := h.alertService.CreateOrUpdateAlert(alert); err != nil {
-		respondError(c, http.StatusInternalServerError, "SAVE_ALERT_ERROR", "保存告警失败")
+	if err := h.alertService.CreateOrUpdateAlert(c.Request.Context(), alert); err != nil {
+		InternalError(c, "SAVE_ALERT_ERROR", "保存告警失败")
 		return
 	}
 
 	// 记录审计日志
-	h.auditService.LogAction("system", "alert_ingested", "alert", alert.ID.String(), map[string]interface{}{
+	if err := h.auditService.LogAction("system", "alert_ingested", "alert", alert.ID.String(), map[string]interface{}{
 		"cluster_id":  req.ClusterID,
 		"fingerprint": req.Fingerprint,
 		"severity":    req.Severity,
-	}, c.ClientIP(), c.Request.UserAgent())
+	}, c.ClientIP(), c.Request.UserAgent()); err != nil {
+		// 记录日志但不影响主流程
+		logger.L().Warn("记录审计日志失败", zap.Error(err))
+	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":  "告警接收成功",
+	SuccessWithMessage(c, "告警接收成功", gin.H{
 		"alert_id": alert.ID,
 	})
 }
@@ -115,61 +124,54 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 	// 读取原始请求体（用于存储到MinIO）
 	rawBody, err := readAndRestoreBody(c)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "READ_BODY_ERROR", "读取请求体失败")
+		InternalError(c, "READ_BODY_ERROR", "读取请求体失败")
 		return
 	}
 
 	if len(rawBody) > 0 {
-		log.Printf("[Webhook] /ingest/robusta-webhook 接收到原始数据长度: %d bytes", len(rawBody))
+		logger.L().Debug("接收到Robusta原始数据", zap.Int("length", len(rawBody)))
 	}
 
 	var finding RobustaFinding
-	if err := c.ShouldBindJSON(&finding); err != nil {
-		log.Printf("[Webhook] 解析RobustaFinding失败: %v", err)
-		log.Printf("[Webhook] 原始数据前200字符: %s", string((rawBody)))
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "无效的Finding格式",
-			"code":    "INVALID_FINDING_FORMAT",
-			"details": err.Error(),
-		})
+	if derr := bindJSON(c, &finding); derr != nil {
+		preview := string(rawBody)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		logger.L().Warn("解析RobustaFinding失败",
+			zap.String("payload_preview", preview),
+			zap.Any("details", derr.Details()),
+			zap.Error(derr.Unwrap()))
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	// 使用后台上下文进行数据转换和保存，避免HTTP请求超时影响
 	// 创建一个独立的上下文，不受HTTP请求生命周期影响
 	bgCtx := context.Background()
-	
+
 	// 创建转换器并转换为Alert（使用后台上下文）
 	converter := NewFindingToAlertConverterWithContext(bgCtx, h, &finding, rawBody)
 	alert, err := converter.Convert()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "转换Finding失败",
-			"code":    "CONVERT_FINDING_ERROR",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "CONVERT_FINDING_ERROR", "转换Finding失败", err.Error())
 		return
 	}
 
 	// 确保集群存在
-	_ = h.clusterService.UpdateHeartbeat(&models.Cluster{
+	_ = h.clusterService.UpdateHeartbeat(c.Request.Context(), &models.Cluster{
 		ClusterID: alert.ClusterID,
 		Name:      alert.ClusterID,
 		Status:    "active",
 	})
 
 	// 保存告警
-	if err := h.alertService.CreateOrUpdateAlert(alert); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "保存告警失败",
-			"code":    "SAVE_ALERT_ERROR",
-			"details": err.Error(),
-		})
+	if err := h.alertService.CreateOrUpdateAlert(c.Request.Context(), alert); err != nil {
+		ErrorWithDetails(c, http.StatusInternalServerError, "SAVE_ALERT_ERROR", "保存告警失败", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":  "Robusta告警接收成功",
+	SuccessWithMessage(c, "Robusta告警接收成功", gin.H{
 		"alert_id": alert.ID,
 	})
 }
@@ -178,33 +180,33 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 func (h *IngestHandler) IngestRCA(c *gin.Context) {
 	rawBody, err := readAndRestoreBody(c)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "READ_BODY_ERROR", "读取请求体失败")
+		InternalError(c, "READ_BODY_ERROR", "读取请求体失败")
 		return
 	}
 
 	var req IngestRCARequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "无效的请求数据", err.Error())
+	if derr := bindJSON(c, &req); derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	// 解析AlertID
 	alertID, err := uuid.Parse(req.AlertID)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ALERT_ID", "无效的告警ID")
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	// 保存原始payload（可选）
 	payloadKey, err := savePayload(c.Request.Context(), h.storageService, fmt.Sprintf("rca/%s", alertID.String()), rawBody, "application/json")
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "SAVE_RAW_PAYLOAD_ERROR", "保存RCA原始数据失败", err.Error())
+		ErrorWithDetails(c, http.StatusInternalServerError, "SAVE_RAW_PAYLOAD_ERROR", "保存RCA原始数据失败", err.Error())
 		return
 	}
 
 	// 验证RCA状态
 	if !isValidRCAStatus(req.Status) {
-		respondError(c, http.StatusBadRequest, "INVALID_RCA_STATUS", "无效的RCA状态")
+		BadRequest(c, "INVALID_RCA_STATUS", "无效的RCA状态")
 		return
 	}
 
@@ -228,19 +230,21 @@ func (h *IngestHandler) IngestRCA(c *gin.Context) {
 
 	// 保存RCA记录
 	if err := h.rcaService.CreateRCARun(rcaRun); err != nil {
-		respondError(c, http.StatusInternalServerError, "SAVE_RCA_ERROR", "保存RCA记录失败")
+		InternalError(c, "SAVE_RCA_ERROR", "保存RCA记录失败")
 		return
 	}
 
 	// 记录审计日志
-	h.auditService.LogAction("system", "rca_ingested", "rca_run", rcaRun.ID.String(), map[string]interface{}{
+	if err := h.auditService.LogAction("system", "rca_ingested", "rca_run", rcaRun.ID.String(), map[string]interface{}{
 		"alert_id": req.AlertID,
 		"status":   req.Status,
-	}, c.ClientIP(), c.Request.UserAgent())
+	}, c.ClientIP(), c.Request.UserAgent()); err != nil {
+		// 记录日志但不影响主流程
+		logger.L().Warn("记录审计日志失败", zap.Error(err))
+	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "RCA结果接收成功",
-		"rca_id":  rcaRun.ID,
+	SuccessWithMessage(c, "RCA结果接收成功", gin.H{
+		"rca_id": rcaRun.ID,
 	})
 }
 
@@ -251,14 +255,6 @@ func readAndRestoreBody(c *gin.Context) ([]byte, error) {
 	}
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(b))
 	return b, nil
-}
-
-func respondError(c *gin.Context, status int, code, message string, details ...string) {
-	resp := gin.H{"error": message, "code": code}
-	if len(details) > 0 && details[0] != "" {
-		resp["details"] = details[0]
-	}
-	c.JSON(status, resp)
 }
 
 func toJSON(m map[string]interface{}) datatypes.JSON {

@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/config"
+	"robusta-web/backend/internal/constants"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	cas "gopkg.in/cas.v2"
 )
 
@@ -40,26 +43,21 @@ func (h *AuthHandler) GetAuthURL(c *gin.Context) {
 	// 生成随机state参数防止CSRF攻击
 	state, err := generateRandomState()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "生成state参数失败",
-		})
+		InternalError(c, constants.ErrorCodeGenerateStateFailed, "生成state参数失败")
 		return
 	}
 
 	// 获取认证URL
 	authURL, err := h.authService.GetAuthURL(state)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取认证URL失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "GET_AUTH_URL_FAILED", "获取认证URL失败", err.Error())
 		return
 	}
 
 	// 将state存储到session或cookie中（这里简化处理）
 	c.SetCookie("auth_state", state, 600, "/", "", false, true) // 10分钟过期
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"auth_url": authURL,
 		"state":    state,
 	})
@@ -68,20 +66,15 @@ func (h *AuthHandler) GetAuthURL(c *gin.Context) {
 // HandleCallback 处理认证回调
 func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	var req services.LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "无效的请求参数",
-			"details": err.Error(),
-		})
+	if err := bindJSON(c, &req); err != nil {
+		AbortWithDomainError(c, err)
 		return
 	}
 
 	// 验证state参数
 	storedState, err := c.Cookie("auth_state")
 	if err != nil || storedState != req.State {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的state参数",
-		})
+		BadRequest(c, "INVALID_STATE", "无效的state参数")
 		return
 	}
 
@@ -91,10 +84,7 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	// 处理认证回调
 	loginResp, err := h.authService.HandleCallback(req.Code, req.State)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":   "认证失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusUnauthorized, "AUTH_FAILED", "认证失败", err.Error())
 		return
 	}
 
@@ -103,7 +93,7 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true) // 30天
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"access_token": loginResp.AccessToken,
 		"expires_at":   loginResp.ExpiresAt,
 		"user":         loginResp.User,
@@ -115,9 +105,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	// 从cookie获取refresh token
 	refreshToken, err := c.Cookie("refresh_token")
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "缺少refresh token",
-		})
+		Unauthorized(c, "MISSING_REFRESH_TOKEN", "缺少refresh token")
 		return
 	}
 
@@ -127,10 +115,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		// 清除无效的refresh token cookie
 		secure := isSecureRequest(c.Request)
 		c.SetCookie("refresh_token", "", -1, "/", "", secure, true)
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":   "刷新token失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusUnauthorized, "REFRESH_TOKEN_FAILED", "刷新token失败", err.Error())
 		return
 	}
 
@@ -139,7 +124,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true)
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"access_token": loginResp.AccessToken,
 		"expires_at":   loginResp.ExpiresAt,
 		"user":         loginResp.User,
@@ -151,15 +136,13 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	h.performLocalLogout(c)
 	h.clearRedirectCookie(c)
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "登出成功",
-	})
+	SuccessWithMessage(c, "登出成功", nil)
 }
 
 // CASLogin 触发CAS登录
 func (h *AuthHandler) CASLogin(c *gin.Context) {
 	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "CAS 未启用"})
+		Error(c, http.StatusNotImplemented, "CAS_NOT_ENABLED", "CAS 未启用")
 		return
 	}
 
@@ -176,27 +159,19 @@ func (h *AuthHandler) CASLogin(c *gin.Context) {
 	c.SetCookie(casRedirectCookieName, encodedTarget, 600, "/", "", secure, true)
 
 	if strings.TrimSpace(h.cfg.CAS.ServerURL) == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "CAS 服务地址未配置",
-		})
+		InternalError(c, "CAS_SERVER_NOT_CONFIGURED", "CAS 服务地址未配置")
 		return
 	}
 
 	callbackURL, err := h.buildCallbackURL(c.Request)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "构造回调地址失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "BUILD_CALLBACK_URL_FAILED", "构造回调地址失败", err.Error())
 		return
 	}
 
 	loginURL, err := buildCASLoginURL(h.cfg.CAS.ServerURL, callbackURL.String())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "构造CAS登录地址失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "BUILD_CAS_LOGIN_URL_FAILED", "构造CAS登录地址失败", err.Error())
 		return
 	}
 
@@ -206,7 +181,7 @@ func (h *AuthHandler) CASLogin(c *gin.Context) {
 // CASCallback 处理CAS回调
 func (h *AuthHandler) CASCallback(c *gin.Context) {
 	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "CAS 未启用"})
+		Error(c, http.StatusNotImplemented, "CAS_NOT_ENABLED", "CAS 未启用")
 		return
 	}
 
@@ -218,10 +193,7 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 
 	authResp, err := h.validateCASTicket(c.Request, ticket)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":   "CAS ticket 验证失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusUnauthorized, "CAS_TICKET_VALIDATION_FAILED", "CAS ticket 验证失败", err.Error())
 		return
 	}
 
@@ -229,10 +201,7 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 	attributes := cas.UserAttributes(authResp.Attributes)
 	loginResp, err := h.authService.LoginWithCAS(username, attributes)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "CAS 登录失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "CAS_LOGIN_FAILED", "CAS 登录失败", err.Error())
 		return
 	}
 
@@ -261,9 +230,7 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 func (h *AuthHandler) CASValidate(c *gin.Context) {
 	// 这个方法应该通过 CAS 中间件调用，而不是直接处理
 	// 实际的验证逻辑在 CASCallback 中处理
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "请使用 /auth/cas/callback 接口",
-	})
+	Error(c, http.StatusNotImplemented, "USE_CAS_CALLBACK", "请使用 /auth/cas/callback 接口")
 }
 
 // CASLogout 注销CAS并清理本地会话
@@ -285,10 +252,7 @@ func (h *AuthHandler) CASLogout(c *gin.Context) {
 
 	logoutURL, err := h.casClient.LogoutUrlForRequest(c.Request)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "构造CAS登出地址失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "BUILD_CAS_LOGOUT_URL_FAILED", "构造CAS登出地址失败", err.Error())
 		return
 	}
 
@@ -309,23 +273,24 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 	// 从上下文获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "用户未认证",
-		})
+		Unauthorized(c, "UNAUTHORIZED", "用户未认证")
 		return
 	}
 
 	// 从数据库获取最新的用户信息（而不是从JWT token中获取）
 	// 这样可以确保获取到最新的is_admin状态
-	user, err := h.authService.GetUserByID(userID.(string))
+	uidStr, ok := userID.(string)
+	if !ok {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID类型")
+		return
+	}
+	user, err := h.authService.GetUserByID(uidStr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取用户信息失败",
-		})
+		InternalError(c, "GET_USER_FAILED", "获取用户信息失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"user": gin.H{
 			"id":       user.ID.String(),
 			"email":    user.Email,
@@ -341,9 +306,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 	// 获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "用户未认证",
-		})
+		Unauthorized(c, "UNAUTHORIZED", "用户未认证")
 		return
 	}
 
@@ -352,18 +315,14 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		Picture string `json:"picture"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "无效的请求参数",
-			"details": err.Error(),
-		})
+	if err := bindJSON(c, &req); err != nil {
+		AbortWithDomainError(c, err)
 		return
 	}
 
 	// 这里应该调用服务更新用户资料
 	// 简化实现
-	c.JSON(http.StatusOK, gin.H{
-		"message": "资料更新成功",
+	SuccessWithMessage(c, "资料更新成功", gin.H{
 		"user": gin.H{
 			"id":      userID,
 			"name":    req.Name,
@@ -377,9 +336,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	// 获取用户ID
 	_, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "用户未认证",
-		})
+		Unauthorized(c, "UNAUTHORIZED", "用户未认证")
 		return
 	}
 
@@ -388,20 +345,20 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		NewPassword     string `json:"new_password" binding:"required,min=8"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "无效的请求参数",
-			"details": err.Error(),
-		})
+	if err := bindJSON(c, &req); err != nil {
+		AbortWithDomainError(c, err)
 		return
 	}
 
 	// 这里应该验证当前密码并更新新密码
 	// 由于使用OIDC认证，这个功能可能不需要
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error":   "使用OIDC认证时不支持修改密码",
-		"message": "请在身份提供商处修改密码",
-	})
+	ErrorWithDetails(
+		c,
+		http.StatusNotImplemented,
+		"PASSWORD_CHANGE_NOT_SUPPORTED",
+		"使用OIDC认证时不支持修改密码",
+		gin.H{"hint": "请在身份提供商处修改密码"},
+	)
 }
 
 // GetUserSessions 获取用户会话列表
@@ -409,9 +366,7 @@ func (h *AuthHandler) GetUserSessions(c *gin.Context) {
 	// 获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "用户未认证",
-		})
+		Unauthorized(c, "UNAUTHORIZED", "用户未认证")
 		return
 	}
 
@@ -429,7 +384,7 @@ func (h *AuthHandler) GetUserSessions(c *gin.Context) {
 		},
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"sessions": sessions,
 		"user_id":  userID,
 	})
@@ -439,25 +394,20 @@ func (h *AuthHandler) GetUserSessions(c *gin.Context) {
 func (h *AuthHandler) RevokeSession(c *gin.Context) {
 	sessionID := c.Param("session_id")
 	if sessionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "会话ID不能为空",
-		})
+		BadRequest(c, "MISSING_SESSION_ID", "会话ID不能为空")
 		return
 	}
 
 	// 获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "用户未认证",
-		})
+		Unauthorized(c, "UNAUTHORIZED", "用户未认证")
 		return
 	}
 
 	// 这里应该撤销指定的会话
 	// 简化实现
-	c.JSON(http.StatusOK, gin.H{
-		"message":    "会话已撤销",
+	SuccessWithMessage(c, "会话已撤销", gin.H{
 		"session_id": sessionID,
 		"user_id":    userID,
 	})
@@ -476,7 +426,10 @@ func generateRandomState() (string, error) {
 func (h *AuthHandler) performLocalLogout(c *gin.Context) {
 	refreshToken, err := c.Cookie("refresh_token")
 	if err == nil && refreshToken != "" {
-		h.authService.Logout(refreshToken)
+		if logoutErr := h.authService.Logout(refreshToken); logoutErr != nil {
+			// 记录日志但不影响主流程
+			logger.L().Warn("登出时发生错误", zap.Error(logoutErr))
+		}
 	}
 
 	secure := isSecureRequest(c.Request)
@@ -505,21 +458,22 @@ func (h *AuthHandler) clearRedirectCookie(c *gin.Context) {
 }
 
 func (h *AuthHandler) buildCallbackURL(r *http.Request) (*url.URL, error) {
-	base := buildRequestBaseURL(r)
+	base := h.buildRequestBaseURL(r) // 包含 basePath，如 "http://host/spydon"
 	callbackPath := h.cfg.CAS.CallbackPath
 	if callbackPath == "" {
 		callbackPath = "/auth/cas/callback"
 	}
 
-	baseURL, err := url.Parse(base)
-	if err != nil {
-		return nil, err
+	// 确保 callbackPath 以 / 开头
+	if !strings.HasPrefix(callbackPath, "/") {
+		callbackPath = "/" + callbackPath
 	}
-	rel, err := url.Parse(callbackPath)
-	if err != nil {
-		return nil, err
-	}
-	return baseURL.ResolveReference(rel), nil
+
+	// 直接拼接 base + callbackPath
+	// base 已经包含了 basePath，所以最终结果是 http://host/spydon/auth/cas/callback
+	fullURL := strings.TrimRight(base, "/") + callbackPath
+
+	return url.Parse(fullURL)
 }
 
 func buildCASLoginURL(serverURL, serviceURL string) (string, error) {
@@ -534,7 +488,7 @@ func buildCASLoginURL(serverURL, serviceURL string) (string, error) {
 	return loginURL.String(), nil
 }
 
-func buildRequestBaseURL(r *http.Request) string {
+func (h *AuthHandler) buildRequestBaseURL(r *http.Request) string {
 	scheme := "http"
 	if isSecureRequest(r) {
 		scheme = "https"
@@ -547,7 +501,17 @@ func buildRequestBaseURL(r *http.Request) string {
 	if host == "" {
 		host = "localhost"
 	}
-	return fmt.Sprintf("%s://%s", scheme, host)
+
+	// 添加 basePath（如果配置了）
+	basePath := ""
+	if h.cfg != nil && h.cfg.BasePath != "" {
+		basePath = strings.TrimRight(h.cfg.BasePath, "/")
+		if !strings.HasPrefix(basePath, "/") {
+			basePath = "/" + basePath
+		}
+	}
+
+	return fmt.Sprintf("%s://%s%s", scheme, host, basePath)
 }
 
 func isSecureRequest(r *http.Request) bool {
@@ -574,9 +538,15 @@ func (h *AuthHandler) validateCASTicket(r *http.Request, ticket string) (*cas.Au
 		return nil, fmt.Errorf("CAS 服务地址无效: %w", err)
 	}
 
-	// 创建自定义HTTP客户端，开发环境跳过TLS验证
+	// 创建自定义HTTP客户端，根据环境决定是否跳过TLS验证
+	tlsConfig := &tls.Config{}
+	// 仅在开发环境跳过TLS验证
+	if h.cfg.Environment == "development" {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: tlsConfig,
 	}
 	client := &http.Client{
 		Timeout:   10 * time.Second,

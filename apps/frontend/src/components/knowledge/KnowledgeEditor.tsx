@@ -29,9 +29,23 @@ export default function KnowledgeEditor({ value, onChange, onSubmit, submitting,
   const [isMounted, setIsMounted] = useState(false)
   const [doc, setDoc] = useState<any>(value?.tiptap || { type: 'doc', content: [] })
   const [initialContent, setInitialContent] = useState<any>(value?.tiptap || { type: 'doc', content: [] })
+  const [editorHeight, setEditorHeight] = useState(500)
 
   React.useEffect(() => {
     setIsMounted(true)
+    
+    // 计算编辑器高度：视口高度 - 顶部导航 - 表单字段 - 按钮 - 间距
+    const calculateHeight = () => {
+      const viewportHeight = window.innerHeight
+      // 预留空间：顶部导航(~80px) + 表单字段(~120px) + 按钮(~60px) + 间距(~100px)
+      const reservedSpace = 360
+      const calculatedHeight = viewportHeight - reservedSpace
+      setEditorHeight(Math.max(400, calculatedHeight)) // 最小400px
+    }
+    
+    calculateHeight()
+    window.addEventListener('resize', calculateHeight)
+    return () => window.removeEventListener('resize', calculateHeight)
   }, [])
 
   // 当 value.tiptap 变化时更新初始内容
@@ -103,7 +117,7 @@ export default function KnowledgeEditor({ value, onChange, onSubmit, submitting,
         <SimpleEditor
           key={JSON.stringify(initialContent)}
           variant="embed"
-          embedHeight={500}
+          embedHeight={editorHeight}
           initialContent={initialContent}
           onUpdate={(json) => {
             setDoc(json)

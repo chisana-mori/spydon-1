@@ -1,47 +1,60 @@
 package main
 
 import (
-	"log"
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
 
 	"robusta-web/backend/internal/api"
 	"robusta-web/backend/internal/config"
+	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
-	// 加载环境变量
-	if err := godotenv.Load(); err != nil {
-		log.Println("未找到.env文件，使用系统环境变量")
+	if err := logger.Init(nil); err != nil {
+		fmt.Fprintf(os.Stderr, "初始化默认日志失败: %v\n", err)
 	}
 
 	// 加载配置
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("加载配置失败: %v", err)
+		logger.L().Fatal("加载配置失败", zap.Error(err))
 	}
+
+	if err := logger.Init(cfg); err != nil {
+		logger.L().Fatal("初始化日志组件失败", zap.Error(err))
+	}
+	defer logger.Sync()
 
 	// 初始化数据库连接
 	database, err := db.Initialize(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("数据库初始化失败: %v", err)
+		logger.L().Fatal("数据库初始化失败", zap.Error(err))
 	}
 
 	// 启用PostgreSQL扩展
 	if err := database.EnableExtensions(); err != nil {
-		log.Fatalf("启用数据库扩展失败: %v", err)
+		logger.L().Fatal("启用数据库扩展失败", zap.Error(err))
 	}
 
 	// 运行自动迁移
 	if err := database.AutoMigrate(); err != nil {
-		log.Fatalf("数据库自动迁移失败: %v", err)
+		logger.L().Fatal("数据库自动迁移失败", zap.Error(err))
 	}
 
 	// 创建索引
 	if err := database.CreateIndexes(); err != nil {
-		log.Fatalf("创建数据库索引失败: %v", err)
+		logger.L().Fatal("创建数据库索引失败", zap.Error(err))
 	}
 
 	// 设置Gin模式
@@ -50,22 +63,40 @@ func main() {
 	}
 
 	// 创建路由器
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
 
 	// 设置API路由
 	if err := api.SetupRoutes(router, database, cfg); err != nil {
-		log.Fatalf("初始化路由失败: %v", err)
+		logger.L().Fatal("初始化路由失败", zap.Error(err))
 	}
 
 	// 启动服务器
 	port := cfg.Port
 	if port == "" {
-		port = "8080"
+		port = strconv.Itoa(constants.DefaultPort)
 	}
 
 	host := "0.0.0.0"
-	log.Printf("服务器启动在 %s:%s", host, port)
-	if err := router.Run(host + ":" + port); err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+	logger.L().Info("服务器启动", zap.String("host", host), zap.String("port", port))
+	srv := &http.Server{
+		Addr:         host + ":" + port,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.L().Fatal("服务器启动失败", zap.Error(err))
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.L().Error("服务优雅关闭失败", zap.Error(err))
 	}
 }

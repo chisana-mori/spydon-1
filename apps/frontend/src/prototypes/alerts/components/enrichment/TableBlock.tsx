@@ -49,17 +49,27 @@ export function TableBlock({ block }: TableBlockProps) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {block.table_name && (
-        <div className="text-sm font-medium">{block.table_name}</div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {block.table_name}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {block.rows.length} 行 · {block.headers.length} 列
+          </div>
+        </div>
       )}
-      <div className="border rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
+      <div className="border-2 border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-sm">
+        <div className="max-h-[480px] overflow-auto">
+          <Table className="min-w-full">
+            <TableHeader className="sticky top-0 z-10 bg-muted">
+              <TableRow className="bg-muted/80 backdrop-blur supports-[backdrop-filter]:bg-muted/60">
                 {block.headers.map((header, idx) => (
-                  <TableHead key={idx} className="whitespace-nowrap">
+                  <TableHead
+                    key={idx}
+                    className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-muted-foreground border-r border-border/40 last:border-r-0"
+                  >
                     {header}
                   </TableHead>
                 ))}
@@ -67,13 +77,28 @@ export function TableBlock({ block }: TableBlockProps) {
             </TableHeader>
             <TableBody>
               {block.rows.map((row, rowIdx) => (
-                <TableRow key={rowIdx}>
+                <TableRow
+                  key={rowIdx}
+                  className={rowIdx % 2 === 0 ? 'bg-muted/10' : 'bg-background'}
+                >
                   {row.map((cell, cellIdx) => {
                     const columnName = block.headers[cellIdx];
+                    const formatted = formatCell(cell, columnName);
+                    const isLongText = formatted.length > 80 || formatted.includes('\n');
                     return (
-                      <TableCell key={cellIdx} className="max-w-md">
-                        <div className="truncate" title={formatCell(cell, columnName)}>
-                          {formatCell(cell, columnName)}
+                      <TableCell
+                        key={cellIdx}
+                        className="align-top border-r border-border/20 last:border-r-0"
+                      >
+                        <div
+                          className={`text-xs text-foreground/90 ${
+                            isLongText
+                              ? 'whitespace-pre-wrap break-words font-mono'
+                              : 'truncate'
+                          }`}
+                          title={formatted}
+                        >
+                          {formatted || '—'}
                         </div>
                       </TableCell>
                     );

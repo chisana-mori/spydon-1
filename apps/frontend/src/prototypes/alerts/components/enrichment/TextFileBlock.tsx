@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic';
 import { TextFileBlock as TextFileBlockType } from '../../types/enrichment';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, Download, FileImage, WrapText, AlignLeft } from 'lucide-react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 
 // 动态导入 LogViewer 包装器
 const LogViewerWrapper = dynamic(
@@ -104,6 +106,24 @@ export function TextFileBlock({ block }: TextFileBlockProps) {
 
   const lines = normalizedContent.split('\n');
   const hasMore = lines.length > maxPreviewLines;
+  const isStructuredFile = useMemo(() => {
+    if (!block.filename) return false;
+    const filename = block.filename.toLowerCase();
+    return filename.endsWith('.yaml') || filename.endsWith('.yml') || filename.endsWith('.json');
+  }, [block.filename]);
+
+  const highlightLanguage = useMemo(() => {
+    if (!block.filename) return 'plaintext';
+    if (block.filename.toLowerCase().endsWith('.json')) return 'json';
+    if (
+      block.filename.toLowerCase().endsWith('.yaml') ||
+      block.filename.toLowerCase().endsWith('.yml')
+    ) {
+      return 'yaml';
+    }
+    if (block.filename.toLowerCase().endsWith('.log')) return 'log';
+    return 'plaintext';
+  }, [block.filename]);
 
   const handleDownload = () => {
     const content = decodedContent;
@@ -213,6 +233,21 @@ export function TextFileBlock({ block }: TextFileBlockProps) {
           // 使用专业的日志查看器
           <div className="h-[500px]">
             <LogViewerWrapper text={normalizedContent} height={500} wrapLines={wrapLines} />
+          </div>
+        ) : isStructuredFile && expanded ? (
+          <div className="overflow-auto">
+            <SyntaxHighlighter
+              language={highlightLanguage}
+              style={oneDark}
+              customStyle={{
+                margin: 0,
+                borderRadius: 0,
+                background: '#0f172a',
+                fontSize: '13px',
+              }}
+            >
+              {normalizedContent}
+            </SyntaxHighlighter>
           </div>
         ) : (
           // 使用简单的表格视图

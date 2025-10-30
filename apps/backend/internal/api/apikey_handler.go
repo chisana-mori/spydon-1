@@ -1,10 +1,10 @@
 package api
 
 import (
-	"net/http"
-	"strconv"
 	"time"
 
+	"robusta-web/backend/internal/apperrors"
+	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -25,16 +25,16 @@ func NewAPIKeyHandler(apiKeyService *services.APIKeyService) *APIKeyHandler {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name        string  `json:"name" binding:"required"`
-	ExpiresIn   *int    `json:"expires_in"` // 过期天数，nil表示永不过期
-	Permissions string  `json:"permissions" binding:"required,oneof=read write admin"`
+	Name        string `json:"name" binding:"required"`
+	ExpiresIn   *int   `json:"expires_in"` // 过期天数，nil表示永不过期
+	Permissions string `json:"permissions" binding:"required,oneof=read write admin"`
 }
 
 // CreateAPIKeyResponse 创建API Key响应
 type CreateAPIKeyResponse struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
-	Key         string     `json:"key"`          // 完整密钥（仅在创建时返回）
+	Key         string     `json:"key"` // 完整密钥（仅在创建时返回）
 	KeyPrefix   string     `json:"key_prefix"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 	Permissions string     `json:"permissions"`
@@ -53,33 +53,36 @@ type APIKeyListResponse struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
+func resolveUserID(c *gin.Context) (uuid.UUID, apperrors.DomainError) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return uuid.Nil, apperrors.Unauthorized("未授权", apperrors.WithCode("UNAUTHORIZED"))
+	}
+
+	uidStr, ok := userID.(string)
+	if !ok {
+		return uuid.Nil, apperrors.BadRequest("无效的用户ID类型", nil, apperrors.WithCode("INVALID_USER_ID"))
+	}
+
+	uid, err := uuid.Parse(uidStr)
+	if err != nil {
+		return uuid.Nil, apperrors.BadRequest("无效的用户ID", nil, apperrors.WithCode("INVALID_USER_ID"), apperrors.WithCause(err))
+	}
+
+	return uid, nil
+}
+
 // CreateAPIKey 创建新的API Key
 func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 	var req CreateAPIKeyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "请求参数无效",
-			"code":  "INVALID_REQUEST",
-		})
+	if err := bindJSON(c, &req); err != nil {
+		AbortWithDomainError(c, err)
 		return
 	}
 
-	// 从上下文获取用户ID
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "未授权",
-			"code":  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	uid, err := uuid.Parse(userID.(string))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的用户ID",
-			"code":  "INVALID_USER_ID",
-		})
+	uid, derr := resolveUserID(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
@@ -93,14 +96,11 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 	// 生成API Key
 	apiKey, rawKey, err := h.apiKeyService.GenerateAPIKey(uid, req.Name, expiresAt, req.Permissions)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "创建API Key失败",
-			"code":  "CREATE_FAILED",
-		})
+		InternalError(c, constants.ErrorCodeCreateFailed, "创建API Key失败")
 		return
 	}
 
-	c.JSON(http.StatusCreated, CreateAPIKeyResponse{
+	Created(c, CreateAPIKeyResponse{
 		ID:          apiKey.ID.String(),
 		Name:        apiKey.Name,
 		Key:         rawKey, // 仅在创建时返回完整密钥
@@ -113,31 +113,15 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 
 // ListAPIKeys 获取当前用户的API Key列表
 func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
-	// 从上下文获取用户ID
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "未授权",
-			"code":  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	uid, err := uuid.Parse(userID.(string))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的用户ID",
-			"code":  "INVALID_USER_ID",
-		})
+	uid, derr := resolveUserID(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	apiKeys, err := h.apiKeyService.ListAPIKeys(uid)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取API Key列表失败",
-			"code":  "LIST_FAILED",
-		})
+		InternalError(c, constants.ErrorCodeListFailed, "获取API Key列表失败")
 		return
 	}
 
@@ -156,147 +140,87 @@ func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": response,
-	})
+	Success(c, response)
 }
 
 // DeleteAPIKey 删除API Key
 func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
 	keyID := c.Param("id")
 	if keyID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "缺少API Key ID",
-			"code":  "MISSING_ID",
-		})
+		BadRequest(c, "MISSING_ID", "缺少API Key ID")
 		return
 	}
 
 	id, err := uuid.Parse(keyID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的API Key ID",
-			"code":  "INVALID_ID",
-		})
+		BadRequest(c, "INVALID_ID", "无效的API Key ID")
 		return
 	}
 
-	// 从上下文获取用户ID
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "未授权",
-			"code":  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	uid, err := uuid.Parse(userID.(string))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的用户ID",
-			"code":  "INVALID_USER_ID",
-		})
+	uid, derr := resolveUserID(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	// 删除API Key
 	if err := h.apiKeyService.DeleteAPIKey(id, uid); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-			"code":  "DELETE_FAILED",
-		})
+		InternalError(c, constants.ErrorCodeDeleteFailed, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "API Key删除成功",
-	})
+	SuccessWithMessage(c, "API Key删除成功", nil)
 }
 
 // UpdateAPIKeyStatus 更新API Key状态
 func (h *APIKeyHandler) UpdateAPIKeyStatus(c *gin.Context) {
 	keyID := c.Param("id")
 	if keyID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "缺少API Key ID",
-			"code":  "MISSING_ID",
-		})
+		BadRequest(c, "MISSING_ID", "缺少API Key ID")
 		return
 	}
 
 	id, err := uuid.Parse(keyID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的API Key ID",
-			"code":  "INVALID_ID",
-		})
+		BadRequest(c, "INVALID_ID", "无效的API Key ID")
 		return
 	}
 
 	var req struct {
 		IsActive bool `json:"is_active"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "请求参数无效",
-			"code":  "INVALID_REQUEST",
-		})
+	if err := bindJSON(c, &req); err != nil {
+		AbortWithDomainError(c, err)
 		return
 	}
 
-	// 从上下文获取用户ID
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "未授权",
-			"code":  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	uid, err := uuid.Parse(userID.(string))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的用户ID",
-			"code":  "INVALID_USER_ID",
-		})
+	uid, derr := resolveUserID(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	// 更新状态
 	if err := h.apiKeyService.UpdateAPIKeyStatus(id, uid, req.IsActive); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-			"code":  "UPDATE_FAILED",
-		})
+		InternalError(c, constants.ErrorCodeUpdateFailed, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "API Key状态更新成功",
-	})
+	SuccessWithMessage(c, "API Key状态更新成功", nil)
 }
 
 // ListAllAPIKeys 管理员获取所有API Key列表
 func (h *APIKeyHandler) ListAllAPIKeys(c *gin.Context) {
 	// 获取分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 || limit > 100 {
-		limit = 20
+	params, derr := ParsePaginationParams(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
+		return
 	}
 
-	apiKeys, total, err := h.apiKeyService.ListAllAPIKeys(page, limit)
+	apiKeys, total, err := h.apiKeyService.ListAllAPIKeys(params.Page, params.PageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取API Key列表失败",
-			"code":  "LIST_FAILED",
-		})
+		InternalError(c, constants.ErrorCodeListFailed, "获取API Key列表失败")
 		return
 	}
 
@@ -304,14 +228,14 @@ func (h *APIKeyHandler) ListAllAPIKeys(c *gin.Context) {
 	response := make([]map[string]interface{}, len(apiKeys))
 	for i, key := range apiKeys {
 		response[i] = map[string]interface{}{
-			"id":          key.ID.String(),
-			"name":        key.Name,
-			"key_prefix":  key.KeyPrefix,
+			"id":           key.ID.String(),
+			"name":         key.Name,
+			"key_prefix":   key.KeyPrefix,
 			"last_used_at": key.LastUsedAt,
-			"expires_at":  key.ExpiresAt,
-			"is_active":   key.IsActive,
-			"permissions": key.Permissions,
-			"created_at":  key.CreatedAt,
+			"expires_at":   key.ExpiresAt,
+			"is_active":    key.IsActive,
+			"permissions":  key.Permissions,
+			"created_at":   key.CreatedAt,
 			"user": map[string]interface{}{
 				"id":       key.User.ID.String(),
 				"username": key.User.Username,
@@ -321,13 +245,7 @@ func (h *APIKeyHandler) ListAllAPIKeys(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": response,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	pagination := NewPagination(params.Page, params.PageSize, total)
+	pagination.Sort = params.Sort
+	SuccessPaginated(c, response, pagination)
 }
-

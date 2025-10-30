@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"net/http"
+	"robusta-web/backend/internal/constants"
 
 	"github.com/gin-gonic/gin"
 )
@@ -10,13 +10,13 @@ import (
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
-		
+
 		// 允许的源列表（生产环境应该配置具体的域名）
 		allowedOrigins := []string{
-			"http://localhost:3000",
-			"http://localhost:5173",
-			"https://localhost:3000",
-			"https://localhost:5173",
+			constants.CORSPort3000HTTP,
+			constants.CORSPort5173HTTP,
+			constants.CORSPort3000HTTPS,
+			constants.CORSPort5173HTTPS,
 		}
 
 		// 检查是否为允许的源
@@ -29,18 +29,18 @@ func CORSMiddleware() gin.HandlerFunc {
 		}
 
 		if isAllowed {
-			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header(constants.HeaderAccessControlAllowOrigin, origin)
 		}
 
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-Robusta-Signature")
+		c.Header(constants.HeaderAccessControlAllowMethods, constants.AllowedHTTPMethods)
+		c.Header(constants.HeaderAccessControlAllowHeaders, "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, "+constants.HeaderRobustaSignature)
 		c.Header("Access-Control-Expose-Headers", "Content-Length")
-		c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Access-Control-Max-Age", "86400")
+		c.Header(constants.HeaderAccessControlAllowCredentials, "true")
+		c.Header(constants.HeaderAccessControlMaxAge, constants.CORSMaxAge)
 
 		// 处理预检请求
 		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
+			c.AbortWithStatus(constants.StatusNoContent)
 			return
 		}
 
@@ -52,20 +52,20 @@ func CORSMiddleware() gin.HandlerFunc {
 func SecurityHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 防止点击劫持
-		c.Header("X-Frame-Options", "DENY")
-		
+		c.Header(constants.SecurityXFrameOptions, constants.SecurityXFrameOptionsDeny)
+
 		// 防止MIME类型嗅探
-		c.Header("X-Content-Type-Options", "nosniff")
-		
+		c.Header(constants.SecurityXContentTypeOptions, constants.SecurityXContentTypeOptionsNoSniff)
+
 		// XSS保护
-		c.Header("X-XSS-Protection", "1; mode=block")
-		
+		c.Header(constants.SecurityXXSSProtection, constants.SecurityXXSSProtectionBlock)
+
 		// 强制HTTPS（生产环境）
 		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		
+
 		// 内容安全策略
 		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
-		
+
 		// 引用策略
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 

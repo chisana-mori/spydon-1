@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,19 +41,21 @@ type AlertTrendPoint struct {
 }
 
 // CreateOrUpdateAlert 创建或更新告警
-func (s *AlertService) CreateOrUpdateAlert(alert *models.Alert) error {
+func (s *AlertService) CreateOrUpdateAlert(ctx context.Context, alert *models.Alert) error {
+	db := s.dbWithContext(ctx)
+
 	// 使用fingerprint和cluster_id作为唯一标识
 	var existingAlert models.Alert
-	result := s.db.Where("fingerprint = ? AND cluster_id = ?", alert.Fingerprint, alert.ClusterID).First(&existingAlert)
-	
+	result := db.Where("fingerprint = ? AND cluster_id = ?", alert.Fingerprint, alert.ClusterID).First(&existingAlert)
+
 	if result.Error == nil {
 		// 告警已存在，更新
 		alert.ID = existingAlert.ID
 		alert.CreatedAt = existingAlert.CreatedAt
-		return s.db.Save(alert).Error
-	} else if result.Error == gorm.ErrRecordNotFound {
+		return db.Save(alert).Error
+	} else if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		// 告警不存在，创建新的
-		return s.db.Create(alert).Error
+		return db.Create(alert).Error
 	} else {
 		// 其他错误
 		return result.Error
@@ -101,7 +105,7 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 func (s *AlertService) GetAlertByID(id uuid.UUID) (*models.Alert, error) {
 	var alert models.Alert
 	if err := s.db.Preload("Cluster").Preload("RCARuns").First(&alert, "id = ?", id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("告警不存在")
 		}
 		return nil, fmt.Errorf("获取告警失败: %w", err)
@@ -113,7 +117,7 @@ func (s *AlertService) GetAlertByID(id uuid.UUID) (*models.Alert, error) {
 func (s *AlertService) GetAlertByFingerprint(fingerprint, clusterID string) (*models.Alert, error) {
 	var alert models.Alert
 	if err := s.db.Where("fingerprint = ? AND cluster_id = ?", fingerprint, clusterID).First(&alert).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("告警不存在")
 		}
 		return nil, fmt.Errorf("获取告警失败: %w", err)
@@ -262,4 +266,11 @@ func (s *AlertService) CleanupOldAlerts(olderThan time.Duration) error {
 		return fmt.Errorf("清理旧告警失败: %w", result.Error)
 	}
 	return nil
+}
+
+func (s *AlertService) dbWithContext(ctx context.Context) *gorm.DB {
+	if ctx == nil {
+		return s.db.DB
+	}
+	return s.db.WithContext(ctx)
 }

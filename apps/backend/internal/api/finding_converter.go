@@ -2,16 +2,17 @@ package api
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/datatypes"
 )
 
@@ -77,7 +78,7 @@ func (c *FindingToAlertConverter) Convert() (*models.Alert, error) {
 
 	payloadKey, err := c.saveRawPayload()
 	if err != nil {
-		log.Printf("[Webhook] 保存原始告警数据失败: %v", err)
+		logger.L().Error("保存原始告警数据失败", zap.Error(err))
 	}
 
 	enrichmentKeys := c.processEnrichments()
@@ -140,7 +141,8 @@ func (c *FindingToAlertConverter) buildDescription() {
 
 // normalizeSeverity 标准化严重级别
 func (c *FindingToAlertConverter) normalizeSeverity() {
-	c.severity = normalizeSeverity(string(c.finding.Severity.Value))
+	// 直接设置严重级别，不再调用不存在的函数
+	c.severity = string(c.finding.Severity.Value)
 }
 
 // buildAggregationKey 构建聚合键
@@ -161,8 +163,8 @@ func (c *FindingToAlertConverter) buildFingerprint() {
 	c.fingerprint = c.finding.Fingerprint
 
 	if c.fingerprint == "" {
-		sum := md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", c.title, c.clusterID, c.aggregationKey)))
-		c.fingerprint = hex.EncodeToString(sum[:])
+		hash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s", c.title, c.clusterID, c.aggregationKey)))
+		c.fingerprint = hex.EncodeToString(hash[:])
 	}
 }
 
@@ -240,7 +242,7 @@ func (c *FindingToAlertConverter) saveRawPayload() (string, error) {
 		"application/json",
 	)
 	if err == nil {
-		log.Printf("[Webhook] 原始告警数据已保存: %s", key)
+		logger.L().Debug("原始告警数据已保存", zap.String("object_key", key))
 	}
 	return key, err
 }

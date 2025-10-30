@@ -1,14 +1,15 @@
 package db
 
 import (
+	"context"
 	"fmt"
-	"log"
 
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 // Database 数据库连接包装器
@@ -20,7 +21,7 @@ type Database struct {
 func Initialize(databaseURL string) (*Database, error) {
 	// 配置GORM日志
 	gormConfig := &gorm.Config{
-		Logger:                                   logger.Default.LogMode(logger.Info),
+		Logger:                                   gormlogger.Default.LogMode(gormlogger.Info),
 		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
@@ -44,28 +45,28 @@ func Initialize(databaseURL string) (*Database, error) {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	log.Println("数据库连接成功")
+	logger.S().Infow("数据库连接成功")
 
 	return &Database{db}, nil
 }
 
 func (d *Database) AutoMigrate() error {
-    err := d.DB.AutoMigrate(
-        &models.Cluster{},
-        &models.Alert{},
-        &models.RCARun{},
-        &models.AuditLog{},
-        &models.User{},
-        &models.RefreshToken{},
-        &models.APIKey{},
-        &models.KnowledgeArticle{},
-        &models.KnowledgeArticleVersion{},
-    )
-    if err != nil {
-        return err
-    }
+	err := d.DB.AutoMigrate(
+		&models.Cluster{},
+		&models.Alert{},
+		&models.RCARun{},
+		&models.AuditLog{},
+		&models.User{},
+		&models.RefreshToken{},
+		&models.APIKey{},
+		&models.KnowledgeArticle{},
+		&models.KnowledgeArticleVersion{},
+	)
+	if err != nil {
+		return err
+	}
 
-	log.Println("数据库表结构迁移完成，正在手动创建外键...")
+	logger.S().Infow("数据库表结构迁移完成，正在手动创建外键")
 
 	// Manually create foreign key for: alerts -> clusters
 	if !d.Migrator().HasConstraint("alerts", "fk_alerts_cluster") {
@@ -127,7 +128,7 @@ func (d *Database) AutoMigrate() error {
 		}
 	}
 
-	log.Println("手动创建外键完成")
+	logger.S().Infow("手动创建外键完成")
 	return nil
 }
 
@@ -138,6 +139,14 @@ func (d *Database) Close() error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// WithContext 返回绑定指定上下文的 *gorm.DB 会话
+func (d *Database) WithContext(ctx context.Context) *gorm.DB {
+	if ctx == nil {
+		return d.DB
+	}
+	return d.DB.WithContext(ctx)
 }
 
 // CreateIndexes 创建数据库索引
@@ -189,30 +198,30 @@ func (d *Database) CreateIndexes() error {
 		return fmt.Errorf("创建api_keys用户索引失败: %w", err)
 	}
 
-    if err := d.Exec(`
+	if err := d.Exec(`
         CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix
         ON api_keys(key_prefix)
     `).Error; err != nil {
-        return fmt.Errorf("创建api_keys前缀索引失败: %w", err)
-    }
+		return fmt.Errorf("创建api_keys前缀索引失败: %w", err)
+	}
 
-    // knowledge 索引
-    if err := d.Exec(`
+	// knowledge 索引
+	if err := d.Exec(`
         CREATE INDEX IF NOT EXISTS idx_kb_rule_norm_status
         ON knowledge_articles(alert_rule_name_normalized, status)
     `).Error; err != nil {
-        return fmt.Errorf("创建knowledge_articles索引失败: %w", err)
-    }
+		return fmt.Errorf("创建knowledge_articles索引失败: %w", err)
+	}
 
-    if err := d.Exec(`
+	if err := d.Exec(`
         CREATE INDEX IF NOT EXISTS idx_kb_tags_gin
         ON knowledge_articles USING GIN (tags)
     `).Error; err != nil {
-        return fmt.Errorf("创建knowledge_articles GIN索引失败: %w", err)
-    }
+		return fmt.Errorf("创建knowledge_articles GIN索引失败: %w", err)
+	}
 
-    log.Println("数据库索引创建完成")
-    return nil
+	logger.S().Infow("数据库索引创建完成")
+	return nil
 }
 
 // EnableExtensions 启用PostgreSQL扩展
@@ -227,6 +236,6 @@ func (d *Database) EnableExtensions() error {
 		return fmt.Errorf("启用pgcrypto扩展失败: %w", err)
 	}
 
-	log.Println("PostgreSQL扩展启用完成")
+	logger.S().Infow("PostgreSQL扩展启用完成")
 	return nil
 }

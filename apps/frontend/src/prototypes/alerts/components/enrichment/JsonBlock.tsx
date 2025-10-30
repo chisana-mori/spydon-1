@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { JsonBlock as JsonBlockType } from '../../types/enrichment';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { copyTextToClipboard } from '@/lib/clipboard';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 
 interface JsonBlockProps {
   block: JsonBlockType;
@@ -17,12 +20,12 @@ export function JsonBlock({ block }: JsonBlockProps) {
   const preview = jsonString.slice(0, 200) + (jsonString.length > 200 ? '...' : '');
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(jsonString);
+    const success = await copyTextToClipboard(jsonString);
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      // Copy failed
+    } else {
+      // 浏览器不支持复制或拒绝访问剪贴板
     }
   };
 
@@ -54,9 +57,24 @@ export function JsonBlock({ block }: JsonBlockProps) {
         </Button>
       </div>
       <div className="bg-slate-950 text-slate-50">
-        <pre className="p-3 overflow-auto text-xs">
-          <code>{expanded ? jsonString : preview}</code>
-        </pre>
+        {expanded ? (
+          <SyntaxHighlighter
+            language="json"
+            style={oneDark}
+            customStyle={{
+              margin: 0,
+              borderRadius: 0,
+              fontSize: '13px',
+              background: 'transparent',
+            }}
+          >
+            {jsonString}
+          </SyntaxHighlighter>
+        ) : (
+          <pre className="p-3 overflow-auto text-xs">
+            <code>{preview}</code>
+          </pre>
+        )}
       </div>
     </div>
   );

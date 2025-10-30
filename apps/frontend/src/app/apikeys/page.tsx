@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Key, Plus, Trash2, Copy, Check, AlertCircle } from 'lucide-react'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -47,6 +48,8 @@ export default function APIKeysPage() {
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showKeyDialog, setShowKeyDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deletingKey, setDeletingKey] = useState<{ id: string; name: string } | null>(null)
   const [newKeyData, setNewKeyData] = useState<{ key: string; name: string } | null>(null)
   const [copiedKey, setCopiedKey] = useState(false)
   const [formData, setFormData] = useState<CreateAPIKeyRequest>({
@@ -70,7 +73,8 @@ export default function APIKeysPage() {
       }
 
       const result = await response.json()
-      setApiKeys(result.data || [])
+      const payload = Array.isArray(result) ? result : result?.data
+      setApiKeys(Array.isArray(payload) ? payload : [])
     } catch (error) {
       console.error('获取API Key列表失败:', error)
     } finally {
@@ -94,16 +98,27 @@ export default function APIKeysPage() {
         body: JSON.stringify(formData),
       })
 
+      const result = await response.json().catch(() => ({}))
+
       if (!response.ok) {
-        throw new Error('创建API Key失败')
+        const message =
+          typeof result?.error === 'string'
+            ? result.error
+            : typeof result?.message === 'string'
+              ? result.message
+              : '创建API Key失败'
+        throw new Error(message)
       }
 
-      const result = await response.json()
-      
+      const payload = result?.data ?? result
+      if (!payload?.key) {
+        throw new Error('响应未包含新生成的API Key')
+      }
+
       // 显示新创建的Key（仅此一次）
       setNewKeyData({
-        key: result.key,
-        name: result.name,
+        key: payload.key,
+        name: payload.name ?? formData.name,
       })
       setShowCreateDialog(false)
       setShowKeyDialog(true)
@@ -119,17 +134,15 @@ export default function APIKeysPage() {
       fetchAPIKeys()
     } catch (error) {
       console.error('创建API Key失败:', error)
-      alert('创建API Key失败')
+      alert(error instanceof Error ? error.message : '创建API Key失败')
     }
   }
 
-  const handleDeleteAPIKey = async (id: string) => {
-    if (!confirm('确定要删除这个API Key吗？删除后将无法恢复。')) {
-      return
-    }
+  const handleDeleteAPIKey = async () => {
+    if (!deletingKey) return
 
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/apikeys/${id}`, {
+      const response = await fetch(`${appConfig.apiBaseUrl}/apikeys/${deletingKey.id}`, {
         method: 'DELETE',
         credentials: 'include',
       })
@@ -138,20 +151,27 @@ export default function APIKeysPage() {
         throw new Error('删除API Key失败')
       }
 
+      setShowDeleteDialog(false)
+      setDeletingKey(null)
       fetchAPIKeys()
     } catch (error) {
       console.error('删除API Key失败:', error)
-      alert('删除API Key失败')
+      alert('删除API Key失败，请稍后重试')
     }
   }
 
+  const confirmDelete = (id: string, name: string) => {
+    setDeletingKey({ id, name })
+    setShowDeleteDialog(true)
+  }
+
   const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
+    const success = await copyTextToClipboard(text)
+    if (success) {
       setCopiedKey(true)
       setTimeout(() => setCopiedKey(false), 2000)
-    } catch (error) {
-      console.error('复制失败:', error)
+    } else {
+      console.error('复制失败: 浏览器未授予剪贴板权限或不支持')
     }
   }
 
@@ -218,7 +238,7 @@ export default function APIKeysPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleDeleteAPIKey(apiKey.id)}
+                    onClick={() => confirmDelete(apiKey.id, apiKey.name)}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -376,6 +396,43 @@ export default function APIKeysPage() {
           </div>
           <DialogFooter>
             <Button onClick={() => setShowKeyDialog(false)}>我已保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除 API Key</DialogTitle>
+            <DialogDescription>
+              此操作无法撤销。删除后，使用此密钥的应用程序将无法访问系统。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-red-800 dark:text-red-200">
+                  <p className="font-medium mb-1">您即将删除以下 API Key：</p>
+                  <p className="font-mono">{deletingKey?.name}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteDialog(false)
+                setDeletingKey(null)
+              }}
+            >
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteAPIKey}>
+              确认删除
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

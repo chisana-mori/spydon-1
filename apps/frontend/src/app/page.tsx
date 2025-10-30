@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/utils'
 import RobustaAPI from '@/lib/api'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 import { format, formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import {
@@ -319,16 +320,16 @@ export default function Dashboard() {
                     return (
                       <Link
                         key={alert.id}
-                        href={`/alerts/${alert.id}`}
+                        href={resolveAppPath(`/alerts/${alert.id}`)}
                         className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/20 hover:border-primary/50 transition-all cursor-pointer group"
                       >
                         <div className="flex items-center space-x-3">
                           <div className={cn(
                             "p-2 rounded-full transition-transform group-hover:scale-110",
                             alert.severity === 'critical' ? 'bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-400' :
-                            alert.severity === 'high' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-400' :
-                            alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900 dark:text-yellow-400' :
-                            'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400'
+                              alert.severity === 'high' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-400' :
+                                alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900 dark:text-yellow-400' :
+                                  'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400'
                           )}>
                             <SeverityIcon className="h-4 w-4" />
                           </div>

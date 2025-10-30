@@ -81,7 +81,7 @@ func (s *RCAService) TriggerRCAAnalysis(alert *models.Alert) (*models.RCARun, er
 	// 检查是否已有正在运行的RCA
 	var existingRun models.RCARun
 	result := s.db.Where("alert_id = ? AND status IN (?)", alert.ID, []string{"pending", "running"}).First(&existingRun)
-	
+
 	if result.Error == nil {
 		return nil, fmt.Errorf("该告警已有正在运行的RCA分析")
 	} else if result.Error != gorm.ErrRecordNotFound {

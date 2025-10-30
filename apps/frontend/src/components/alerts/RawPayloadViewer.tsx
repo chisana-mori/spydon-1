@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 import {
   Download,
@@ -153,12 +154,12 @@ export function RawPayloadViewer({
   const copyToClipboard = async () => {
     if (!data) return;
 
-    try {
-      await navigator.clipboard.writeText(data.data);
+    const success = await copyTextToClipboard(data.data);
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      // Copy failed
+    } else {
+      // 浏览器不支持复制或权限被拒绝
     }
   };
 

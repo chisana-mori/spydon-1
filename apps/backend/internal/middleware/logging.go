@@ -3,38 +3,53 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"time"
 
+	"robusta-web/backend/internal/logger"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // RequestResponseLogger 请求响应日志中间件
 func RequestResponseLogger() gin.HandlerFunc {
-	return gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		var statusColor, methodColor, resetColor string
-		if param.IsOutputColor() {
-			statusColor = param.StatusCodeColor()
-			methodColor = param.MethodColor()
-			resetColor = param.ResetColor()
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		query := c.Request.URL.RawQuery
+		method := c.Request.Method
+		clientIP := c.ClientIP()
+
+		c.Next()
+
+		latency := time.Since(start)
+		status := c.Writer.Status()
+		errMsg := c.Errors.ByType(gin.ErrorTypePrivate).String()
+
+		fields := []zap.Field{
+			zap.Int("status", status),
+			zap.String("method", method),
+			zap.String("path", path),
+			zap.String("query", query),
+			zap.String("client_ip", clientIP),
+			zap.Duration("latency", latency),
+			zap.String("request_id", c.GetString("request_id")),
+		}
+		if errMsg != "" {
+			fields = append(fields, zap.String("error", errMsg))
 		}
 
-		if param.Latency > time.Minute {
-			param.Latency = param.Latency.Truncate(time.Second)
+		if status >= 500 {
+			logger.L().Error("请求处理失败", fields...)
+		} else if status >= 400 {
+			logger.L().Warn("请求返回客户端错误", fields...)
+		} else {
+			logger.L().Info("请求处理成功", fields...)
 		}
-
-		return fmt.Sprintf("[GIN] %v |%s %3d %s| %13v | %15s |%s %-7s %s %#v\n%s",
-			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
-			statusColor, param.StatusCode, resetColor,
-			param.Latency,
-			param.ClientIP,
-			methodColor, param.Method, resetColor,
-			param.Path,
-			param.ErrorMessage,
-		)
-	})
+	}
 }
 
 // RequestIDMiddleware 请求ID中间件
@@ -51,6 +66,8 @@ func RequestIDMiddleware() gin.HandlerFunc {
 	}
 }
 
+const auditRequestBodyPreviewLimit = 1 << 20 // 1MB
+
 // AuditLogMiddleware 审计日志中间件
 func AuditLogMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -59,9 +76,17 @@ func AuditLogMiddleware() gin.HandlerFunc {
 
 		// 读取请求体（如果需要记录）
 		var requestBody []byte
+		truncated := false
 		if c.Request.Body != nil {
-			requestBody, _ = io.ReadAll(c.Request.Body)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+			preview, restoredBody, wasTruncated, err := peekRequestBody(c.Request.Body, auditRequestBodyPreviewLimit)
+			if err != nil {
+				// 恢复原始请求体，确保后续流程不受影响
+				c.Request.Body = restoredBody
+			} else {
+				requestBody = preview
+				truncated = wasTruncated
+				c.Request.Body = restoredBody
+			}
 		}
 
 		// 创建响应写入器包装器
@@ -87,6 +112,9 @@ func AuditLogMiddleware() gin.HandlerFunc {
 		// 如果是敏感操作，记录请求体（排除密码等敏感信息）
 		if shouldLogRequestBody(c.Request.Method, c.Request.URL.Path) {
 			auditLog["request_body"] = sanitizeRequestBody(requestBody)
+			if truncated {
+				auditLog["request_body_truncated"] = true
+			}
 		}
 
 		// 如果响应状态码表示错误，记录响应体
@@ -95,8 +123,7 @@ func AuditLogMiddleware() gin.HandlerFunc {
 		}
 
 		// 输出审计日志（实际应用中应该写入专门的审计日志系统）
-		logJSON, _ := json.Marshal(auditLog)
-		gin.DefaultWriter.Write(append(logJSON, '\n'))
+		emitAuditLog(auditLog, truncated, blw.body.String())
 	}
 }
 
@@ -153,4 +180,88 @@ func sanitizeRequestBody(body []byte) interface{} {
 	}
 
 	return data
+}
+
+func emitAuditLog(payload map[string]interface{}, truncated bool, responseBody string) {
+	s := logger.S()
+	fields := make([]interface{}, 0, len(payload)*2+4)
+	for key, value := range payload {
+		fields = append(fields, key, value)
+	}
+
+	if truncated {
+		fields = append(fields, "request_body_truncated", true)
+	}
+
+	if responseBody != "" {
+		fields = append(fields, "response_body", responseBody)
+	}
+
+	status := 0
+	switch v := payload["status_code"].(type) {
+	case int:
+		status = v
+	case int64:
+		status = int(v)
+	case float64:
+		status = int(v)
+	}
+
+	message := "审计事件"
+	if status >= 500 {
+		s.Errorw(message, fields...)
+	} else if status >= 400 {
+		s.Warnw(message, fields...)
+	} else {
+		s.Infow(message, fields...)
+	}
+}
+
+// peekRequestBody 读取请求体预览并返回可重复读取的body
+func peekRequestBody(body io.ReadCloser, limit int) ([]byte, io.ReadCloser, bool, error) {
+	if limit <= 0 {
+		limit = auditRequestBodyPreviewLimit
+	}
+
+	buf := make([]byte, limit+1)
+	n, err := io.ReadFull(body, buf)
+	if err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+			// 请求体短于缓冲区，n 为实际长度
+		} else {
+			return nil, body, false, err
+		}
+	}
+
+	if n < 0 {
+		n = 0
+	}
+
+	previewLen := n
+	if previewLen > limit {
+		previewLen = limit
+	}
+
+	preview := make([]byte, previewLen)
+	copy(preview, buf[:previewLen])
+
+	restored := &readMultiCloser{
+		Reader: io.MultiReader(bytes.NewReader(buf[:n]), body),
+		Closer: body,
+	}
+
+	truncated := n > limit
+	return preview, restored, truncated, nil
+}
+
+type readMultiCloser struct {
+	io.Reader
+	Closer io.Closer
+}
+
+func (r *readMultiCloser) Close() error {
+	if r.Closer != nil {
+		return r.Closer.Close()
+	}
+	return nil
 }

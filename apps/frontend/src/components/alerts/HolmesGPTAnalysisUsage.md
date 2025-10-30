@@ -2,38 +2,11 @@
 
 ## 概述
 
-本项目提供了两个优化的 HolmesGPT 分析组件，支持实时任务进度显示和增强的聊天界面。
-
-## 组件对比
-
-| 特性 | ChatStyleHolmesGPTAnalysis | EnhancedHolmesGPTChat |
-|------|---------------------------|----------------------|
-| 基础分析功能 | ✅ | ✅ |
-| 任务进度显示 | ✅ | ✅ |
-| Markdown 渲染 | ✅ | ✅ |
-| 设置面板 | ❌ | ✅ |
-| 音效提示 | ❌ | ✅ |
-| 进度统计 | ❌ | ✅ |
-| 可视化改进 | 基础 | 增强 |
+本项目默认提供 **EnhancedHolmesGPTChat** 作为 HolmesGPT 分析界面的唯一实现，它整合了实时任务进度、增强的聊天体验以及结论汇总等能力。
 
 ## 快速开始
 
-### 1. 基础组件 (ChatStyleHolmesGPTAnalysis)
-
-```tsx
-import { ChatStyleHolmesGPTAnalysis } from '@/components/alerts/ChatStyleHolmesGPTAnalysis'
-
-function AlertDetailPage({ alert }: { alert: Alert }) {
-  return (
-    <div className="p-4">
-      <h1>告警详情</h1>
-      <ChatStyleHolmesGPTAnalysis alert={alert} />
-    </div>
-  )
-}
-```
-
-### 2. 增强组件 (EnhancedHolmesGPTChat)
+### 使用 EnhancedHolmesGPTChat
 
 ```tsx
 import { EnhancedHolmesGPTChat } from '@/components/alerts/EnhancedHolmesGPTChat'

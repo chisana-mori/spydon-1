@@ -172,7 +172,7 @@ func (ft *FlexibleTime) UnmarshalJSON(data []byte) error {
 		lastErr = err
 	}
 
-	return fmt.Errorf("无法解析时间 '%s': %v", str, lastErr)
+	return fmt.Errorf("无法解析时间 '%s': %w", str, lastErr)
 }
 
 // RobustaFinding Robusta Finding完整结构

@@ -91,14 +91,16 @@ services:
   spydon-fe:
     image: robusta-frontend-offline-base:node24
     container_name: spydon-fe
-    platform: linux/amd64
+    ports:
+      - "3000:3000"
     environment:
       WORKSPACE_DIR: /workspace
     volumes:
       - /home/hny/spydon/apps/frontend:/workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    network_mode: host
+    networks:
+      - robusta-network
     restart: unless-stopped
 volumes:
   postgres_data:

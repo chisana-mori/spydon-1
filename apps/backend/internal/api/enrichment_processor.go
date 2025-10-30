@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/services"
 )
 
@@ -92,7 +92,7 @@ func (p *EnrichmentProcessor) processBlock(ctx context.Context, basePath, enrich
 	case "CallbackBlock":
 		p.processCallbackBlock(ctx, basePath, enrichmentID, index, block, blockKey, enrichmentKeys)
 	case "HeaderBlock":
-		log.Printf("[Webhook] HeaderBlock: %s", block.Title)
+		logger.S().Infow("处理HeaderBlock", "title", block.Title)
 	default:
 		p.processUnknownBlock(ctx, basePath, enrichmentID, index, block, blockKey, enrichmentKeys)
 	}
@@ -106,7 +106,7 @@ func (p *EnrichmentProcessor) processFileBlock(ctx context.Context, basePath, en
 
 	decoded, err := decodeBase64Content(block.Contents)
 	if err != nil {
-		log.Printf("[Webhook] 解码%s内容失败: %v", block.Type, err)
+		logger.S().Errorw("解码块内容失败", "block_type", block.Type, "error", err)
 		return
 	}
 
@@ -124,7 +124,7 @@ func (p *EnrichmentProcessor) processFileBlock(ctx context.Context, basePath, en
 
 	if key, err := p.storageService.Save(ctx, filePath, decoded, contentType); err == nil {
 		enrichmentKeys[blockKey] = key
-		log.Printf("[Webhook] %s已保存: %s -> %s", block.Type, filename, key)
+		logger.S().Infow("块内容已保存", "block_type", block.Type, "filename", filename, "object_key", key)
 	}
 }
 
@@ -222,7 +222,7 @@ func (p *EnrichmentProcessor) processEventsBlock(ctx context.Context, basePath, 
 
 	if key, err := p.storageService.Save(ctx, filePath, eventsJSON, "application/json"); err == nil {
 		enrichmentKeys[blockKey] = key
-		log.Printf("[Webhook] EventsBlock已保存: %d条 -> %s", len(block.Events), key)
+		logger.S().Infow("EventsBlock已保存", "count", len(block.Events), "object_key", key)
 	}
 }
 
@@ -246,7 +246,7 @@ func (p *EnrichmentProcessor) processPrometheusBlock(ctx context.Context, basePa
 	filePath := fmt.Sprintf("%s/%s_prometheus_%d.json", basePath, enrichmentID, index)
 	if key, err := p.storageService.Save(ctx, filePath, data, "application/json"); err == nil {
 		enrichmentKeys[blockKey] = key
-		log.Printf("[Webhook] PrometheusBlock已保存: block_%d -> %s", index, key)
+		logger.S().Infow("PrometheusBlock已保存", "index", index, "object_key", key)
 	}
 }
 
@@ -261,7 +261,7 @@ func (p *EnrichmentProcessor) processLinksBlock(ctx context.Context, basePath, e
 
 	if key, err := p.storageService.Save(ctx, filePath, linksJSON, "application/json"); err == nil {
 		enrichmentKeys[blockKey] = key
-		log.Printf("[Webhook] LinksBlock已保存: block_%d -> %s", index, key)
+		logger.S().Infow("LinksBlock已保存", "index", index, "object_key", key)
 	}
 }
 
@@ -276,7 +276,7 @@ func (p *EnrichmentProcessor) processCallbackBlock(ctx context.Context, basePath
 
 	if key, err := p.storageService.Save(ctx, filePath, cbJSON, "application/json"); err == nil {
 		enrichmentKeys[blockKey] = key
-		log.Printf("[Webhook] CallbackBlock已保存: block_%d -> %s", index, key)
+		logger.S().Infow("CallbackBlock已保存", "index", index, "object_key", key)
 	}
 }
 
@@ -287,9 +287,9 @@ func (p *EnrichmentProcessor) processUnknownBlock(ctx context.Context, basePath,
 
 	if key, err := p.storageService.Save(ctx, filePath, unknownJSON, "application/json"); err == nil {
 		enrichmentKeys[blockKey] = key
-		log.Printf("[Webhook] 未知Block(type=%s)已保存: block_%d -> %s", block.Type, index, key)
+		logger.S().Infow("未知Block已保存", "block_type", block.Type, "index", index, "object_key", key)
 	} else {
-		log.Printf("[Webhook] 保存未知Block失败(type=%s): %v", block.Type, err)
+		logger.S().Errorw("保存未知Block失败", "block_type", block.Type, "index", index, "error", err)
 	}
 }
 

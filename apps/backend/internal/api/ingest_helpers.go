@@ -7,32 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// contains 检查字符串切片是否包含指定项
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-// getOrDefault 返回值或默认值
-func getOrDefault(value, defaultValue string) string {
-	if value == "" {
-		return defaultValue
-	}
-	return value
-}
-
-// min 返回两个整数中的较小值
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // extractClusterID 从多个来源提取cluster_id
 func extractClusterID(c *gin.Context, finding *RobustaFinding) string {
 	// 如果有gin.Context，尝试从header获取

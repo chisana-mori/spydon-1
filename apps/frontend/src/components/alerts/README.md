@@ -40,7 +40,6 @@
 
 ```
 frontend/src/components/alerts/
-├── ChatStyleHolmesGPTAnalysis.tsx     # 原组件优化版本
 ├── EnhancedHolmesGPTChat.tsx          # 增强聊天界面组件
 ├── ChatMessage.tsx                    # 消息显示组件（已优化）
 ├── AlertAnalysisIntegration.tsx       # 完整集成示例
@@ -111,13 +110,6 @@ graph TD
 | 响应式设计 | 基础 | ✅ | ✅ |
 
 ## 🚀 使用示例
-
-### 基础使用
-```tsx
-import { ChatStyleHolmesGPTAnalysis } from '@/components/alerts/ChatStyleHolmesGPTAnalysis'
-
-<ChatStyleHolmesGPTAnalysis alert={alert} />
-```
 
 ### 增强界面
 ```tsx

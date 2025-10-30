@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Alert } from '@/types/api'
 import AlertKnowledgePanel from '@/components/alerts/AlertKnowledgePanel'
+import { appConfig } from '@/config'
 import { EnhancedHolmesGPTChat } from './EnhancedHolmesGPTChat'
 import { RawPayloadViewer } from './RawPayloadViewer'
 import { format } from 'date-fns'
@@ -43,8 +44,11 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
     const fetchHistoryAndCache = async () => {
       setLoadingCache(true)
       try {
+        // 构建 API 路径，包含 basePath（如果配置了）
+        const basePath = appConfig.basePath || ''
+
         // 1. 先获取分析历史列表
-        const historyResponse = await fetch(`/api/v1/rca/${alert.id}`, {
+        const historyResponse = await fetch(`${basePath}/api/v1/rca/${alert.id}`, {
           credentials: 'include',
         })
 
@@ -56,7 +60,7 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
         }
 
         // 2. 尝试获取缓存的RCA结果（用于自动回放）
-        const cacheResponse = await fetch(`/api/v1/rca/${alert.id}/cache`, {
+        const cacheResponse = await fetch(`${basePath}/api/v1/rca/${alert.id}/cache`, {
           credentials: 'include',
         })
 
@@ -86,7 +90,8 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
     setLoadingCache(true)
 
     try {
-      const response = await fetch(`/api/v1/rca/${alert.id}/cache?run_id=${historyId}`, {
+      const basePath = appConfig.basePath || ''
+      const response = await fetch(`${basePath}/api/v1/rca/${alert.id}/cache?run_id=${historyId}`, {
         credentials: 'include',
       })
 
@@ -275,7 +280,7 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
           <TabsList className="grid w-full grid-cols-3 mb-4">
             <TabsTrigger value="enhanced" className="flex items-center space-x-2">
               <Brain className="h-4 w-4" />
-              <span>增强分析</span>
+              <span>根因分析</span>
             </TabsTrigger>
             <TabsTrigger value="raw" className="flex items-center space-x-2">
               <Settings className="h-4 w-4" />

@@ -19,15 +19,15 @@ import (
 
 // HMACMiddleware HMAC签名验证中间件（用于Robusta webhook）
 func HMACMiddleware(cfg *config.Config) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        // 若未配置HMAC密钥，则跳过校验（用于本地/开发环境便捷对接）
-        if cfg.HMACSecret == "" {
-            c.Next()
-            return
-        }
-        // 获取签名头
-        signature := c.GetHeader("X-Robusta-Signature")
-        if signature == "" {
+	return func(c *gin.Context) {
+		// 若未配置HMAC密钥，则跳过校验（用于本地/开发环境便捷对接）
+		if cfg.HMACSecret == "" {
+			c.Next()
+			return
+		}
+		// 获取签名头
+		signature := c.GetHeader("X-Robusta-Signature")
+		if signature == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "缺少HMAC签名",
 				"code":  "MISSING_SIGNATURE",
@@ -80,16 +80,16 @@ func verifyHMACSignature(body []byte, signature, secret string) bool {
 
 // EnhancedHMACMiddleware 增强版HMAC签名验证中间件（支持时间戳验证）
 func EnhancedHMACMiddleware(cfg *config.Config) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        // 若未配置HMAC密钥，则跳过校验（用于本地/开发环境便捷对接）
-        if cfg.HMACSecret == "" {
-            c.Next()
-            return
-        }
-        // 获取签名头
-        signature := c.GetHeader("X-Robusta-Signature")
-        timestamp := c.GetHeader("X-Robusta-Timestamp")
-        clusterID := c.GetHeader("X-Robusta-Cluster-ID")
+	return func(c *gin.Context) {
+		// 若未配置HMAC密钥，则跳过校验（用于本地/开发环境便捷对接）
+		if cfg.HMACSecret == "" {
+			c.Next()
+			return
+		}
+		// 获取签名头
+		signature := c.GetHeader("X-Robusta-Signature")
+		timestamp := c.GetHeader("X-Robusta-Timestamp")
+		clusterID := c.GetHeader("X-Robusta-Cluster-ID")
 
 		if signature == "" || timestamp == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -177,13 +177,6 @@ func verifyEnhancedHMAC(signature, timestamp, body, secret string) bool {
 
 	// 使用恒定时间比较防止时序攻击
 	return hmac.Equal([]byte(signature), []byte(expectedSignature))
-}
-
-// generateHMACSignature 生成HMAC签名（用于测试）
-func generateHMACSignature(body []byte, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 // GenerateEnhancedHMAC 生成增强版HMAC签名（包含时间戳）

@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"log"
 	"net/http"
 	"strings"
 
@@ -21,12 +20,6 @@ func APIKeyMiddleware(cfg *config.Config, apiKeyService *services.APIKeyService)
 			return
 		}
 
-		// 调试：打印所有收到的 headers
-		log.Printf("[Auth] 收到的请求 headers:")
-		for name, values := range c.Request.Header {
-			log.Printf("[Auth]   %s: %v", name, values)
-		}
-
 		// 从请求头获取API Key（仅支持 Authorization: Bearer <token> 格式）
 		var key string
 		auth := c.GetHeader("Authorization")
@@ -34,8 +27,6 @@ func APIKeyMiddleware(cfg *config.Config, apiKeyService *services.APIKeyService)
 			// 提取 Bearer 后面的 token，去除前后空格
 			key = strings.TrimSpace(auth[7:])
 		}
-
-		log.Printf("[Auth] 提取的 API Key: %q", key)
 
 		if key == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{

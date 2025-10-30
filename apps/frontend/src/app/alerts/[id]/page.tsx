@@ -2,6 +2,7 @@
 
 import { use } from 'react'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,11 +30,39 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
   const { id } = use(params)
 
   // 获取告警详情
-  const { data: alertData, isLoading } = useQuery({
+  const { data: alertData, isLoading, isError, error } = useQuery({
     queryKey: ['alert', id],
     queryFn: () => RobustaAPI.getAlert(id!),
     enabled: !!id,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
+
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={resolveAppPath('/alerts')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              返回告警列表
+            </Link>
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="py-8">
+            <div className="text-center text-muted-foreground space-y-2">
+              <p>加载告警详情失败。</p>
+              <p className="text-xs text-muted-foreground/80">
+                {(error as any)?.message || '请稍后重试。'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
 
 
@@ -44,7 +73,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/alerts">
+            <Link href={resolveAppPath('/alerts')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               返回告警列表
             </Link>
@@ -64,7 +93,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
       <div className="space-y-6">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/alerts">
+            <Link href={resolveAppPath('/alerts')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               返回告警列表
             </Link>
@@ -121,7 +150,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
       {/* 导航 */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/alerts">
+          <Link href={resolveAppPath('/alerts')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回告警列表
           </Link>

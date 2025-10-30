@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 import { Button } from '@/components/ui/button'
 
 import { Input } from '@/components/ui/input'
@@ -480,7 +481,7 @@ export default function Alerts() {
                         {/* 告警信息 */}
                         <div className="flex-1 min-w-0">
                           <Link
-                            href={`/alerts/${alert.id}`}
+                            href={resolveAppPath(`/alerts/${alert.id}`)}
                             className="text-lg font-medium text-gray-900 hover:text-blue-600 transition-colors block mb-1"
                           >
                             {alert.title}
@@ -517,7 +518,7 @@ export default function Alerts() {
 
                       {/* 右侧查看详情按钮 */}
                       <Link
-                        href={`/alerts/${alert.id}`}
+                        href={resolveAppPath(`/alerts/${alert.id}`)}
                         className="ml-4 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:text-gray-900 transition-colors flex-shrink-0"
                       >
                         查看详情

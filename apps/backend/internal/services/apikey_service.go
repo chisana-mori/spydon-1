@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,13 +35,13 @@ func (s *APIKeyService) GenerateAPIKey(userID uuid.UUID, name string, expiresAt 
 
 	// 将密钥编码为base64字符串
 	rawKey := base64.URLEncoding.EncodeToString(keyBytes)
-	
+
 	// 添加前缀以便识别
 	fullKey := fmt.Sprintf("rsk_%s", rawKey)
-	
+
 	// 提取前缀用于显示（前12个字符）
 	keyPrefix := fullKey[:12]
-	
+
 	// 对完整密钥进行SHA256哈希存储
 	hash := sha256.Sum256([]byte(fullKey))
 	hashedKey := base64.URLEncoding.EncodeToString(hash[:])
@@ -67,11 +68,10 @@ func (s *APIKeyService) GenerateAPIKey(userID uuid.UUID, name string, expiresAt 
 // ListAPIKeys 获取用户的API Key列表
 func (s *APIKeyService) ListAPIKeys(userID uuid.UUID) ([]models.APIKey, error) {
 	var apiKeys []models.APIKey
-	
+
 	err := s.db.Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Find(&apiKeys).Error
-	
 	if err != nil {
 		return nil, fmt.Errorf("查询API Key列表失败: %w", err)
 	}
@@ -82,12 +82,11 @@ func (s *APIKeyService) ListAPIKeys(userID uuid.UUID) ([]models.APIKey, error) {
 // GetAPIKey 根据ID获取API Key
 func (s *APIKeyService) GetAPIKey(id uuid.UUID, userID uuid.UUID) (*models.APIKey, error) {
 	var apiKey models.APIKey
-	
+
 	err := s.db.Where("id = ? AND user_id = ?", id, userID).
 		First(&apiKey).Error
-	
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("API Key不存在")
 		}
 		return nil, fmt.Errorf("查询API Key失败: %w", err)
@@ -100,7 +99,7 @@ func (s *APIKeyService) GetAPIKey(id uuid.UUID, userID uuid.UUID) (*models.APIKe
 func (s *APIKeyService) DeleteAPIKey(id uuid.UUID, userID uuid.UUID) error {
 	result := s.db.Where("id = ? AND user_id = ?", id, userID).
 		Delete(&models.APIKey{})
-	
+
 	if result.Error != nil {
 		return fmt.Errorf("删除API Key失败: %w", result.Error)
 	}
@@ -122,9 +121,8 @@ func (s *APIKeyService) ValidateAPIKey(rawKey string) (*models.APIKey, error) {
 	err := s.db.Where("key = ? AND is_active = ?", hashedKey, true).
 		Preload("User").
 		First(&apiKey).Error
-
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("无效的API Key")
 		}
 		return nil, fmt.Errorf("验证API Key失败: %w", err)
@@ -177,11 +175,9 @@ func (s *APIKeyService) ListAllAPIKeys(page, limit int) ([]models.APIKey, int64,
 		Limit(limit).
 		Offset(offset).
 		Find(&apiKeys).Error
-
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询API Key列表失败: %w", err)
 	}
 
 	return apiKeys, total, nil
 }
-

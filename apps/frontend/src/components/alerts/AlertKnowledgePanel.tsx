@@ -8,6 +8,7 @@ import KnowledgeViewer from '@/components/knowledge/KnowledgeViewer'
 import { Button } from '@/components/ui/button'
 import { ExternalLink, Calendar, Tag, AlertCircle, BookOpen, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 
 interface Props {
   alertRuleName: string
@@ -52,7 +53,7 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
               {/* 右上角查看详情按钮 */}
               <div className="flex items-center justify-end">
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href={`/knowledge/${first.id}` as any} target="_blank">
+                  <Link href={resolveAppPath(`/knowledge/${first.id}`)} target="_blank">
                     <ExternalLink className="h-4 w-4 mr-1" />
                     查看详情
                   </Link>
@@ -71,28 +72,28 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
+              <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
                 <div className="flex items-center gap-1.5">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>规则：</span>
-                  <code className="px-1.5 py-0.5 bg-muted rounded text-foreground font-mono text-xs">
+                  <AlertCircle className="h-4 w-4 text-blue-500" />
+                  <span className="text-muted-foreground">规则：</span>
+                  <span className="px-2.5 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md font-mono text-xs font-semibold">
                     {article.alert_rule_name}
-                  </code>
+                  </span>
                 </div>
 
                 {article.severity && (
                   <div className="flex items-center gap-1.5">
-                    <Tag className="h-4 w-4" />
-                    <span>级别：</span>
+                    <Tag className="h-4 w-4 text-purple-500" />
+                    <span className="text-muted-foreground">级别：</span>
                     <span
-                      className={`font-medium ${
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold ${
                         article.severity === 'critical'
-                          ? 'text-red-600 dark:text-red-400'
+                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                           : article.severity === 'high'
-                          ? 'text-orange-600 dark:text-orange-400'
+                          ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                           : article.severity === 'medium'
-                          ? 'text-yellow-600 dark:text-yellow-400'
-                          : 'text-blue-600 dark:text-blue-400'
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                       }`}
                     >
                       {article.severity}
@@ -101,18 +102,35 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
                 )}
 
                 <div className="flex items-center gap-1.5">
-                  <Calendar className="h-4 w-4" />
-                  <span>更新：</span>
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">更新：</span>
                   <span className="font-medium text-foreground">
                     {new Date(article.updated_at).toLocaleDateString('zh-CN')}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <span>版本：</span>
+                  <span className="text-muted-foreground">版本：</span>
                   <span className="font-medium text-foreground">v{article.version}</span>
                 </div>
               </div>
+
+              {/* 标签 */}
+              {article.tags && article.tags.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex flex-wrap gap-2">
+                    {article.tags.map((tag: string, index: number) => (
+                      <span
+                        key={index}
+                        className="px-2.5 py-1 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 dark:from-purple-900/30 dark:to-pink-900/30 dark:text-purple-400 rounded-full text-xs font-semibold"
+                      >
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 内容查看器 */}
@@ -147,13 +165,13 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
             {/* 操作按钮 */}
             <div className="flex items-center gap-3">
               <Button variant="default" size="sm" asChild>
-                <Link href={`/knowledge/new?rule=${encodeURIComponent(alertRuleName)}`}>
+                <Link href={resolveAppPath(`/knowledge/new?rule=${encodeURIComponent(alertRuleName)}`)}>
                   <Plus className="h-4 w-4 mr-2" />
                   创建新指南
                 </Link>
               </Button>
               <Button variant="outline" size="sm" asChild>
-                <Link href="/knowledge">
+                <Link href={resolveAppPath('/knowledge')}>
                   <BookOpen className="h-4 w-4 mr-2" />
                   浏览所有指南
                 </Link>
@@ -171,4 +189,3 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
     </div>
   )
 }
-

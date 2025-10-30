@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft, Edit, Calendar, Tag, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 import { KnowledgeViewer } from '@/components/knowledge/KnowledgeViewer'
 
 export default function KnowledgeViewPage() {
@@ -69,7 +70,7 @@ export default function KnowledgeViewPage() {
           返回列表
         </Button>
         <Button asChild>
-          <Link href={`/knowledge/${id}/edit` as any}>
+          <Link href={resolveAppPath(`/knowledge/${id}/edit`)}>
             <Edit className="h-4 w-4 mr-2" />
             编辑
           </Link>
@@ -97,28 +98,28 @@ export default function KnowledgeViewPage() {
           <CardTitle className="text-3xl font-bold">{article.title}</CardTitle>
 
           {/* 元信息 */}
-          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+          <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              <span>告警规则：</span>
-              <code className="px-2 py-0.5 bg-muted rounded text-foreground font-mono text-xs">
+              <AlertCircle className="h-4 w-4 text-blue-500" />
+              <span className="text-muted-foreground">告警规则：</span>
+              <span className="px-3 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md font-mono text-xs font-semibold">
                 {article.alert_rule_name}
-              </code>
+              </span>
             </div>
 
             {article.severity && (
               <div className="flex items-center gap-2">
-                <Tag className="h-4 w-4" />
-                <span>严重级别：</span>
+                <Tag className="h-4 w-4 text-purple-500" />
+                <span className="text-muted-foreground">严重级别：</span>
                 <span
-                  className={`font-medium ${
+                  className={`px-3 py-1 rounded-md text-xs font-semibold ${
                     article.severity === 'critical'
-                      ? 'text-red-600 dark:text-red-400'
+                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                       : article.severity === 'high'
-                      ? 'text-orange-600 dark:text-orange-400'
+                      ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                       : article.severity === 'medium'
-                      ? 'text-yellow-600 dark:text-yellow-400'
-                      : 'text-blue-600 dark:text-blue-400'
+                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                   }`}
                 >
                   {article.severity}
@@ -128,8 +129,8 @@ export default function KnowledgeViewPage() {
 
             {article.updated_at && (
               <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                <span>更新时间：</span>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">更新时间：</span>
                 <span className="font-medium text-foreground">
                   {new Date(article.updated_at).toLocaleString('zh-CN')}
                 </span>
@@ -139,15 +140,18 @@ export default function KnowledgeViewPage() {
 
           {/* 标签 */}
           {article.tags && article.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {article.tags.map((tag: string, index: number) => (
-                <span
-                  key={index}
-                  className="px-2.5 py-0.5 bg-primary/10 text-primary rounded-full text-xs font-medium"
-                >
-                  {tag}
-                </span>
-              ))}
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-muted-foreground" />
+              <div className="flex flex-wrap gap-2">
+                {article.tags.map((tag: string, index: number) => (
+                  <span
+                    key={index}
+                    className="px-3 py-1 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 dark:from-purple-900/30 dark:to-pink-900/30 dark:text-purple-400 rounded-full text-xs font-semibold"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </CardHeader>

@@ -161,7 +161,7 @@ type User struct {
 type RefreshToken struct {
 	BaseModel
 	UserID    uuid.UUID `json:"user_id" gorm:"not null"`
-	Token     string    `json:"token" gorm:"uniqueIndex;not null"`
+	TokenHash string    `json:"-" gorm:"column:token;uniqueIndex;not null"`
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null"`
 	User      User      `json:"user" gorm:"foreignKey:UserID"`
 }

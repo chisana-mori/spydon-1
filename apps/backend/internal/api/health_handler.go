@@ -23,7 +23,7 @@ func NewHealthHandler(database *db.Database) *HealthHandler {
 
 // HealthCheck 基础健康检查
 func (h *HealthHandler) HealthCheck(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"status":    "ok",
 		"timestamp": time.Now().Format(time.RFC3339),
 		"service":   "robusta-central-hub",
@@ -36,24 +36,16 @@ func (h *HealthHandler) ReadinessCheck(c *gin.Context) {
 	// 检查数据库连接
 	sqlDB, err := h.database.DB.DB()
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status": "error",
-			"error":  "数据库连接获取失败",
-			"code":   "DATABASE_CONNECTION_ERROR",
-		})
+		Error(c, http.StatusServiceUnavailable, "DATABASE_CONNECTION_ERROR", "数据库连接获取失败")
 		return
 	}
 
 	if err := sqlDB.Ping(); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status": "error",
-			"error":  "数据库连接测试失败",
-			"code":   "DATABASE_PING_ERROR",
-		})
+		Error(c, http.StatusServiceUnavailable, "DATABASE_PING_ERROR", "数据库连接测试失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	Success(c, gin.H{
 		"status":    "ready",
 		"timestamp": time.Now().Format(time.RFC3339),
 		"checks": gin.H{

@@ -38,42 +38,32 @@ func NewQueryHandler(
 func (h *QueryHandler) GetClustersSummary(c *gin.Context) {
 	summary, err := h.clusterService.GetClustersSummary()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取集群概览失败",
-			"code":  "GET_CLUSTERS_SUMMARY_ERROR",
-		})
+		InternalError(c, "GET_CLUSTERS_SUMMARY_ERROR", "获取集群概览失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": summary,
-	})
+	Success(c, summary)
 }
 
 // GetClusters 获取集群列表
 func (h *QueryHandler) GetClusters(c *gin.Context) {
 	// 解析查询参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	params, derr := ParsePaginationParams(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 	status := c.Query("status")
 
-	clusters, total, err := h.clusterService.GetClusters(page, limit, status)
+	clusters, total, err := h.clusterService.GetClusters(params.Page, params.PageSize, status)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取集群列表失败",
-			"code":  "GET_CLUSTERS_ERROR",
-		})
+		InternalError(c, "GET_CLUSTERS_ERROR", "获取集群列表失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": clusters,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	pagination := NewPagination(params.Page, params.PageSize, total)
+	pagination.Sort = params.Sort
+	SuccessPaginated(c, clusters, pagination)
 }
 
 // GetCluster 获取单个集群详情
@@ -82,23 +72,21 @@ func (h *QueryHandler) GetCluster(c *gin.Context) {
 
 	cluster, err := h.clusterService.GetClusterByID(clusterID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "集群不存在",
-			"code":  "CLUSTER_NOT_FOUND",
-		})
+		NotFound(c, "CLUSTER_NOT_FOUND", "集群不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": cluster,
-	})
+	Success(c, cluster)
 }
 
 // GetAlerts 获取告警列表
 func (h *QueryHandler) GetAlerts(c *gin.Context) {
 	// 解析查询参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	params, derr := ParsePaginationParams(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 	clusterID := c.Query("cluster_id")
 	severity := c.Query("severity")
 	status := c.Query("status")
@@ -120,23 +108,15 @@ func (h *QueryHandler) GetAlerts(c *gin.Context) {
 		Since:     since,
 	}
 
-	alerts, total, err := h.alertService.GetAlerts(page, limit, filters)
+	alerts, total, err := h.alertService.GetAlerts(params.Page, params.PageSize, filters)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取告警列表失败",
-			"code":  "GET_ALERTS_ERROR",
-		})
+		InternalError(c, "GET_ALERTS_ERROR", "获取告警列表失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": alerts,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	pagination := NewPagination(params.Page, params.PageSize, total)
+	pagination.Sort = params.Sort
+	SuccessPaginated(c, alerts, pagination)
 }
 
 // GetAlertTrend 获取告警趋势数据
@@ -149,16 +129,11 @@ func (h *QueryHandler) GetAlertTrend(c *gin.Context) {
 
 	trend, err := h.alertService.GetAlertTrend(days)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取告警趋势失败",
-			"code":  "GET_ALERT_TREND_ERROR",
-		})
+		InternalError(c, "GET_ALERT_TREND_ERROR", "获取告警趋势失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": trend,
-	})
+	Success(c, trend)
 }
 
 // GetAlert 获取单个告警详情
@@ -166,25 +141,17 @@ func (h *QueryHandler) GetAlert(c *gin.Context) {
 	alertIDStr := c.Param("id")
 	alertID, err := uuid.Parse(alertIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的告警ID",
-			"code":  "INVALID_ALERT_ID",
-		})
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	alert, err := h.alertService.GetAlertByID(alertID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "告警不存在",
-			"code":  "ALERT_NOT_FOUND",
-		})
+		NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": alert,
-	})
+	Success(c, alert)
 }
 
 // GetAlertRawPayload 获取告警的原始数据
@@ -192,40 +159,27 @@ func (h *QueryHandler) GetAlertRawPayload(c *gin.Context) {
 	alertIDStr := c.Param("id")
 	alertID, err := uuid.Parse(alertIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的告警ID",
-			"code":  "INVALID_ALERT_ID",
-		})
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	// 获取告警信息
 	alert, err := h.alertService.GetAlertByID(alertID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "告警不存在",
-			"code":  "ALERT_NOT_FOUND",
-		})
+		NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
 	}
 
 	// 检查是否有原始数据
 	if alert.RawPayloadKey == "" {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "该告警没有原始数据",
-			"code":  "NO_RAW_PAYLOAD",
-		})
+		NotFound(c, "NO_RAW_PAYLOAD", "该告警没有原始数据")
 		return
 	}
 
 	// 从存储服务获取原始数据
 	rawData, err := h.storageService.Get(c.Request.Context(), alert.RawPayloadKey)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取原始数据失败",
-			"code":    "GET_RAW_PAYLOAD_ERROR",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RAW_PAYLOAD_ERROR", "获取原始数据失败", err.Error())
 		return
 	}
 
@@ -242,25 +196,17 @@ func (h *QueryHandler) GetRCAByAlertID(c *gin.Context) {
 	alertIDStr := c.Param("alert_id")
 	alertID, err := uuid.Parse(alertIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的告警ID",
-			"code":  "INVALID_ALERT_ID",
-		})
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	rcaRuns, err := h.rcaService.GetRCARunsByAlertID(alertID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "获取RCA报告失败",
-			"code":  "GET_RCA_ERROR",
-		})
+		InternalError(c, "GET_RCA_ERROR", "获取RCA报告失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": rcaRuns,
-	})
+	Success(c, rcaRuns)
 }
 
 // TriggerRCA 手动触发RCA分析
@@ -268,36 +214,26 @@ func (h *QueryHandler) TriggerRCA(c *gin.Context) {
 	alertIDStr := c.Param("alert_id")
 	alertID, err := uuid.Parse(alertIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "无效的告警ID",
-			"code":  "INVALID_ALERT_ID",
-		})
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	// 检查告警是否存在
 	alert, err := h.alertService.GetAlertByID(alertID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "告警不存在",
-			"code":  "ALERT_NOT_FOUND",
-		})
+		NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
 	}
 
 	// 触发RCA分析（这里应该调用HolmesGPT服务）
 	rcaRun, err := h.rcaService.TriggerRCAAnalysis(alert)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "触发RCA分析失败",
-			"code":  "TRIGGER_RCA_ERROR",
-		})
+		InternalError(c, "TRIGGER_RCA_ERROR", "触发RCA分析失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "RCA分析已触发",
-		"rca_id":  rcaRun.ID,
+	SuccessWithMessage(c, "RCA分析已触发", gin.H{
+		"rca_id": rcaRun.ID,
 	})
 }
 
@@ -355,8 +291,11 @@ func (h *QueryHandler) EventStream(c *gin.Context) {
 
 // GetAuditLogs 获取审计日志（管理员功能）
 func (h *QueryHandler) GetAuditLogs(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	params, derr := ParsePaginationParams(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 	userID := c.Query("user_id")
 	action := c.Query("action")
 
@@ -369,15 +308,9 @@ func (h *QueryHandler) GetAuditLogs(c *gin.Context) {
 	}
 
 	// 这里应该调用审计服务获取日志
-	c.JSON(http.StatusOK, gin.H{
-		"data": []interface{}{},
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": 0,
-		},
-		"filters": filters,
-	})
+	pagination := NewPagination(params.Page, params.PageSize, 0)
+	pagination.Sort = params.Sort
+	SuccessPaginated(c, []interface{}{}, pagination)
 }
 
 // DeleteCluster 删除集群（管理员功能）
@@ -385,14 +318,9 @@ func (h *QueryHandler) DeleteCluster(c *gin.Context) {
 	clusterID := c.Param("id")
 
 	if err := h.clusterService.DeleteCluster(clusterID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "删除集群失败",
-			"code":  "DELETE_CLUSTER_ERROR",
-		})
+		InternalError(c, "DELETE_CLUSTER_ERROR", "删除集群失败")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "集群删除成功",
-	})
+	SuccessWithMessage(c, "集群删除成功", nil)
 }

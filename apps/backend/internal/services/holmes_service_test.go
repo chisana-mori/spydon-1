@@ -118,6 +118,16 @@ func (m *mockPayloadStorage) Get(ctx context.Context, key string) ([]byte, error
 	})
 }
 
+func (m *mockPayloadStorage) PutAt(ctx context.Context, key string, data []byte, contentType string) error {
+	m.data[key] = append([]byte(nil), data...)
+	m.lastKey = key
+	return nil
+}
+
+func (m *mockPayloadStorage) PresignPut(ctx context.Context, key string, ttl time.Duration, contentType string) (string, error) {
+	return fmt.Sprintf("https://mock-presign/%s", key), nil
+}
+
 func TestHolmesService_TriggerAnalysis(t *testing.T) {
 	// 设置测试数据库
 	database := setupHolmesTestDB(t)

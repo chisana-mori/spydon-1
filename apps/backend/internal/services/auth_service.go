@@ -2,7 +2,10 @@ package services
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -245,7 +248,14 @@ func (s *AuthService) GetUserByID(userID string) (*models.User, error) {
 // 私有方法
 
 func (s *AuthService) getRedirectURI() string {
-	// 这里应该根据环境配置返回正确的回调URL
+	redirect := strings.TrimSpace(s.config.OIDCRedirectURL)
+	if redirect != "" {
+		return redirect
+	}
+	if fallback := strings.TrimSpace(s.config.CAS.RedirectURL); fallback != "" {
+		return fallback
+	}
+	// 作为兜底，保持历史默认值
 	return "http://localhost:3000/auth/callback"
 }
 
@@ -517,6 +527,7 @@ func (s *AuthService) generateRefreshToken(userID string) (string, error) {
 	}
 
 	refreshToken := base64.URLEncoding.EncodeToString(bytes)
+	hashed := hashRefreshToken(refreshToken)
 
 	// 存储refresh token到数据库
 	token := models.RefreshToken{
@@ -524,7 +535,7 @@ func (s *AuthService) generateRefreshToken(userID string) (string, error) {
 			ID: uuid.New(),
 		},
 		UserID:    uuid.MustParse(userID),
-		Token:     refreshToken,
+		TokenHash: hashed,
 		ExpiresAt: time.Now().Add(30 * 24 * time.Hour), // 30天过期
 	}
 
@@ -537,14 +548,48 @@ func (s *AuthService) generateRefreshToken(userID string) (string, error) {
 
 func (s *AuthService) validateRefreshToken(refreshToken string) (string, error) {
 	var token models.RefreshToken
-	err := s.db.DB.Where("token = ? AND expires_at > ?", refreshToken, time.Now()).First(&token).Error
+	hashed := hashRefreshToken(refreshToken)
+	now := time.Now()
+
+	err := s.db.DB.Where("token = ? AND expires_at > ?", hashed, now).First(&token).Error
 	if err != nil {
-		return "", err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 兼容旧数据：尝试使用明文查询并升级为哈希存储
+			legacyErr := s.db.DB.Where("token = ? AND expires_at > ?", refreshToken, now).First(&token).Error
+			if legacyErr != nil {
+				return "", legacyErr
+			}
+			if updateErr := s.db.DB.Model(&models.RefreshToken{}).Where("id = ?", token.ID).Update("token", hashed).Error; updateErr != nil {
+				return "", updateErr
+			}
+			token.TokenHash = hashed
+		} else {
+			return "", err
+		}
+	}
+
+	if subtle.ConstantTimeCompare([]byte(token.TokenHash), []byte(hashed)) != 1 {
+		return "", gorm.ErrRecordNotFound
 	}
 
 	return token.UserID.String(), nil
 }
 
 func (s *AuthService) revokeRefreshToken(refreshToken string) error {
-	return s.db.DB.Where("token = ?", refreshToken).Delete(&models.RefreshToken{}).Error
+	hashed := hashRefreshToken(refreshToken)
+	result := s.db.DB.Where("token = ?", hashed).Delete(&models.RefreshToken{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		// 兼容旧数据
+		legacy := s.db.DB.Where("token = ?", refreshToken).Delete(&models.RefreshToken{})
+		return legacy.Error
+	}
+	return nil
+}
+
+func hashRefreshToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

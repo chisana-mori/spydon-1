@@ -21,6 +21,7 @@ import { RawPayloadData, RawDataViewMode } from '@prototypes/alerts/types/alerts
 import { Finding } from '@prototypes/alerts/types/enrichment';
 import { parseFinding } from '@prototypes/alerts/lib/enrichment-parser';
 import { EnrichmentRenderer } from '@prototypes/alerts/components/enrichment/EnrichmentRenderer';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 interface RawPayloadViewerProps {
   rawPayloadKey: string;
@@ -112,12 +113,12 @@ export function RawPayloadViewer({
 
   // 复制到剪贴板
   const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
+    const success = await copyTextToClipboard(text);
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      // Copy failed
+    } else {
+      // 浏览器不支持复制或拒绝访问剪贴板
     }
   };
 

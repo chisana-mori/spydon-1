@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
+import { resolveAppPath } from '@/config'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -212,7 +213,7 @@ export default function Clusters() {
                   
                   <div className="pt-2">
                     <Button asChild variant="outline" className="w-full">
-                      <Link href={`/clusters/${cluster.cluster_id}`}>
+                      <Link href={resolveAppPath(`/clusters/${cluster.cluster_id}`)}>
                         查看详情
                       </Link>
                     </Button>

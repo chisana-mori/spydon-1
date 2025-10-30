@@ -3,8 +3,8 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
+	"robusta-web/backend/internal/apperrors"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -33,64 +33,81 @@ type TriggerRCARequest struct {
 	Context          map[string]interface{} `json:"context,omitempty"`
 }
 
+var allowedRCADepths = map[string]struct{}{
+	"quick":    {},
+	"standard": {},
+	"deep":     {},
+}
+
+func normalizeRCADepth(depth string) string {
+	if depth == "" {
+		return "standard"
+	}
+	return depth
+}
+
+func validateRCADepth(depth string) apperrors.DomainError {
+	if depth == "" {
+		return nil
+	}
+	if _, ok := allowedRCADepths[depth]; ok {
+		return nil
+	}
+
+	return apperrors.Validation(
+		"无效的分析深度",
+		map[string]string{
+			"depth": "仅支持 quick、standard、deep",
+		},
+	)
+}
+
 // TriggerRCA 触发RCA分析
 func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 	var req TriggerRCARequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "无效的请求数据",
-			"details": err.Error(),
-		})
+	if err := bindJSON(c, &req); err != nil {
+		AbortWithDomainError(c, err)
 		return
 	}
 
-	// 验证深度参数
-	if req.Depth == "" {
-		req.Depth = "standard"
-	}
-
-	validDepths := map[string]bool{
-		"quick":    true,
-		"standard": true,
-		"deep":     true,
-	}
-
-	if !validDepths[req.Depth] {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":        "无效的分析深度",
-			"valid_depths": []string{"quick", "standard", "deep"},
-		})
+	req.Depth = normalizeRCADepth(req.Depth)
+	if derr := validateRCADepth(req.Depth); derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
-	// 根据fingerprint查找告警
 	alert, err := h.findAlertByFingerprint(req.AlertFingerprint, req.ClusterID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "未找到对应的告警",
-			"details": err.Error(),
-		})
+		domainErr := apperrors.NotFound(
+			"",
+			apperrors.WithCode("ALERT_NOT_FOUND"),
+			apperrors.WithMessage("未找到对应的告警"),
+			apperrors.WithDetails(err.Error()),
+			apperrors.WithCause(err),
+		)
+		AbortWithDomainError(c, domainErr)
 		return
 	}
 
 	// 触发分析
 	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alert.ID, req.Depth)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "触发RCA分析失败",
-			"details": err.Error(),
-		})
+		domainErr := apperrors.New(
+			http.StatusInternalServerError,
+			"TRIGGER_RCA_FAILED",
+			"触发RCA分析失败",
+			apperrors.WithDetails(err.Error()),
+			apperrors.WithCause(err),
+		)
+		AbortWithDomainError(c, domainErr)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "RCA分析已触发",
-		"data": gin.H{
-			"id":         rcaRun.ID,
-			"alert_id":   rcaRun.AlertID,
-			"status":     rcaRun.Status,
-			"started_at": rcaRun.StartedAt,
-		},
+	SuccessWithMessage(c, "RCA分析已触发", gin.H{
+		"id":         rcaRun.ID,
+		"alert_id":   rcaRun.AlertID,
+		"status":     rcaRun.Status,
+		"started_at": rcaRun.StartedAt,
 	})
 }
 
@@ -98,46 +115,37 @@ func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 func (h *RCAHandler) GetRCAByAlertID(c *gin.Context) {
 	alertID := c.Param("alert_id")
 	if alertID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "告警ID不能为空",
-		})
+		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
 		return
 	}
 
 	rcaRuns, err := h.holmesService.GetAnalysisByAlertID(alertID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取RCA结果失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_FAILED", "获取RCA结果失败", err.Error())
 		return
 	}
 
 	cacheResult, cacheErr := h.holmesService.GetCachedResult(c.Request.Context(), alertID)
 
-	response := gin.H{
-		"data":      rcaRuns,
+	extras := gin.H{
 		"cache_hit": cacheResult != nil,
 	}
-
 	if cacheResult != nil {
-		response["cached_result"] = cacheResult
+		extras["cached_result"] = cacheResult
 	}
 
 	if cacheErr != nil {
-		response["cache_error"] = cacheErr.Error()
+		extras["cache_error"] = cacheErr.Error()
 	}
 
-	c.JSON(http.StatusOK, response)
+	Success(c, rcaRuns, extras)
 }
 
 // GetRCACacheByAlertID 获取告警的RCA缓存结果（用于前端回放）
 func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 	alertID := c.Param("alert_id")
 	if alertID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "告警ID不能为空",
-		})
+		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
 		return
 	}
 
@@ -151,76 +159,60 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 
 	if runID != "" {
 		if _, parseErr := uuid.Parse(runID); parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "无效的运行ID",
-				"details": parseErr.Error(),
-			})
+			domainErr := apperrors.Validation(
+				"无效的运行ID",
+				map[string]string{"run_id": "格式不正确"},
+				apperrors.WithCode("INVALID_RUN_ID"),
+				apperrors.WithCause(parseErr),
+			)
+			AbortWithDomainError(c, domainErr)
 			return
 		}
 
 		cacheResult, err = h.holmesService.GetCachedResultByRunID(c.Request.Context(), runID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusNotFound, gin.H{
-					"error":   "未找到指定的分析记录",
-					"message": "运行记录不存在或尚未产生缓存",
-				})
+				NotFound(c, "RCA_RUN_NOT_FOUND", "运行记录不存在或尚未产生缓存")
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "获取RCA缓存失败",
-				"details": err.Error(),
-			})
+			ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_CACHE_FAILED", "获取RCA缓存失败", err.Error())
 			return
 		}
 
 		if cacheResult == nil {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "未找到缓存",
-				"message": "该运行记录尚未生成RCA缓存数据",
-			})
+			NotFound(c, "RCA_CACHE_NOT_READY", "该运行记录尚未生成RCA缓存数据")
 			return
 		}
 
 		if cacheResult.AlertID != "" && cacheResult.AlertID != alertID {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":   "缓存记录不属于该告警",
-				"message": "请检查运行ID与告警ID是否匹配",
-			})
+			NotFound(c, "RCA_CACHE_MISMATCH", "缓存记录不属于该告警")
 			return
 		}
 	} else {
 		cacheResult, err = h.holmesService.GetCachedResult(c.Request.Context(), alertID)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取RCA缓存失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_CACHE_FAILED", "获取RCA缓存失败", err.Error())
 		return
 	}
 
 	if cacheResult == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "未找到RCA缓存结果",
-			"message": "该告警尚未进行过RCA分析，或分析结果未缓存",
-		})
+		NotFound(c, "RCA_CACHE_NOT_FOUND", "该告警尚未进行过RCA分析，或分析结果未缓存")
 		return
 	}
 
 	// 返回格式化的缓存数据
-	c.JSON(http.StatusOK, gin.H{
-		"cache_hit": true,
-		"data": gin.H{
-			"run_id":        cacheResult.RunID,
-			"alert_id":      cacheResult.AlertID,
-			"cached_at":     cacheResult.CachedAt,
-			"depth":         cacheResult.Depth,
-			"stream_chunks": cacheResult.StreamChunks,
-			"metadata":      cacheResult.Metadata,
-			"version":       cacheResult.Version,
-		},
-	})
+	payload := gin.H{
+		"run_id":        cacheResult.RunID,
+		"alert_id":      cacheResult.AlertID,
+		"cached_at":     cacheResult.CachedAt,
+		"depth":         cacheResult.Depth,
+		"stream_chunks": cacheResult.StreamChunks,
+		"metadata":      cacheResult.Metadata,
+		"version":       cacheResult.Version,
+	}
+
+	Success(c, payload, gin.H{"cache_hit": true})
 }
 
 // GetRCAStats 获取RCA统计信息
@@ -229,64 +221,39 @@ func (h *RCAHandler) GetRCAStats(c *gin.Context) {
 
 	stats, err := h.holmesService.GetAnalysisStats(clusterID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取RCA统计失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_STATS_FAILED", "获取RCA统计失败", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": stats,
-	})
+	Success(c, stats)
 }
 
 // TriggerRCAByAlertID 根据告警ID触发RCA分析
 func (h *RCAHandler) TriggerRCAByAlertID(c *gin.Context) {
 	alertID := c.Param("alert_id")
 	if alertID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "告警ID不能为空",
-		})
+		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
 		return
 	}
 
-	// 获取可选参数
-	depth := c.DefaultQuery("depth", "standard")
-
-	// 验证深度参数
-	validDepths := map[string]bool{
-		"quick":    true,
-		"standard": true,
-		"deep":     true,
-	}
-
-	if !validDepths[depth] {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":        "无效的分析深度",
-			"valid_depths": []string{"quick", "standard", "deep"},
-		})
+	depth := normalizeRCADepth(c.DefaultQuery("depth", "standard"))
+	if derr := validateRCADepth(depth); derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
 	// 触发分析
 	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alertID, depth)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "触发RCA分析失败",
-			"details": err.Error(),
-		})
+		ErrorWithDetails(c, http.StatusInternalServerError, "TRIGGER_RCA_FAILED", "触发RCA分析失败", err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "RCA分析已触发",
-		"data": gin.H{
-			"id":         rcaRun.ID,
-			"alert_id":   rcaRun.AlertID,
-			"status":     rcaRun.Status,
-			"started_at": rcaRun.StartedAt,
-		},
+	SuccessWithMessage(c, "RCA分析已触发", gin.H{
+		"id":         rcaRun.ID,
+		"alert_id":   rcaRun.AlertID,
+		"status":     rcaRun.Status,
+		"started_at": rcaRun.StartedAt,
 	})
 }
 
@@ -294,67 +261,47 @@ func (h *RCAHandler) TriggerRCAByAlertID(c *gin.Context) {
 func (h *RCAHandler) GetRCARunStatus(c *gin.Context) {
 	runID := c.Param("run_id")
 	if runID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "运行ID不能为空",
-		})
+		BadRequest(c, "MISSING_RUN_ID", "运行ID不能为空")
 		return
 	}
 
 	rcaRun, err := h.getRCARunByID(runID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":   "未找到RCA运行记录",
-			"details": err.Error(),
-		})
+		NotFound(c, "RCA_RUN_NOT_FOUND", "未找到RCA运行记录")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": rcaRun,
-	})
+	Success(c, rcaRun)
 }
 
 // ListRCARuns 列出RCA运行记录
 func (h *RCAHandler) ListRCARuns(c *gin.Context) {
-	// 分页参数
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-
-	// 过滤参数
-	clusterID := c.Query("cluster_id")
-	status := c.Query("status")
-
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 || limit > 100 {
-		limit = 20
-	}
-
-	rcaRuns, total, err := h.listRCARuns(page, limit, clusterID, status)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "获取RCA运行列表失败",
-			"details": err.Error(),
-		})
+	params, derr := ParsePaginationParams(c)
+	if derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": rcaRuns,
-		"pagination": gin.H{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-		},
-	})
+	clusterID := c.Query("cluster_id")
+	status := c.Query("status")
+
+	rcaRuns, total, err := h.listRCARuns(params.Page, params.PageSize, clusterID, status)
+	if err != nil {
+		ErrorWithDetails(c, http.StatusInternalServerError, "LIST_RCA_RUNS_FAILED", "获取RCA运行列表失败", err.Error())
+		return
+	}
+
+	pagination := NewPagination(params.Page, params.PageSize, total)
+	pagination.Sort = params.Sort
+	SuccessPaginated(c, rcaRuns, pagination)
 }
 
 // 辅助方法
 
 func (h *RCAHandler) findAlertByFingerprint(fingerprint, clusterID string) (*struct {
 	ID string `json:"id"`
-}, error) {
+}, error,
+) {
 	// 这里应该调用AlertService来查找告警
 	// 暂时返回模拟数据
 	return &struct {

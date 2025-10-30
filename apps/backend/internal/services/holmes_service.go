@@ -7,17 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
+	"go.uber.org/zap"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -224,10 +225,10 @@ func (s *HolmesService) updateAnalysisResult(ctx context.Context, rcaRun *models
 	s.persistAnalysisResult(ctx, rcaRun, response, depth, now)
 
 	if err := s.db.DB.Save(rcaRun).Error; err != nil {
-		log.Printf("更新RCA运行结果失败: %v", err)
+		logger.L().Error("更新RCA运行结果失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
 	}
 
-	log.Printf("RCA分析完成: %s, 状态: %s", rcaRun.ID, rcaRun.Status)
+	logger.L().Info("RCA分析完成", zap.String("rca_run_id", rcaRun.ID.String()), zap.String("status", rcaRun.Status))
 }
 
 func (s *HolmesService) persistAnalysisResult(ctx context.Context, rcaRun *models.RCARun, response *HolmesAnalysisResponse, depth string, snapshot time.Time) {
@@ -246,14 +247,14 @@ func (s *HolmesService) persistAnalysisResult(ctx context.Context, rcaRun *model
 
 	payload, err := json.Marshal(cached)
 	if err != nil {
-		log.Printf("序列化RCA分析缓存失败: %v", err)
+		logger.L().Error("序列化RCA分析缓存失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
 		return
 	}
 
 	prefix := fmt.Sprintf("rca-results/%s", rcaRun.AlertID.String())
 	key, err := s.storage.Save(ctx, prefix, payload, "application/json")
 	if err != nil {
-		log.Printf("写入RCA分析缓存失败: %v", err)
+		logger.L().Error("写入RCA分析缓存失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
 		return
 	}
 
@@ -309,7 +310,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 		run.ErrorMessage = &errorMessage
 
 		if err := s.db.DB.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
-			log.Printf("更新流式RCA失败状态时出错: %v", err)
+			logger.L().Error("更新流式RCA失败状态时出错", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
 		}
 		return
 	}
@@ -355,16 +356,16 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 
 		payload, err := json.Marshal(cached)
 		if err != nil {
-			log.Printf("序列化RCA流缓存失败: %v", err)
+			logger.L().Error("序列化RCA流缓存失败", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
 		} else {
 			prefix := fmt.Sprintf("rca-results/%s", run.AlertID.String())
 			key, saveErr := s.storage.Save(ctx, prefix, payload, "application/json")
 			if saveErr != nil {
-				log.Printf("保存RCA流缓存失败: %v", saveErr)
+				logger.L().Error("保存RCA流缓存失败", zap.Error(saveErr), zap.String("rca_run_id", run.ID.String()))
 			} else {
 				updates["raw_payload_key"] = key
 				run.RawPayloadKey = key
-				log.Printf("RCA分析结果已缓存到MinIO: %s (大小: %d bytes)", key, len(payload))
+				logger.L().Info("RCA分析结果已缓存到MinIO", zap.String("rca_run_id", run.ID.String()), zap.String("object_key", key), zap.Int("payload_size", len(payload)))
 			}
 		}
 	}
@@ -373,7 +374,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 	run.CompletedAt = &now
 
 	if err := s.db.DB.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
-		log.Printf("更新流式RCA运行记录失败: %v", err)
+		logger.L().Error("更新流式RCA运行记录失败", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
 	}
 }
 
@@ -421,10 +422,10 @@ func (s *HolmesService) handleAnalysisError(rcaRun *models.RCARun, err error) {
 	rcaRun.CompletedAt = &now
 
 	if dbErr := s.db.DB.Save(rcaRun).Error; dbErr != nil {
-		log.Printf("保存RCA错误状态失败: %v", dbErr)
+		logger.L().Error("保存RCA错误状态失败", zap.Error(dbErr), zap.String("rca_run_id", rcaRun.ID.String()))
 	}
 
-	log.Printf("RCA分析失败: %s, 错误: %v", rcaRun.ID, err)
+	logger.L().Error("RCA分析失败", zap.String("rca_run_id", rcaRun.ID.String()), zap.Error(err))
 }
 
 // GetAnalysisByAlertID 根据告警ID获取分析结果
@@ -434,7 +435,6 @@ func (s *HolmesService) GetAnalysisByAlertID(alertID string) ([]*models.RCARun, 
 	err := s.db.DB.Where("alert_id = ?", alertID).
 		Order("created_at DESC").
 		Find(&rcaRuns).Error
-
 	if err != nil {
 		return nil, fmt.Errorf("查询RCA运行记录失败: %w", err)
 	}

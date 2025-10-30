@@ -43,7 +43,12 @@ export default function UsersPage() {
   // 获取用户列表
   const { data: usersData, isLoading, refetch } = useQuery({
     queryKey: ['users', page, keyword],
-    queryFn: () => RobustaAPI.getUsers(page, 20, keyword || undefined),
+    queryFn: async () => {
+      const response = await RobustaAPI.getUsers(page, 20, keyword || undefined)
+      const users = Array.isArray(response?.data) ? response.data : response?.data ?? response
+      const pagination = response?.pagination
+      return { users, pagination }
+    },
   })
 
   // 设置管理员权限
@@ -100,8 +105,9 @@ export default function UsersPage() {
     }
   }
 
-  const users = usersData?.data || []
+  const users = usersData?.users ?? []
   const pagination = usersData?.pagination
+  const pageSize = pagination?.page_size ?? 20
 
   return (
     <div className="space-y-6">
@@ -236,11 +242,11 @@ export default function UsersPage() {
           )}
 
           {/* 分页 */}
-          {pagination && pagination.total > pagination.limit && (
+          {pagination && pagination.total > pageSize && (
             <div className="flex items-center justify-between mt-4">
               <div className="text-sm text-muted-foreground">
-                显示 {(page - 1) * pagination.limit + 1} 到{' '}
-                {Math.min(page * pagination.limit, pagination.total)} 条，共 {pagination.total} 条
+                显示 {(page - 1) * pageSize + 1} 到{' '}
+                {Math.min(page * pageSize, pagination.total)} 条，共 {pagination.total} 条
               </div>
               <div className="flex gap-2">
                 <Button
@@ -255,7 +261,7 @@ export default function UsersPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setPage(page + 1)}
-                  disabled={page * pagination.limit >= pagination.total}
+                  disabled={page * pageSize >= pagination.total}
                 >
                   下一页
                 </Button>

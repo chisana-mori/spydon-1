@@ -92,6 +92,15 @@ func (f *fakeStorage) Get(ctx context.Context, key string) ([]byte, error) {
 	return append([]byte(nil), f.data[key]...), nil
 }
 
+func (f *fakeStorage) PutAt(ctx context.Context, key string, data []byte, contentType string) error {
+	f.data[key] = append([]byte(nil), data...)
+	return nil
+}
+
+func (f *fakeStorage) PresignPut(ctx context.Context, key string, ttl time.Duration, contentType string) (string, error) {
+	return "", nil
+}
+
 func setupTestDB() *db.Database {
 	// 使用内存SQLite数据库进行测试
 	gormDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -221,7 +230,7 @@ func TestIngestRCA(t *testing.T) {
 		Status:      "firing",
 	}
 
-	err := alertService.CreateOrUpdateAlert(alert)
+	err := alertService.CreateOrUpdateAlert(context.Background(), alert)
 	require.NoError(t, err)
 
 	tests := []struct {

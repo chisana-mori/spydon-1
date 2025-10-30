@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { resolveAppPath } from '@/config'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 interface RequireAdminProps {
@@ -23,7 +24,7 @@ export function RequireAdmin({ children, fallback }: RequireAdminProps) {
 
     // 如果没有用户信息或用户不是管理员，重定向到未授权页面
     if (!user || !user.is_admin) {
-      router.push('/unauthorized')
+      router.push(resolveAppPath('/unauthorized'))
     }
   }, [user, loading, router])
 
@@ -62,7 +63,7 @@ export function useRequireAdmin() {
     if (loading) return
 
     if (!user || !user.is_admin) {
-      router.push('/unauthorized')
+      router.push(resolveAppPath('/unauthorized'))
     }
   }, [user, loading, router])
 
@@ -72,4 +73,3 @@ export function useRequireAdmin() {
     isAdmin: user?.is_admin || false,
   }
 }
-

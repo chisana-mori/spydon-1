@@ -1,15 +1,15 @@
 package services
 
 import (
-    "fmt"
-    "time"
-    "encoding/json"
+	"encoding/json"
+	"fmt"
+	"time"
 
-    "robusta-web/backend/internal/db"
-    "robusta-web/backend/internal/models"
+	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/models"
 
-    "github.com/google/uuid"
-    "gorm.io/datatypes"
+	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 // AuditService 审计服务
@@ -26,25 +26,25 @@ func NewAuditService(database *db.Database) *AuditService {
 
 // LogAction 记录操作日志
 func (s *AuditService) LogAction(
-    userID, action, resourceType, resourceID string,
-    details map[string]interface{},
-    ipAddress, userAgent string,
+	userID, action, resourceType, resourceID string,
+	details map[string]interface{},
+	ipAddress, userAgent string,
 ) error {
-    var detailsJSON datatypes.JSON
-    if details != nil {
-        if b, err := json.Marshal(details); err == nil {
-            detailsJSON = datatypes.JSON(b)
-        }
-    }
-    auditLog := &models.AuditLog{
-        UserID:       userID,
-        Action:       action,
-        ResourceType: resourceType,
-        ResourceID:   resourceID,
-        Details:      detailsJSON,
-        IPAddress:    ipAddress,
-        UserAgent:    userAgent,
-    }
+	var detailsJSON datatypes.JSON
+	if details != nil {
+		if b, err := json.Marshal(details); err == nil {
+			detailsJSON = datatypes.JSON(b)
+		}
+	}
+	auditLog := &models.AuditLog{
+		UserID:       userID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      detailsJSON,
+		IPAddress:    ipAddress,
+		UserAgent:    userAgent,
+	}
 
 	if err := s.db.Create(auditLog).Error; err != nil {
 		return fmt.Errorf("记录审计日志失败: %w", err)
