@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -71,7 +69,6 @@ func (c *FindingToAlertConverter) Convert() (*models.Alert, error) {
 	c.buildDescription()
 	c.normalizeSeverity()
 	c.buildAggregationKey()
-	c.buildFingerprint()
 	c.parseTimes()
 	c.buildLabels()
 	c.buildAnnotations()
@@ -141,8 +138,8 @@ func (c *FindingToAlertConverter) buildDescription() {
 
 // normalizeSeverity 标准化严重级别
 func (c *FindingToAlertConverter) normalizeSeverity() {
-	// 直接设置严重级别，不再调用不存在的函数
-	c.severity = string(c.finding.Severity.Value)
+	severityValue := fmt.Sprintf("%d", c.finding.Severity.Value)
+	c.severity = normalizeSeverity(severityValue)
 }
 
 // buildAggregationKey 构建聚合键
@@ -163,8 +160,7 @@ func (c *FindingToAlertConverter) buildFingerprint() {
 	c.fingerprint = c.finding.Fingerprint
 
 	if c.fingerprint == "" {
-		hash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s", c.title, c.clusterID, c.aggregationKey)))
-		c.fingerprint = hex.EncodeToString(hash[:])
+		c.fingerprint = generateFingerprint(c.title, c.clusterID, c.aggregationKey)
 	}
 }
 

@@ -42,29 +42,7 @@ func extractClusterID(c *gin.Context, finding *RobustaFinding) string {
 	return "kind"
 }
 
-// normalizeSeverity 标准化严重级别
+// normalizeSeverity 标准化严重级别（兼容旧代码）
 func normalizeSeverity(severity string) string {
-	sev := strings.ToLower(strings.TrimSpace(severity))
-	switch sev {
-	case "0", "debug":
-		return "low"
-	case "1", "info", "informational":
-		return "low"
-	case "2", "low":
-		return "low"
-	case "3", "high":
-		return "high"
-	case "medium", "moderate":
-		return "medium"
-	case "critical", "urgent":
-		return "critical"
-	default:
-		return "medium"
-	}
+	return normalizeSeverityGeneric(severity)
 }
-
-// ValidSeverities 有效的严重级别列表
-var ValidSeverities = []string{"low", "medium", "high", "critical"}
-
-// ValidRCAStatuses 有效的RCA状态列表
-var ValidRCAStatuses = []string{"pending", "running", "completed", "failed", "timeout"}

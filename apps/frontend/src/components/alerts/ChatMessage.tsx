@@ -1218,12 +1218,14 @@ export const ChatMessage: FC<ChatMessageProps> = ({
               </span>
             )}
             {isStreaming && (
-              <Badge variant="secondary" className="text-xs">
-                <div className="flex items-center space-x-1">
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></div>
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  <span className="ml-2">正在分析</span>
+              <Badge variant="secondary" className="text-xs bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 border-blue-300 dark:border-blue-700 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
+                    <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></span>
+                    <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></span>
+                  </div>
+                  <span className="text-blue-600 dark:text-blue-400 font-semibold tracking-wide">正在分析中</span>
                 </div>
               </Badge>
             )}
@@ -1404,10 +1406,26 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                   }
                 }
 
+                // 判断内容是否过长（超过10行或1000字符）
+                const outputLength = output?.length || 0
+                const outputLines = output?.split('\n').length || 0
+                const isLongContent = outputLength > 1000 || outputLines > 10
+                
+                // 为每个工具调用创建唯一的折叠状态key
+                const toolCallId = `tool-${index}-${tool.name}`
+                // 长内容默认折叠，短内容默认展开
+                const isCollapsed = expandedTasks[toolCallId] ?? isLongContent
+
                 return (
                   <div key={index} className="bg-slate-800 rounded-lg overflow-hidden shadow-md border border-slate-600">
                     {/* 工具头部 - Linux终端风格 */}
-                    <div className="bg-gradient-to-r from-slate-700 to-slate-600 px-4 py-3 flex items-center justify-between border-b border-slate-500">
+                    <button
+                      onClick={() => isLongContent && toggleTaskExpanded(toolCallId)}
+                      className={cn(
+                        "w-full bg-gradient-to-r from-slate-700 to-slate-600 px-4 py-3 flex items-center justify-between border-b border-slate-500",
+                        isLongContent && "hover:from-slate-600 hover:to-slate-500 transition-colors cursor-pointer"
+                      )}
+                    >
                       <div className="flex items-center space-x-3">
                         <div className="flex items-center space-x-1">
                           <div className="w-3 h-3 rounded-full bg-red-500"></div>
@@ -1416,20 +1434,35 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                         </div>
                         <span className="text-green-400 font-mono text-sm">$</span>
                         <span className="text-white text-sm font-medium">{tool.name}</span>
+                        {isLongContent && (
+                          <ChevronDown
+                            className={cn(
+                              'h-4 w-4 text-slate-300 transition-transform ml-2',
+                              isCollapsed ? 'rotate-0' : 'rotate-180'
+                            )}
+                          />
+                        )}
                       </div>
-                      <Badge 
-                        variant={statusVariant}
-                        className="text-xs font-mono"
-                      >
-                        {statusLabel}
-                      </Badge>
-                    </div>
+                      <div className="flex items-center space-x-2">
+                        {isLongContent && (
+                          <span className="text-xs text-slate-400">
+                            {outputLines} 行 · {(outputLength / 1024).toFixed(1)}KB
+                          </span>
+                        )}
+                        <Badge 
+                          variant={statusVariant}
+                          className="text-xs font-mono"
+                        >
+                          {statusLabel}
+                        </Badge>
+                      </div>
+                    </button>
                     
-                    {/* 执行命令 */}
-                    {command && <CommandBlock command={command} />}
+                    {/* 执行命令 - 始终显示 */}
+                    {command && !isCollapsed && <CommandBlock command={command} />}
                     
-                    {/* 输出结果或错误信息 */}
-                    {(displayContent || tableData || keyValueLines) && (
+                    {/* 输出结果或错误信息 - 可折叠 */}
+                    {!isCollapsed && (displayContent || tableData || keyValueLines) && (
                       <div className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2 mb-3">
                           <div className={cn(

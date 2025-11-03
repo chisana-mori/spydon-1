@@ -35,22 +35,23 @@ func NewHolmesProxyHandler(cfg *config.Config, holmesService *services.HolmesSer
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			KeepAlive: 60 * time.Second, // 增加 Keep-Alive 间隔到 60 秒
 		}).DialContext,
 		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
+		IdleConnTimeout:       300 * time.Second, // 增加空闲连接超时到 5 分钟
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableCompression:    true,
-		DisableKeepAlives:     true,                                                       // 避免 SSE 重用断开的连接
+		DisableKeepAlives:     false,                                                      // 启用 Keep-Alive 以保持长连接稳定
 		TLSNextProto:          make(map[string]func(string, *tls.Conn) http.RoundTripper), // 禁用 HTTP/2，确保与上游代理兼容
+		ResponseHeaderTimeout: 0,                                                          // 不限制响应头超时，允许长时间等待 SSE 流
 	}
 
 	return &HolmesProxyHandler{
 		cfg:           cfg,
 		holmesService: holmesService,
 		client: &http.Client{
-			Timeout:   120 * time.Second,
+			Timeout:   0, // 移除整体超时限制，允许 SSE 长连接
 			Transport: transport,
 		},
 	}

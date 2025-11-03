@@ -14,6 +14,10 @@ export interface KnowledgeEditorValue {
   tiptap: any
 }
 
+export interface KnowledgeEditorRef {
+  submit: () => Promise<void>
+}
+
 interface Props {
   value?: Partial<KnowledgeEditorValue>
   onChange?: (value: KnowledgeEditorValue) => void
@@ -22,7 +26,7 @@ interface Props {
   articleId?: string
 }
 
-export default function KnowledgeEditor({ value, onChange, onSubmit, submitting, articleId }: Props) {
+const KnowledgeEditor = React.forwardRef<KnowledgeEditorRef, Props>(({ value, onChange, onSubmit, submitting, articleId }, ref) => {
   const [title, setTitle] = useState(value?.title || '')
   const [rule, setRule] = useState(value?.alertRuleName || '')
   const [tags, setTags] = useState<string[]>(value?.tags || [])
@@ -66,8 +70,12 @@ export default function KnowledgeEditor({ value, onChange, onSubmit, submitting,
     }
 
     await onSubmit?.(payload)
-    toast.success('草稿已保存')
   }
+
+  // 暴露 submit 方法给父组件
+  React.useImperativeHandle(ref, () => ({
+    submit: handleSave
+  }))
 
   if (!isMounted) {
     return (
@@ -131,12 +139,11 @@ export default function KnowledgeEditor({ value, onChange, onSubmit, submitting,
         />
       </div>
 
-      {/* Save Button */}
-      <div className="flex items-center gap-3">
-        <Button onClick={handleSave} disabled={submitting}>
-          {submitting ? '保存中...' : '保存'}
-        </Button>
-      </div>
+
     </div>
   )
-}
+})
+
+KnowledgeEditor.displayName = 'KnowledgeEditor'
+
+export default KnowledgeEditor

@@ -1,15 +1,21 @@
 "use client"
 
-import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import KnowledgeEditor, { type KnowledgeEditorValue } from '@/components/knowledge/KnowledgeEditor'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { RobustaAPI } from '@/lib/api'
 import { toast } from 'sonner'
 
 export default function KnowledgeCreatePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const editorRef = React.useRef<any>(null)
   const [submitting, setSubmitting] = useState(false)
+  
+  // 从 URL 参数获取规则名
+  const ruleFromUrl = searchParams.get('rule') || ''
 
   const handleSubmit = async (value: KnowledgeEditorValue) => {
     setSubmitting(true)
@@ -37,10 +43,15 @@ export default function KnowledgeCreatePage() {
         tags: value.tags,
       })
 
-      toast.success('已保存草稿')
-      router.push(`/knowledge/${id}/edit`)
+      // 3) 直接发布
+      await RobustaAPI.publishKnowledge(id, '发布')
+      
+      toast.success('已发布')
+      
+      // 跳转到列表页并添加时间戳强制刷新
+      router.push(`/knowledge?t=${Date.now()}`)
     } catch (e: any) {
-      toast.error(e?.message || '保存失败')
+      toast.error(e?.message || '发布失败')
     } finally {
       setSubmitting(false)
     }
@@ -59,14 +70,24 @@ export default function KnowledgeCreatePage() {
           </svg>
           返回
         </button>
+        <Button onClick={() => editorRef.current?.submit()} disabled={submitting}>
+          {submitting ? '发布中...' : '发布'}
+        </Button>
       </div>
       <Card>
         <CardHeader>
           <CardTitle>新建知识条目</CardTitle>
-          <CardDescription>填写元信息与正文内容，保存后可发布</CardDescription>
+          <CardDescription>填写元信息与正文内容，点击发布即可创建</CardDescription>
         </CardHeader>
         <CardContent>
-          <KnowledgeEditor submitting={submitting} onSubmit={handleSubmit} />
+          <KnowledgeEditor 
+            ref={editorRef} 
+            submitting={submitting} 
+            onSubmit={handleSubmit}
+            value={{
+              alertRuleName: ruleFromUrl,
+            }}
+          />
         </CardContent>
       </Card>
     </div>

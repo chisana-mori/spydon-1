@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Brain,
-  Settings,
   Clock,
   ExternalLink,
   CheckCircle2,
@@ -20,13 +19,12 @@ import { Alert } from '@/types/api'
 import AlertKnowledgePanel from '@/components/alerts/AlertKnowledgePanel'
 import { appConfig } from '@/config'
 import { EnhancedHolmesGPTChat } from './EnhancedHolmesGPTChat'
-import { RawPayloadViewer } from './RawPayloadViewer'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
 interface AlertAnalysisIntegrationProps {
   alert: Alert
-  defaultTab?: 'enhanced' | 'raw' | 'knowledge'
+  defaultTab?: 'enhanced' | 'knowledge'
 }
 
 export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> = ({
@@ -274,47 +272,67 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
         </Card>
       )}
 
-      {/* 分析选项卡 */}
+      {/* 分析选项卡 - 图书标签样式 */}
       <div className="min-h-[600px]">
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="h-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4">
-            <TabsTrigger value="enhanced" className="flex items-center space-x-2">
+          {/* 图书标签样式的选项卡 */}
+          <div className="flex items-end space-x-1 border-b border-border">
+            <button
+              onClick={() => setActiveTab('enhanced')}
+              className={`
+                relative px-6 py-3 rounded-t-lg font-medium transition-all duration-200
+                flex items-center space-x-2
+                ${activeTab === 'enhanced'
+                  ? 'bg-card text-foreground border-t border-l border-r border-border -mb-px'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                }
+              `}
+            >
               <Brain className="h-4 w-4" />
               <span>根因分析</span>
-            </TabsTrigger>
-            <TabsTrigger value="raw" className="flex items-center space-x-2">
-              <Settings className="h-4 w-4" />
-              <span>上下文摘要</span>
-            </TabsTrigger>
-            <TabsTrigger value="knowledge" className="flex items-center space-x-2">
+              {activeTab === 'enhanced' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('knowledge')}
+              className={`
+                relative px-6 py-3 rounded-t-lg font-medium transition-all duration-200
+                flex items-center space-x-2
+                ${activeTab === 'knowledge'
+                  ? 'bg-card text-foreground border-t border-l border-r border-border -mb-px'
+                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                }
+              `}
+            >
               <History className="h-4 w-4" />
-              <span>知识库</span>
-            </TabsTrigger>
-          </TabsList>
+              <span>处理指南</span>
+              {activeTab === 'knowledge' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+          </div>
 
-          <TabsContent value="enhanced" className="flex-1 min-h-0">
-            <div className="h-full">
-              <EnhancedHolmesGPTChat
-                alert={alert}
-                showCard={false}
-                cachedResult={cachedResult}
-                loadingCache={loadingCache}
-              />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="raw" className="h-[500px]">
-            <div className="h-full">
-              <RawPayloadViewer
-                alertId={alert.id}
-                alertTitle={alert.title}
-              />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="knowledge" className="min-h-[400px]">
-            <AlertKnowledgePanel alertRuleName={alert.title} />
-          </TabsContent>
+          {/* 内容区域 */}
+          <Card className="rounded-tl-none border-t-0">
+            <CardContent className="p-6">
+              {activeTab === 'enhanced' && (
+                <div className="animate-in fade-in-50 duration-300">
+                  <EnhancedHolmesGPTChat
+                    alert={alert}
+                    showCard={false}
+                    cachedResult={cachedResult}
+                    loadingCache={loadingCache}
+                  />
+                </div>
+              )}
+              {activeTab === 'knowledge' && (
+                <div className="animate-in fade-in-50 duration-300 min-h-[400px]">
+                  <AlertKnowledgePanel alertRuleName={alert.title} />
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </Tabs>
       </div>
 

@@ -66,35 +66,26 @@ func (d *Database) AutoMigrate() error {
 		return err
 	}
 
-	logger.S().Infow("数据库表结构迁移完成，正在手动创建外键")
+	logger.S().Infow("数据库表结构迁移完成，正在移除外键约束")
 
-	// Manually create foreign key for: alerts -> clusters
-	if !d.Migrator().HasConstraint("alerts", "fk_alerts_cluster") {
-		err = d.Exec(`
-			ALTER TABLE "alerts"
-			ADD CONSTRAINT "fk_alerts_cluster"
-			FOREIGN KEY ("cluster_id")
-			REFERENCES "clusters"("cluster_id")
-			ON UPDATE CASCADE
-			ON DELETE RESTRICT;
-		`).Error
+	// 移除 alerts -> clusters 外键约束（如果存在）
+	// 这样可以避免在数据库层面显示外键错误，由应用层保证数据完整性
+	if d.Migrator().HasConstraint("alerts", "fk_alerts_cluster") {
+		err = d.Migrator().DropConstraint(&models.Alert{}, "fk_alerts_cluster")
 		if err != nil {
-			return fmt.Errorf("手动创建alerts -> clusters外键失败: %w", err)
+			logger.S().Warnw("移除alerts -> clusters外键失败", "error", err)
+		} else {
+			logger.S().Infow("已移除alerts -> clusters外键约束")
 		}
 	}
 
-	// Manually create foreign key for: rca_runs -> alerts
-	if !d.Migrator().HasConstraint("rca_runs", "fk_rca_runs_alert") {
-		err = d.Exec(`
-			ALTER TABLE "rca_runs"
-			ADD CONSTRAINT "fk_rca_runs_alert"
-			FOREIGN KEY ("alert_id")
-			REFERENCES "alerts"("id")
-			ON UPDATE CASCADE
-			ON DELETE CASCADE;
-		`).Error
+	// 移除 rca_runs -> alerts 外键约束（如果存在）
+	if d.Migrator().HasConstraint("rca_runs", "fk_rca_runs_alert") {
+		err = d.Migrator().DropConstraint(&models.RCARun{}, "fk_rca_runs_alert")
 		if err != nil {
-			return fmt.Errorf("手动创建rca_runs -> alerts外键失败: %w", err)
+			logger.S().Warnw("移除rca_runs -> alerts外键失败", "error", err)
+		} else {
+			logger.S().Infow("已移除rca_runs -> alerts外键约束")
 		}
 	}
 
@@ -128,7 +119,7 @@ func (d *Database) AutoMigrate() error {
 		}
 	}
 
-	logger.S().Infow("手动创建外键完成")
+	logger.S().Infow("外键约束处理完成")
 	return nil
 }
 

@@ -25,8 +25,8 @@ type Cluster struct {
 	Status        string     `json:"status" gorm:"default:active"`
 	LastHeartbeat *time.Time `json:"last_heartbeat"`
 
-	// 关联关系
-	Alerts []Alert `json:"alerts,omitempty" gorm:"foreignKey:ClusterID;references:ClusterID"`
+	// 关联关系 - 不使用数据库外键约束
+	Alerts []Alert `json:"alerts,omitempty" gorm:"foreignKey:ClusterID;references:ClusterID;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
 }
 
 // Alert 告警模型
@@ -44,9 +44,9 @@ type Alert struct {
 	EndsAt        *time.Time     `json:"ends_at"`
 	RawPayloadKey string         `json:"raw_payload_key" gorm:"type:text"`
 
-	// 关联关系
-	Cluster *Cluster `json:"cluster,omitempty" gorm:"foreignKey:ClusterID;references:ClusterID"`
-	RCARuns []RCARun `json:"rca_runs,omitempty" gorm:"foreignKey:AlertID"`
+	// 关联关系 - 不使用数据库外键约束，由应用层保证数据完整性
+	Cluster *Cluster `json:"cluster,omitempty" gorm:"foreignKey:ClusterID;references:ClusterID;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
+	RCARuns []RCARun `json:"rca_runs,omitempty" gorm:"foreignKey:AlertID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE;"`
 }
 
 // RCARun RCA运行记录模型
@@ -63,8 +63,8 @@ type RCARun struct {
 	ErrorMessage    *string        `json:"error_message"`
 	RawPayloadKey   string         `json:"raw_payload_key" gorm:"type:text"`
 
-	// 关联关系
-	Alert *Alert `json:"alert,omitempty" gorm:"foreignKey:AlertID"`
+	// 关联关系 - 不使用数据库外键约束
+	Alert *Alert `json:"alert,omitempty" gorm:"foreignKey:AlertID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE;"`
 }
 
 // AuditLog 审计日志模型

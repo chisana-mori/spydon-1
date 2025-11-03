@@ -48,89 +48,84 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
           </div>
         ) : first && article ? (
           <div className="space-y-4">
-            {/* 文章信息 */}
-            <div className="space-y-3 pb-4 border-b">
-              {/* 右上角查看详情按钮 */}
-              <div className="flex items-center justify-end">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={resolveAppPath(`/knowledge/${first.id}`)} target="_blank">
-                    <ExternalLink className="h-4 w-4 mr-1" />
-                    查看详情
-                  </Link>
-                </Button>
-              </div>
-              <div className="flex items-start justify-between gap-4">
-                <h3 className="text-xl font-semibold text-foreground">{article.title}</h3>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${
-                    article.status === 'published'
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                      : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                  }`}
-                >
-                  {article.status === 'published' ? '已发布' : '草稿'}
-                </span>
-              </div>
-
-              <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
-                <div className="flex items-center gap-1.5">
-                  <AlertCircle className="h-4 w-4 text-blue-500" />
-                  <span className="text-muted-foreground">规则：</span>
-                  <span className="px-2.5 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md font-mono text-xs font-semibold">
-                    {article.alert_rule_name}
+            {/* 文章信息 - 居中布局 */}
+            <div className="space-y-4 pb-4 border-b">
+              {/* 标题和状态 - 居中 */}
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xl font-semibold text-foreground">{article.title}</h3>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${
+                      article.status === 'published'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                    }`}
+                  >
+                    {article.status === 'published' ? '已发布' : '草稿'}
                   </span>
                 </div>
 
-                {article.severity && (
+                {/* 元信息 - 居中 */}
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm">
                   <div className="flex items-center gap-1.5">
-                    <Tag className="h-4 w-4 text-purple-500" />
-                    <span className="text-muted-foreground">级别：</span>
-                    <span
-                      className={`px-2.5 py-1 rounded-md text-xs font-semibold ${
-                        article.severity === 'critical'
-                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                          : article.severity === 'high'
-                          ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                          : article.severity === 'medium'
-                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      }`}
-                    >
-                      {article.severity}
+                    <AlertCircle className="h-4 w-4 text-blue-500" />
+                    <span className="text-muted-foreground">规则</span>
+                    <span className="px-2.5 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md font-mono text-xs font-semibold">
+                      {article.alert_rule_name}
                     </span>
                   </div>
-                )}
 
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">更新：</span>
-                  <span className="font-medium text-foreground">
-                    {new Date(article.updated_at).toLocaleDateString('zh-CN')}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground">版本：</span>
-                  <span className="font-medium text-foreground">v{article.version}</span>
-                </div>
-              </div>
-
-              {/* 标签 */}
-              {article.tags && article.tags.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <Tag className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex flex-wrap gap-2">
-                    {article.tags.map((tag: string, index: number) => (
-                      <span
-                        key={index}
-                        className="px-2.5 py-1 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 dark:from-purple-900/30 dark:to-pink-900/30 dark:text-purple-400 rounded-full text-xs font-semibold"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">更新</span>
+                    <span className="font-medium text-foreground">
+                      {new Date(article.updated_at).toLocaleDateString('zh-CN')}
+                    </span>
                   </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">版本</span>
+                    <span className="font-medium text-foreground">v{article.version}</span>
+                  </div>
+
+                  {article.severity && (
+                    <div className="flex items-center gap-1.5">
+                      <Tag className="h-4 w-4 text-purple-500" />
+                      <span className="text-muted-foreground">级别</span>
+                      <span
+                        className={`px-2.5 py-1 rounded-md text-xs font-semibold ${
+                          article.severity === 'critical'
+                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                            : article.severity === 'high'
+                            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                            : article.severity === 'medium'
+                            ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        }`}
+                      >
+                        {article.severity}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                {/* 标签 - 居中 */}
+                {article.tags && article.tags.length > 0 && (
+                  <div className="flex items-center justify-center gap-2">
+                    <Tag className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {article.tags.map((tag: string, index: number) => (
+                        <span
+                          key={index}
+                          className="px-2.5 py-1 bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 dark:from-purple-900/30 dark:to-pink-900/30 dark:text-purple-400 rounded-full text-xs font-semibold"
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 内容查看器 */}
@@ -165,13 +160,13 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
             {/* 操作按钮 */}
             <div className="flex items-center gap-3">
               <Button variant="default" size="sm" asChild>
-                <Link href={resolveAppPath(`/knowledge/new?rule=${encodeURIComponent(alertRuleName)}`)}>
+                <Link href={resolveAppPath(`/knowledge/new?rule=${encodeURIComponent(alertRuleName)}`) as any}>
                   <Plus className="h-4 w-4 mr-2" />
                   创建新指南
                 </Link>
               </Button>
               <Button variant="outline" size="sm" asChild>
-                <Link href={resolveAppPath('/knowledge')}>
+                <Link href={resolveAppPath('/knowledge') as any}>
                   <BookOpen className="h-4 w-4 mr-2" />
                   浏览所有指南
                 </Link>

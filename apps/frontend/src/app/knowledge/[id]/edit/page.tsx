@@ -7,12 +7,14 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import KnowledgeEditor, { type KnowledgeEditorValue } from '@/components/knowledge/KnowledgeEditor'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { RobustaAPI } from '@/lib/api'
 import { toast } from 'sonner'
 
 export default function KnowledgeEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const editorRef = React.useRef<any>(null)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['kb', id],
@@ -33,6 +35,7 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
   const handleSave = async (value: KnowledgeEditorValue) => {
     setSubmitting(true)
     try {
+      // 1) 先保存内容到 manifest
       await RobustaAPI.updateKnowledge(id, {
         schema: 'kb-manifest@v1',
         articleId: manifest?.articleId || '',
@@ -45,40 +48,15 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
         },
         tags: value.tags,
       })
-      toast.success('保存成功')
-      await refetch()
-    } catch (e: any) {
-      toast.error(e?.message || '保存失败')
-    } finally {
-      setSubmitting(false)
-    }
-  }
 
-  const handlePublish = async () => {
-    setSubmitting(true)
-    try {
-      // 1) 先保存当前正文到 manifest
-      const v = latestEditorValue || {}
-      const latestTiptap = v.tiptap ?? manifest?.content?.tiptap ?? { type: 'doc', content: [] }
-      await RobustaAPI.updateKnowledge(id, {
-        schema: 'kb-manifest@v1',
-        articleId: manifest?.articleId || '',
-        alertRuleName: v.alertRuleName ?? article?.alert_rule_name ?? '',
-        title: v.title ?? article?.title ?? '',
-        status: article?.status || 'draft',
-        version: article?.version || 1,
-        content: { 
-          tiptap: latestTiptap
-        },
-        tags: v.tags ?? (Array.isArray(article?.tags) ? (article?.tags as string[]) : undefined),
-      })
-
-      // 2) 再发布
+      // 2) 直接发布
       await RobustaAPI.publishKnowledge(id, '发布')
       toast.success('已发布')
-      await refetch()
+      
+      // 跳转回列表页并强制刷新
+      router.push(`/knowledge?t=${Date.now()}`)
     } catch (e: any) {
-      toast.error(e?.message || '发布失败')
+      toast.error(e?.message || '保存失败')
     } finally {
       setSubmitting(false)
     }
@@ -98,20 +76,34 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
           </svg>
           返回列表
         </Button>
-        <Button onClick={handlePublish} disabled={submitting || !article}>发布</Button>
+        <Button onClick={() => editorRef.current?.submit()} disabled={submitting || !article}>
+          {submitting ? '发布中...' : '发布'}
+        </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>{article?.title || '未命名'}</CardTitle>
-          <CardDescription>状态：{article?.status} · 版本：{article?.version}</CardDescription>
+          <div className="flex items-center gap-2">
+            <Badge 
+              className={`text-xs ${
+                article?.status === 'published' 
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200' 
+                  : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200'
+              }`}
+            >
+              {article?.status === 'published' ? '已发布' : article?.status === 'draft' ? '草稿' : article?.status}
+            </Badge>
+            <Badge className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200">
+              版本 {article?.version || 1}
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent>
           <KnowledgeEditor
+            ref={editorRef}
             submitting={submitting}
             onSubmit={handleSave}
             onChange={(v) => setLatestEditorValue(v)}
-
             articleId={id}
             value={{
               title: article?.title,

@@ -54,15 +54,21 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 	handlers := &handlerSet{
 		cfg:           cfg,
 		apiKeyService: apiKeyService,
-		ingest:        NewIngestHandler(alertService, rcaService, clusterService, auditService, objectStorage),
-		query:         NewQueryHandler(alertService, rcaService, clusterService, objectStorage),
-		rca:           NewRCAHandler(holmesService),
-		holmesProxy:   NewHolmesProxyHandler(cfg, holmesService),
-		auth:          NewAuthHandler(authService, casClient, cfg),
-		user:          NewUserHandler(userService),
-		apiKey:        NewAPIKeyHandler(apiKeyService),
-		health:        NewHealthHandler(database),
-		knowledge:     NewKnowledgeHandler(knowledgeService),
+		ingest: NewIngestHandler(&IngestHandlerConfig{
+			AlertService:   alertService,
+			RCAService:     rcaService,
+			ClusterService: clusterService,
+			AuditService:   auditService,
+			StorageService: objectStorage,
+		}),
+		query:       NewQueryHandler(alertService, rcaService, clusterService, objectStorage),
+		rca:         NewRCAHandler(holmesService),
+		holmesProxy: NewHolmesProxyHandler(cfg, holmesService),
+		auth:        NewAuthHandler(authService, casClient, cfg),
+		user:        NewUserHandler(userService),
+		apiKey:      NewAPIKeyHandler(apiKeyService),
+		health:      NewHealthHandler(database),
+		knowledge:   NewKnowledgeHandler(knowledgeService),
 	}
 
 	return handlers, nil
@@ -156,9 +162,10 @@ func (r *routeRegistrar) registerCASRoutes() {
 }
 
 func (r *routeRegistrar) registerWebhookRoute(v1 *gin.RouterGroup) {
-	v1.Group("").
-		Use(middleware.APIKeyMiddleware(r.cfg, r.handlers.apiKeyService)).
-		POST("/ingest/robusta-webhook", r.handlers.ingest.IngestRobustaFinding)
+	group := v1.Group("")
+	group.Use(middleware.APIKeyMiddleware(r.cfg, r.handlers.apiKeyService))
+	group.POST("/ingest/robusta-webhook", r.handlers.ingest.IngestRobustaFinding)
+	group.POST("/ingest/alertmanager", r.handlers.ingest.IngestAlertmanagerWebhook)
 }
 
 func (r *routeRegistrar) registerIngestRoutes(v1 *gin.RouterGroup) {

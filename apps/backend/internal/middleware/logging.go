@@ -71,6 +71,12 @@ const auditRequestBodyPreviewLimit = 1 << 20 // 1MB
 // AuditLogMiddleware 审计日志中间件
 func AuditLogMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// GET 请求不记录审计日志，直接跳过
+		if c.Request.Method == "GET" || c.Request.Method == "HEAD" || c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
 		// 记录请求开始时间
 		start := time.Now()
 

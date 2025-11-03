@@ -1783,29 +1783,37 @@ Analysis Requirements:
     }
   }
 
-  // 开始分析
-  const startAnalysis = async () => {
+  // 开始分析（带自动重连）
+  const startAnalysis = async (retryCount = 0, maxRetries = 3) => {
     const controller = new AbortController()
     setAbortController(controller)
 
-    // 添加用户消息
-    const userMessage: AnalysisMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
-      timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN })
-    }
+    // 只在首次调用时添加用户消息
+    if (retryCount === 0) {
+      const userMessage: AnalysisMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
+        timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN })
+      }
 
-    setAnalysisState({
-      status: 'analyzing',
-      messages: [userMessage],
-      totalSteps: 0,
-      completedSteps: 0
-    })
-    allTasksCompletedRef.current = false;
-    setPinnedTasksData(undefined)
-    setPinnedSummaryData(undefined)
-    lastSummarySignatureRef.current = null
+      setAnalysisState({
+        status: 'analyzing',
+        messages: [userMessage],
+        totalSteps: 0,
+        completedSteps: 0
+      })
+      allTasksCompletedRef.current = false;
+      setPinnedTasksData(undefined)
+      setPinnedSummaryData(undefined)
+      lastSummarySignatureRef.current = null
+    } else {
+      // 重连时只更新状态
+      setAnalysisState(prev => ({
+        ...prev,
+        status: 'analyzing'
+      }))
+    }
 
     try {
       // 构建 API 路径，包含 basePath（如果配置了）
@@ -1844,11 +1852,41 @@ Analysis Requirements:
           messages: prev.messages.slice(0, -1) // 移除未完成的助手消息
         }))
       } else {
-        console.error('分析失败:', error)
+        console.error('流处理错误:', error)
+        
+        // 检查是否为网络连接错误，且未超过重试次数
+        const isNetworkError = 
+          error.message?.includes('Failed to fetch') ||
+          error.message?.includes('NetworkError') ||
+          error.message?.includes('SocketError') ||
+          error.code === 'UND_ERR_SOCKET' ||
+          error.name === 'TypeError'
+        
+        if (isNetworkError && retryCount < maxRetries) {
+          const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000) // 指数退避，最多5秒
+          console.log(`连接中断，${retryDelay}ms 后自动重连 (${retryCount + 1}/${maxRetries})...`)
+          
+          // 显示重连提示
+          setAnalysisState(prev => ({
+            ...prev,
+            status: 'analyzing',
+            error: `连接中断，正在重连... (${retryCount + 1}/${maxRetries})`
+          }))
+          
+          // 延迟后重试
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+          
+          // 递归调用，增加重试计数
+          return startAnalysis(retryCount + 1, maxRetries)
+        }
+        
+        // 超过重试次数或非网络错误，显示错误
         setAnalysisState(prev => ({
           status: 'error',
           messages: prev.messages,
-          error: error.message || '分析过程中发生错误'
+          error: retryCount >= maxRetries 
+            ? `连接失败，已重试 ${maxRetries} 次：${error.message || '分析过程中发生错误'}`
+            : error.message || '分析过程中发生错误'
         }))
       }
     } finally {
@@ -1857,7 +1895,7 @@ Analysis Requirements:
   }
 
   const handleReanalyze = () => {
-    void startAnalysis()
+    void startAnalysis(0, 3) // 从0开始重试，最多3次
   }
 
   // 停止分析
@@ -2009,7 +2047,7 @@ Analysis Requirements:
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">准备开始智能分析</h3>
             <p className="text-sm text-gray-500 max-w-md leading-relaxed">
-              点击触发RCA分析按钮，HolmesGPT 将为您分析告警的根本原因，并提供详细的解决方案和预防措施。
+              点击"开始RCA分析"按钮，HolmesGPT 将为您分析告警的根本原因，并提供详细的解决方案和预防措施。
               分析过程包括任务规划、并行调查和结论总结。
             </p>
             <div className="mt-6 grid grid-cols-3 gap-4 text-center">
@@ -2192,48 +2230,16 @@ Analysis Requirements:
     return changed ? next : data
   }
 
-  // 控制栏组件
+  // 控制栏组件 - 简化版，按钮移到左侧
   const ControlBar = () => (
-    <div className="flex-shrink-0 border-b bg-white px-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          {getStatusIcon()}
-          <div>
-            <div className="text-lg font-semibold flex items-center space-x-2">
-              <span>{getStatusText()}</span>
-              {getProgressText() && (
-                <Badge variant="outline" className="text-xs">
-                  {getProgressText()}
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              基于 Kubernetes 专业知识的智能故障分析
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSettings(!showSettings)}
-            className="h-8 w-8 p-0"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-
-          {/* 显示缓存状态提示 */}
-          {cachedResult && analysisState.status === 'completed' && !isReplayingCache && (
-            <Badge variant="outline" className="text-xs">
-              <Clock className="h-3 w-3 mr-1" />
-              缓存结果 ({format(new Date(cachedResult.cached_at), 'MM-dd HH:mm', { locale: zhCN })})
-            </Badge>
-          )}
-
+    <div className="flex-shrink-0 px-6 py-3 bg-muted/30">
+      <div className="flex items-center justify-between gap-4">
+        {/* 左侧：操作按钮 */}
+        <div className="flex items-center gap-2">
           {analysisState.status === 'idle' && !loadingCache && (
-            <Button onClick={startAnalysis} size="sm">
+            <Button onClick={() => startAnalysis(0, 3)} size="sm" className="bg-primary hover:bg-primary/90">
               <Play className="h-4 w-4 mr-2" />
-              触发RCA分析
+              开始RCA分析
             </Button>
           )}
           {loadingCache && (
@@ -2254,7 +2260,6 @@ Analysis Requirements:
                 onClick={handleReanalyze}
                 variant="default"
                 size="sm"
-                className="bg-black text-white hover:bg-black/90"
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
                 重新分析
@@ -2267,43 +2272,73 @@ Analysis Requirements:
               )}
             </>
           )}
+          
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowSettings(!showSettings)}
+            className="h-8 w-8 p-0"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* 右侧：状态信息 */}
+        <div className="flex items-center gap-3">
+          {/* 显示缓存状态提示 */}
+          {cachedResult && analysisState.status === 'completed' && !isReplayingCache && (
+            <Badge variant="outline" className="text-xs">
+              <Clock className="h-3 w-3 mr-1" />
+              缓存结果 ({format(new Date(cachedResult.cached_at), 'MM-dd HH:mm', { locale: zhCN })})
+            </Badge>
+          )}
+          
+          {getProgressText() && (
+            <Badge variant="secondary" className="text-xs">
+              {getProgressText()}
+            </Badge>
+          )}
+          
+          <div className="flex items-center gap-2">
+            {getStatusIcon()}
+            <span className="text-sm font-medium">{getStatusText()}</span>
+          </div>
         </div>
       </div>
 
       {/* 设置面板 */}
       {showSettings && (
-        <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
-          <h4 className="text-sm font-medium mb-3">聊天设置</h4>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">自动滚动</span>
+        <div className="mt-3 p-3 bg-background rounded-lg border">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">自动滚动</span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setSettings(prev => ({ ...prev, autoScroll: !prev.autoScroll }))}
-                className={settings.autoScroll ? 'bg-blue-50 border-blue-200' : ''}
+                className={`h-7 text-xs ${settings.autoScroll ? 'bg-primary/10 border-primary/30' : ''}`}
               >
                 {settings.autoScroll ? '已启用' : '已禁用'}
               </Button>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">完成提示音</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">提示音</span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
-                className={settings.soundEnabled ? 'bg-blue-50 border-blue-200' : ''}
+                className={`h-7 w-7 p-0 ${settings.soundEnabled ? 'bg-primary/10 border-primary/30' : ''}`}
               >
-                {settings.soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                {settings.soundEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
               </Button>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">显示工具调用</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">工具调用</span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setSettings(prev => ({ ...prev, showToolCalls: !prev.showToolCalls }))}
-                className={settings.showToolCalls ? 'bg-blue-50 border-blue-200' : ''}
+                className={`h-7 text-xs ${settings.showToolCalls ? 'bg-primary/10 border-primary/30' : ''}`}
               >
                 {settings.showToolCalls ? '已启用' : '已禁用'}
               </Button>
@@ -2314,27 +2349,11 @@ Analysis Requirements:
     </div>
   )
 
-  // 根据showCard决定返回结构
-  if (!showCard) {
-    return (
-      <div className="w-full h-full flex flex-col bg-white border rounded-lg overflow-hidden">
-        <ControlBar />
-        <ContentArea />
-      </div>
-    )
-  }
-
+  // 统一返回结构，不使用Card包裹
   return (
-    <Card className="w-full h-full flex flex-col">
-      <CardHeader className="pb-3 flex-shrink-0">
-        <ControlBar />
-      </CardHeader>
-
-      <Separator className="flex-shrink-0" />
-
-      <CardContent className="p-0 flex-1 flex flex-col min-h-0">
-        <ContentArea />
-      </CardContent>
-    </Card>
+    <div className="w-full h-full flex flex-col">
+      <ControlBar />
+      <ContentArea />
+    </div>
   )
 }

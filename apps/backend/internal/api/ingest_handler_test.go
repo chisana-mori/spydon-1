@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/middleware"
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
@@ -123,30 +124,34 @@ func setupTestDB() *db.Database {
 	return database
 }
 
-func setupTestHandler() (*IngestHandler, *gin.Engine) {
+func setupTestHandler() (*IngestHandler, *gin.Engine, *db.Database) {
 	database := setupTestDB()
 
 	alertService := services.NewAlertService(database)
 	rcaService := services.NewRCAService(database)
-	clusterService := services.NewClusterService(database)
-	auditService := services.NewAuditService(database)
-
 	storage := newFakeStorage()
-	handler := NewIngestHandler(alertService, rcaService, clusterService, auditService, storage)
+	handler := NewIngestHandler(&IngestHandlerConfig{
+		AlertService:   alertService,
+		RCAService:     rcaService,
+		ClusterService: nil, // 测试中不需要
+		AuditService:   nil, // 测试中不需要
+		StorageService: storage,
+	})
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.Use(middleware.ErrorHandler())
 
-	return handler, router
+	return handler, router, database
 }
 
 func TestIngestAlert(t *testing.T) {
-	handler, router := setupTestHandler()
+	handler, router, _ := setupTestHandler()
 	router.POST("/ingest/alert", handler.IngestAlert)
 
 	tests := []struct {
 		name           string
-		payload        IngestAlertRequest
+		payload        interface{}
 		expectedStatus int
 		expectedError  string
 	}{
@@ -170,12 +175,10 @@ func TestIngestAlert(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name: "missing required fields",
-			payload: IngestAlertRequest{
-				Title: "Test Alert",
-			},
+			name:           "missing required fields",
+			payload:        gin.H{"title": "Test Alert"},
 			expectedStatus: http.StatusBadRequest,
-			expectedError:  "无效的请求数据",
+			expectedError:  "请求参数校验失败",
 		},
 		{
 			name: "invalid severity",
@@ -214,12 +217,97 @@ func TestIngestAlert(t *testing.T) {
 	}
 }
 
+func TestIngestAlertmanagerWebhook(t *testing.T) {
+	handler, router, database := setupTestHandler()
+	router.POST("/ingest/alertmanager", handler.IngestAlertmanagerWebhook)
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	payload := AlertmanagerWebhookRequest{
+		Receiver: "team-test",
+		Status:   "firing",
+		Alerts: []AlertmanagerAlert{
+			{
+				Status: "firing",
+				Labels: map[string]string{
+					"alertname":  "HighCPUUsage",
+					"severity":   "critical",
+					"cluster_id": "cluster-alpha",
+					"instance":   "node-1",
+				},
+				Annotations: map[string]string{
+					"summary": "CPU 使用率持续飙升",
+				},
+				StartsAt:     now,
+				GeneratorURL: "http://prometheus.example/highcpu",
+				Fingerprint:  "existing-fingerprint",
+			},
+			{
+				Status: "resolved",
+				Labels: map[string]string{
+					"alertname": "PodNotReady",
+					"severity":  "warning",
+					"cluster":   "cluster-alpha",
+					"namespace": "default",
+					"pod":       "web-0",
+				},
+				Annotations: map[string]string{
+					"description": "Pod default/web-0 仍未就绪",
+				},
+				StartsAt:     now.Add(-30 * time.Minute),
+				EndsAt:       now,
+				GeneratorURL: "http://prometheus.example/podnotready",
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	req, err := http.NewRequest("POST", "/ingest/alertmanager", bytes.NewBuffer(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Message string `json:"message"`
+		Data    struct {
+			Alerts []map[string]interface{} `json:"alerts"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Alerts, 2)
+
+	firstFingerprint, ok := resp.Data.Alerts[0]["fingerprint"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "existing-fingerprint", firstFingerprint)
+
+	secondFingerprint, ok := resp.Data.Alerts[1]["fingerprint"].(string)
+	require.True(t, ok)
+	expectedFingerprint := generateAlertmanagerFingerprint("cluster-alpha", payload.Alerts[1].Labels, payload.Alerts[1].Annotations)
+	assert.Equal(t, expectedFingerprint, secondFingerprint)
+
+	secondStatus, ok := resp.Data.Alerts[1]["status"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "resolved", secondStatus)
+
+	var storedAlerts []TestAlert
+	require.NoError(t, database.DB.Find(&storedAlerts).Error)
+	require.Len(t, storedAlerts, 2)
+	for _, item := range storedAlerts {
+		assert.Empty(t, item.RawPayloadKey)
+	}
+}
+
 func TestIngestRCA(t *testing.T) {
-	handler, router := setupTestHandler()
+	handler, router, database := setupTestHandler()
 	router.POST("/ingest/rca", handler.IngestRCA)
 
 	// 首先创建一个告警
-	database := setupTestDB()
 	alertService := services.NewAlertService(database)
 
 	alert := &models.Alert{

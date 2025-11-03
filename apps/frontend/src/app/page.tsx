@@ -121,30 +121,6 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Risk Status Alert */}
-      {(summaryData?.critical_alerts || 0) > 0 && (
-        <Card className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-              <div>
-                <p className="font-medium text-yellow-800 dark:text-yellow-200">
-                  风险提醒
-                </p>
-                <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                  当前风险等级：{getRiskBadge('high')}
-                  {(summaryData?.critical_alerts || 0) > 0 && (
-                    <span className="ml-2">
-                      有 {summaryData?.critical_alerts || 0} 个严重告警需要处理
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Main Content Grid */}
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Stats Grid - Takes up 2 columns to match chart width */}
@@ -320,7 +296,7 @@ export default function Dashboard() {
                     return (
                       <Link
                         key={alert.id}
-                        href={resolveAppPath(`/alerts/${alert.id}`)}
+                        href={resolveAppPath(`/alerts/${alert.id}`) as any}
                         className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/20 hover:border-primary/50 transition-all cursor-pointer group"
                       >
                         <div className="flex items-center space-x-3">

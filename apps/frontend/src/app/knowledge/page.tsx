@@ -1,8 +1,8 @@
 "use client"
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { resolveAppPath } from '@/config'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RobustaAPI } from '@/lib/api'
@@ -23,6 +23,7 @@ import {
 
 export default function KnowledgeHomePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [pageSize] = useState(20)
@@ -32,6 +33,14 @@ export default function KnowledgeHomePage() {
   const [itemToDelete, setItemToDelete] = useState<{ id: string; title: string } | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  // 监听 URL 参数变化，强制刷新数据
+  useEffect(() => {
+    const timestamp = searchParams.get('t')
+    if (timestamp) {
+      queryClient.invalidateQueries({ queryKey: ['kb-list'] })
+    }
+  }, [searchParams, queryClient])
+
   const { data, isFetching } = useQuery({
     queryKey: ['kb-list', page, pageSize, searchKeyword],
     queryFn: () => RobustaAPI.listKnowledge({ 
@@ -39,7 +48,7 @@ export default function KnowledgeHomePage() {
       page_size: pageSize,
       alert_rule_name: searchKeyword || undefined
     }),
-    staleTime: 30_000,
+    staleTime: 0, // 改为 0，每次都重新获取
   })
 
   const items = data?.data || []

@@ -83,8 +83,8 @@ func main() {
 		Addr:         host + ":" + port,
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: 0, // SSE 流式请求可能运行较久，禁止写超时避免被意外中断
+		IdleTimeout:  0, // 交给上游/代理控制空闲连接，避免长连接被提前关闭
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

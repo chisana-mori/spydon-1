@@ -21,6 +21,32 @@ type IngestAlertRequest struct {
 	EndsAt      *time.Time             `json:"ends_at"`
 }
 
+// AlertmanagerWebhookRequest Alertmanager webhook 的请求体
+type AlertmanagerWebhookRequest struct {
+	Receiver          string                       `json:"receiver"`
+	Status            string                       `json:"status"`
+	Alerts            []AlertmanagerAlert          `json:"alerts"`
+	GroupLabels       map[string]string            `json:"groupLabels"`
+	CommonLabels      map[string]string            `json:"commonLabels"`
+	CommonAnnotations map[string]string            `json:"commonAnnotations"`
+	ExternalURL       string                       `json:"externalURL"`
+	Version           string                       `json:"version"`
+	GroupKey          string                       `json:"groupKey"`
+	TruncatedAlerts   int                          `json:"truncatedAlerts"`
+	Metadata          map[string]map[string]string `json:"metadata"`
+}
+
+// AlertmanagerAlert 单条 Alertmanager 告警
+type AlertmanagerAlert struct {
+	Status       string            `json:"status"`
+	Labels       map[string]string `json:"labels"`
+	Annotations  map[string]string `json:"annotations"`
+	StartsAt     time.Time         `json:"startsAt"`
+	EndsAt       time.Time         `json:"endsAt"`
+	GeneratorURL string            `json:"generatorURL"`
+	Fingerprint  string            `json:"fingerprint"`
+}
+
 // IngestRCARequest 接收RCA请求结构
 type IngestRCARequest struct {
 	AlertID         string                 `json:"alert_id" binding:"required"`
@@ -37,16 +63,18 @@ type FindingSeverity struct {
 	Value int `json:"_value_"`
 }
 
+// Finding严重级别常量
 const (
-	FindingSeverityDebug string = "DEBUG"
-	FindingSeverityInfo  string = "INFO"
-	FindingSeverityLow   string = "LOW"
-	FindingSeverityHigh  string = "HIGH"
+	FindingSeverityDebug = "DEBUG"
+	FindingSeverityInfo  = "INFO"
+	FindingSeverityLow   = "LOW"
+	FindingSeverityHigh  = "HIGH"
 )
 
 // FindingStatus 状态枚举
 type FindingStatus string
 
+// Finding状态常量
 const (
 	FindingStatusFiring   FindingStatus = "FIRING"
 	FindingStatusResolved FindingStatus = "RESOLVED"
@@ -55,6 +83,7 @@ const (
 // LinkType 链接类型枚举
 type LinkType string
 
+// 链接类型常量
 const (
 	LinkTypeVideo                    LinkType = "video"
 	LinkTypePrometheusGeneratorURL   LinkType = "prometheus_generator_url"
@@ -64,18 +93,19 @@ const (
 // EnrichmentType Enrichment类型枚举
 type EnrichmentType interface{}
 
+// Enrichment类型常量
 const (
-	EnrichmentTypeGraph                string = "graph"
-	EnrichmentTypeAIAnalysis           string = "ai_analysis"
-	EnrichmentTypeNodeInfo             string = "node_info"
-	EnrichmentTypeContainerInfo        string = "container_info"
-	EnrichmentTypeK8sEvents            string = "k8s_events"
-	EnrichmentTypeAlertLabels          string = "alert_labels"
-	EnrichmentTypeDiff                 string = "diff"
-	EnrichmentTypeTextFile             string = "text_file"
-	EnrichmentTypeCrashInfo            string = "crash_info"
-	EnrichmentTypeImagePullBackoffInfo string = "image_pull_backoff_info"
-	EnrichmentTypePendingPodInfo       string = "pending_pod_info"
+	EnrichmentTypeGraph                = "graph"
+	EnrichmentTypeAIAnalysis           = "ai_analysis"
+	EnrichmentTypeNodeInfo             = "node_info"
+	EnrichmentTypeContainerInfo        = "container_info"
+	EnrichmentTypeK8sEvents            = "k8s_events"
+	EnrichmentTypeAlertLabels          = "alert_labels"
+	EnrichmentTypeDiff                 = "diff"
+	EnrichmentTypeTextFile             = "text_file"
+	EnrichmentTypeCrashInfo            = "crash_info"
+	EnrichmentTypeImagePullBackoffInfo = "image_pull_backoff_info"
+	EnrichmentTypePendingPodInfo       = "pending_pod_info"
 )
 
 // FindingSource 来源类型
@@ -144,6 +174,16 @@ type FlexibleTime struct {
 	time.Time
 }
 
+// 支持的时间格式列表
+var supportedTimeFormats = []string{
+	time.RFC3339,                       // "2006-01-02T15:04:05Z07:00"
+	time.RFC3339Nano,                   // "2006-01-02T15:04:05.999999999Z07:00"
+	"2006-01-02 15:04:05.999999Z07:00", // Robusta 格式: "2025-10-25 07:27:42.395545+00:00"
+	"2006-01-02 15:04:05Z07:00",        // 无微秒版本
+	"2006-01-02 15:04:05",              // 无时区版本
+	time.DateTime,                      // "2006-01-02 15:04:05"
+}
+
 // UnmarshalJSON 自定义 JSON 反序列化，支持多种时间格式
 func (ft *FlexibleTime) UnmarshalJSON(data []byte) error {
 	// 去除引号
@@ -152,27 +192,16 @@ func (ft *FlexibleTime) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	// 支持的时间格式列表
-	formats := []string{
-		time.RFC3339,                       // "2006-01-02T15:04:05Z07:00"
-		time.RFC3339Nano,                   // "2006-01-02T15:04:05.999999999Z07:00"
-		"2006-01-02 15:04:05.999999Z07:00", // Robusta 格式: "2025-10-25 07:27:42.395545+00:00"
-		"2006-01-02 15:04:05Z07:00",        // 无微秒版本
-		"2006-01-02 15:04:05",              // 无时区版本
-		time.DateTime,                      // "2006-01-02 15:04:05"
-	}
-
-	var lastErr error
-	for _, format := range formats {
-		t, err := time.Parse(format, str)
-		if err == nil {
+	// 尝试所有支持的格式
+	for _, format := range supportedTimeFormats {
+		if t, err := time.Parse(format, str); err == nil {
 			ft.Time = t
 			return nil
 		}
-		lastErr = err
 	}
 
-	return fmt.Errorf("无法解析时间 '%s': %w", str, lastErr)
+	// 所有格式都失败，返回详细错误
+	return fmt.Errorf("无法解析时间字符串 '%s'，支持的格式包括: RFC3339, RFC3339Nano, 以及多种自定义格式", str)
 }
 
 // RobustaFinding Robusta Finding完整结构
