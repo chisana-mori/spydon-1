@@ -163,9 +163,7 @@ func EnhancedHMACMiddleware(cfg *config.Config) gin.HandlerFunc {
 // verifyEnhancedHMAC 验证增强版HMAC签名（包含时间戳）
 func verifyEnhancedHMAC(signature, timestamp, body, secret string) bool {
 	// 移除sha256=前缀
-	if strings.HasPrefix(signature, "sha256=") {
-		signature = signature[7:]
-	}
+	signature = strings.TrimPrefix(signature, "sha256=")
 
 	// 构造签名数据（时间戳.请求体）
 	data := fmt.Sprintf("%s.%s", timestamp, body)

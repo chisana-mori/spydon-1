@@ -1,0 +1,140 @@
+# GitLab 环境部署配置
+# 定义各个环境的部署策略和配置
+
+# 开发环境
+development:
+  name: development
+  url: https://spydon-dev.example.com
+
+  on_stop: stop_development
+
+  variables:
+    ENVIRONMENT: development
+    LOG_LEVEL: debug
+    DATABASE_HOST: postgres-dev
+    REDIS_HOST: redis-dev
+
+  deploy:
+    replicas:
+      backend: 1
+      frontend: 1
+
+    resources:
+      backend:
+        requests:
+          memory: "256Mi"
+          cpu: "250m"
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+
+      frontend:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+
+    auto_stop_in: "7 days"
+
+# 预生产环境 (Staging)
+staging:
+  name: staging
+  url: https://spydon-staging.example.com
+
+  on_stop: stop_staging
+
+  variables:
+    ENVIRONMENT: staging
+    LOG_LEVEL: info
+    DATABASE_HOST: postgres-staging
+    REDIS_HOST: redis-staging
+    MINIO_ENDPOINT: minio-staging.internal
+    HolmesGPT_URL: http://holmesgpt-staging.internal
+
+  deploy:
+    replicas:
+      backend: 2
+      frontend: 2
+
+    resources:
+      backend:
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+        limits:
+          memory: "1Gi"
+          cpu: "1000m"
+
+      frontend:
+        requests:
+          memory: "256Mi"
+          cpu: "200m"
+        limits:
+          memory: "512Mi"
+          cpu: "400m"
+
+    strategy: blue_green
+    auto_stop_in: "never"
+
+# 生产环境
+production:
+  name: production
+  url: https://spydon.example.com
+
+  on_stop: stop_production
+
+  variables:
+    ENVIRONMENT: production
+    LOG_LEVEL: info
+    DATABASE_HOST: postgres-prod
+    REDIS_HOST: redis-prod
+    MINIO_ENDPOINT: minio-prod.internal
+    HolmesGPT_URL: https://holmesgpt.example.com
+
+  deploy:
+    replicas:
+      backend: 3
+      frontend: 3
+
+    resources:
+      backend:
+        requests:
+          memory: "1Gi"
+          cpu: "1000m"
+        limits:
+          memory: "2Gi"
+          cpu: "2000m"
+
+      frontend:
+        requests:
+          memory: "512Mi"
+          cpu: "400m"
+        limits:
+          memory: "1Gi"
+          cpu: "800m"
+
+    strategy: blue_green
+    health_check:
+      path: /health
+      timeout: 60
+      retries: 3
+
+    auto_stop_in: "never"
+
+# 环境停止任务
+stop_development:
+  name: stop_development
+  when: manual
+  environment: development
+
+stop_staging:
+  name: stop_staging
+  when: manual
+  environment: staging
+
+stop_production:
+  name: stop_production
+  when: manual
+  environment: production

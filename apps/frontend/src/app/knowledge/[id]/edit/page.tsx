@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { resolveAppPath } from '@/config'
+import { resolveAppPath, appConfig } from '@/config'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import KnowledgeEditor, { type KnowledgeEditorValue } from '@/components/knowledge/KnowledgeEditor'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -19,7 +19,7 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['kb', id],
     queryFn: async () => {
-      const res = await fetch(`/api/v1/knowledge/${id}?include_manifest=true`, { credentials: 'include' })
+      const res = await fetch(`${appConfig.apiBaseUrl}/knowledge/${id}?include_manifest=true`, { credentials: 'include' })
       if (!res.ok) throw new Error(await res.text())
       return res.json()
     },
@@ -43,7 +43,7 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
         title: value.title,
         status: article?.status || 'draft',
         version: article?.version || 1,
-        content: { 
+        content: {
           tiptap: value.tiptap
         },
         tags: value.tags,
@@ -52,7 +52,7 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
       // 2) 直接发布
       await RobustaAPI.publishKnowledge(id, '发布')
       toast.success('已发布')
-      
+
       // 跳转回列表页并强制刷新
       router.push(`/knowledge?t=${Date.now()}`)
     } catch (e: any) {
@@ -84,10 +84,10 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Badge 
+            <Badge
               className={`text-xs ${
-                article?.status === 'published' 
-                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200' 
+                article?.status === 'published'
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200'
                   : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200'
               }`}
             >

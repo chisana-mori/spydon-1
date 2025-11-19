@@ -297,11 +297,11 @@ export default function Dashboard() {
                       <Link
                         key={alert.id}
                         href={resolveAppPath(`/alerts/${alert.id}`) as any}
-                        className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/20 hover:border-primary/50 transition-all cursor-pointer group"
+                        className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/20 hover:border-primary/50 transition-all cursor-pointer group"
                       >
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-start space-x-3 flex-1 min-w-0">
                           <div className={cn(
-                            "p-2 rounded-full transition-transform group-hover:scale-110",
+                            "p-2 rounded-full transition-transform group-hover:scale-110 flex-shrink-0",
                             alert.severity === 'critical' ? 'bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-400' :
                               alert.severity === 'high' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900 dark:text-orange-400' :
                                 alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900 dark:text-yellow-400' :
@@ -309,15 +309,20 @@ export default function Dashboard() {
                           )}>
                             <SeverityIcon className="h-4 w-4" />
                           </div>
-                          <div>
-                            <p className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors">{alert.title}</p>
-                            <p className="text-xs text-muted-foreground">
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className="font-medium text-sm line-clamp-2 group-hover:text-primary transition-colors break-words"
+                              title={alert.title}
+                            >
+                              {alert.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate" title={alert.cluster?.name || alert.cluster_id}>
                               {alert.cluster?.name || alert.cluster_id}
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs text-muted-foreground">
+                        <div className="text-right flex-shrink-0 ml-2">
+                          <p className="text-xs text-muted-foreground whitespace-nowrap">
                             {formatDistanceToNow(new Date(alert.created_at), {
                               addSuffix: true,
                               locale: zhCN

@@ -31,8 +31,8 @@ func main() {
 		logger.L().Fatal("加载配置失败", zap.Error(err))
 	}
 
-	if err := logger.Init(cfg); err != nil {
-		logger.L().Fatal("初始化日志组件失败", zap.Error(err))
+	if initErr := logger.Init(cfg); initErr != nil {
+		logger.L().Fatal("初始化日志组件失败", zap.Error(initErr))
 	}
 	defer logger.Sync()
 

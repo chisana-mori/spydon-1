@@ -14,10 +14,10 @@ import (
 
 // Pagination 分页信息
 type Pagination struct {
-	Page       int   `json:"page"`
-	PageSize   int   `json:"page_size"`
-	Total      int64 `json:"total"`
-	TotalPages int   `json:"total_pages"`
+	Page       int    `json:"page"`
+	PageSize   int    `json:"page_size"`
+	Total      int64  `json:"total"`
+	TotalPages int    `json:"total_pages"`
 	Sort       string `json:"sort,omitempty"`
 }
 
@@ -61,18 +61,25 @@ func ParsePaginationParams(c *gin.Context) (PaginationParams, apperrors.DomainEr
 		return PaginationParams{}, newPaginationError("page", "必须为整数", err)
 	}
 
-	pageSizeStr := c.DefaultQuery("page_size", strconv.Itoa(constants.PaginationDefaultPageSize))
+	pageSizeParam, hasPageSize := c.GetQuery("page_size")
+	pageSizeStr := pageSizeParam
+	if pageSizeStr == "" {
+		pageSizeStr = strconv.Itoa(constants.PaginationDefaultPageSize)
+	}
+
 	pageSize, err := strconv.Atoi(pageSizeStr)
 	if err != nil {
 		return PaginationParams{}, newPaginationError("page_size", "必须为整数", err)
 	}
 
-	// 兼容 limit
-	if limit := c.Query("limit"); limit != "" {
-		if parsedLimit, convErr := strconv.Atoi(limit); convErr == nil {
-			pageSize = parsedLimit
-		} else {
-			return PaginationParams{}, newPaginationError("limit", "必须为整数", convErr)
+	// 兼容 limit，page_size 显式提供时优先
+	if !hasPageSize {
+		if limitStr, hasLimit := c.GetQuery("limit"); hasLimit && limitStr != "" {
+			if parsedLimit, convErr := strconv.Atoi(limitStr); convErr == nil {
+				pageSize = parsedLimit
+			} else {
+				return PaginationParams{}, newPaginationError("limit", "必须为整数", convErr)
+			}
 		}
 	}
 

@@ -1,0 +1,110 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spydon-base
+
+resources:
+  - namespace.yaml
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - postgres-deployment.yaml
+  - redis-deployment.yaml
+  - minio-deployment.yaml
+  - services.yaml
+  - ingress.yaml
+  - configmaps.yaml
+  - secrets.yaml
+  - rbac.yaml
+  - networkpolicies.yaml
+  - monitoring.yaml
+
+commonLabels:
+  app: spydon
+  managed-by: argocd
+
+configMapGenerator:
+  - name: robusta-config
+    literals:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - PORT=8080
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=robusta
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_BUCKET_NAME=spydon
+      - MINIO_USE_SSL=false
+      - HOLMES_GPT_URL=http://holmesgpt:8081
+      - HOLMES_GPT_TIMEOUT=60s
+      - HOLMES_GPT_ENABLED=true
+      - HOLMES_GPT_DEFAULT_DEPTH=3
+      - RATE_LIMIT_RPS=100
+      - JWT_EXPIRATION=24h
+
+secretGenerator:
+  - name: robusta-secrets
+    envs:
+      - secrets.env
+
+patches:
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "0"
+    target:
+      kind: Namespace
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "1"
+    target:
+      kind: ConfigMap
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "1"
+    target:
+      kind: Secret
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "2"
+    target:
+      kind: StatefulSet
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "3"
+    target:
+      kind: Deployment
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "4"
+    target:
+      kind: Service
+  - patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "5"
+    target:
+      kind: Ingress
+
+vars:
+  - name: NAMESPACE
+    objref:
+      kind: Namespace
+      name: spydon
+      apiVersion: v1
+    fieldref:
+      fieldpath: metadata.name

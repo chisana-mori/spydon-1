@@ -1,0 +1,399 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      version:
+        description: 'Git commit SHA to deploy'
+        required: true
+        default: 'main'
+        type: string
+      rollback:
+        description: 'Enable rollback mode'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: ${{ github.repository }}/backend
+  FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
+
+jobs:
+  validate-deployment:
+    name: Validate Deployment Request
+    runs-on: ubuntu-latest
+    outputs:
+      can-deploy: ${{ steps.check.outputs.can-deploy }}
+      target-sha: ${{ steps.check.outputs.target-sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Validate commit
+        id: check
+        run: |
+          # 检查是否存在该提交
+          if git rev-parse --verify ${{ github.event.inputs.version }}; then
+            echo "can-deploy=true" >> $GITHUB_OUTPUT
+            echo "target-sha=$(git rev-parse ${{ github.event.inputs.version }})" >> $GITHUB_OUTPUT
+          else
+            echo "can-deploy=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Check CI status
+        run: |
+          # 检查目标提交的 CI 状态
+          if [ "${{ github.event.inputs.rollback }}" != "true" ]; then
+            COMMIT_STATUS=$(gh api repos/${{ github.repository }}/commits/${{ github.event.inputs.version }}/status --jq '.state')
+            if [ "$COMMIT_STATUS" != "success" ]; then
+              echo "Commit CI status is not successful: $COMMIT_STATUS"
+              exit 1
+            fi
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-test:
+    name: Build and Verify Images
+    runs-on: ubuntu-latest
+    needs: validate-deployment
+    if: needs.validate-deployment.outputs.can-deploy == 'true' && github.event.inputs.rollback != 'true'
+    outputs:
+      backend-image: ${{ steps.backend-meta.outputs.tags }}
+      frontend-image: ${{ steps.frontend-meta.outputs.tags }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-deployment.outputs.target-sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract backend metadata
+        id: backend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+          tags: |
+            type=sha,value=${{ needs.validate-deployment.outputs.target-sha }}
+            type=raw,value=deploy-${{ github.event.inputs.environment }}-${{ github.run_number }}
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/backend
+          push: true
+          tags: ${{ steps.backend-meta.outputs.tags }}
+          labels: ${{ steps.backend-meta.outputs.labels }}
+          cache-from: type=gha
+
+      - name: Extract frontend metadata
+        id: frontend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+          tags: |
+            type=sha,value=${{ needs.validate-deployment.outputs.target-sha }}
+            type=raw,value=deploy-${{ github.event.inputs.environment }}-${{ github.run_number }}
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/frontend
+          push: true
+          tags: ${{ steps.frontend-meta.outputs.tags }}
+          labels: ${{ steps.frontend-meta.outputs.labels }}
+          cache-from: type=gha
+
+  security-validation:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, build-and-test]
+    if: needs.validate-deployment.outputs.can-deploy == 'true' && github.event.inputs.rollback != 'true'
+    steps:
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-test.outputs.backend-image }}
+          format: 'sarif'
+          output: 'backend-trivy-results.sarif'
+
+      - name: Run Trivy image scan for frontend
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build-and-test.outputs.frontend-image }}
+          format: 'sarif'
+          output: 'frontend-trivy-results.sarif'
+
+      - name: Check for critical vulnerabilities
+        run: |
+          # 检查是否有严重漏洞
+          if grep -q "CRITICAL" backend-trivy-results.sarif frontend-trivy-results.sarif; then
+            echo "Critical vulnerabilities found. Deployment blocked."
+            exit 1
+          fi
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, build-and-test, security-validation]
+    if: github.event.inputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://spydon-staging.example.com
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update staging manifests
+        run: |
+          cd gitops
+
+          # 更新镜像标签
+          if [ "${{ github.event.inputs.rollback }}" = "true" ]; then
+            # 回滚模式：使用上一个稳定版本
+            PREVIOUS_TAG=$(helm history robusta-staging -n staging --max 2 --output json | jq -r '.[1].chart_version')
+            helm rollback robusta-staging $PREVIOUS_TAG -n staging
+          else
+            # 正常部署模式
+            sed -i "s|image: .*backend:.*|image: ${{ needs.build-and-test.outputs.backend-image }}|g" environments/staging/backend.yaml
+            sed -i "s|image: .*frontend:.*|image: ${{ needs.build-and-test.outputs.frontend-image }}|g" environments/staging/frontend.yaml
+
+            # 更新版本信息
+            echo "deploy_version: ${{ needs.validate-deployment.outputs.target-sha }}" >> environments/staging/values.yaml
+            echo "deploy_time: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> environments/staging/values.yaml
+
+            # 提交更改
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add .
+            git commit -m "Deploy ${{ needs.validate-deployment.outputs.target-sha }} to staging"
+            git push
+          fi
+
+      - name: Wait for Argo CD sync
+        run: |
+          # 等待 Argo CD 完成同步
+          timeout 600 bash -c 'until argocd app get robusta-staging --refresh; do sleep 10; done'
+
+      - name: Verify deployment health
+        run: |
+          # 等待部署完成
+          kubectl wait --for=condition=available --timeout=600s deployment/robusta-backend -n staging
+          kubectl wait --for=condition=available --timeout=600s deployment/robusta-frontend -n staging
+
+          # 健康检查
+          timeout 300 bash -c 'until curl -f https://spydon-staging.example.com/health; do sleep 10; done'
+
+      - name: Run smoke tests
+        run: |
+          # 运行冒烟测试
+          curl -f https://spydon-staging.example.com/api/v1/health
+          curl -f https://spydon-staging.example.com/
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate-deployment, build-and-test, security-validation]
+    if: github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://spydon.example.com
+    steps:
+      - name: Create maintenance window
+        run: |
+          echo "Starting production deployment maintenance window"
+          # 发送维护通知到 Slack
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"🚀 Production deployment started. Maintenance window active."}' \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Blue-Green Deployment
+        run: |
+          cd gitops
+
+          if [ "${{ github.event.inputs.rollback }}" = "true" ]; then
+            # 回滚模式
+            PREVIOUS_TAG=$(helm history robusta-production -n production --max 2 --output json | jq -r '.[1].chart_version')
+            helm rollback robusta-production $PREVIOUS_TAG -n production
+          else
+            # 蓝绿部署策略
+            # 1. 部署到绿色环境
+            sed -i "s|image: .*backend:.*|image: ${{ needs.build-and-test.outputs.backend-image }}|g" environments/production/backend-green.yaml
+            sed -i "s|image: .*frontend:.*|image: ${{ needs.build-and-test.outputs.frontend-image }}|g" environments/production/frontend-green.yaml
+
+            # 2. 提交更改
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add .
+            git commit -m "Deploy ${{ needs.validate-deployment.outputs.target-sha }} to production (green)"
+            git push
+
+            # 3. 等待绿色环境就绪
+            sleep 60  # 给 Argo CD 时间同步
+
+            kubectl wait --for=condition=available --timeout=900s deployment/robusta-backend-green -n production
+            kubectl wait --for=condition=available --timeout=900s deployment/robusta-frontend-green -n production
+          fi
+
+      - name: Production validation
+        run: |
+          # 等待绿色环境健康检查
+          timeout 300 bash -c 'until curl -f https://spydon-green.example.com/health; do sleep 10; done'
+
+          # 运行生产环境测试
+          curl -f https://spydon-green.example.com/api/v1/health
+
+          # 性能测试（可选）
+          # k6 run --vus 10 --duration 30s https://spydon-green.example.com
+
+      - name: Switch traffic to green
+        run: |
+          # 切换流量到绿色环境
+          kubectl patch service robusta-frontend -n production -p '{"spec":{"selector":{"version":"green"}}}'
+          kubectl patch service robusta-backend -n production -p '{"spec":{"selector":{"version":"green"}}}'
+
+          # 等待 DNS/Ingress 生效
+          sleep 30
+
+          # 验证流量切换
+          timeout 300 bash -c 'until curl -f https://spydon.example.com/health; do sleep 10; done'
+
+      - name: Final validation
+        run: |
+          # 最终验证
+          curl -f https://spydon.example.com/api/v1/health
+          curl -f https://spydon.example.com/
+
+          # 检查关键功能
+          curl -f https://spydon.example.com/api/v1/alerts
+
+      - name: Cleanup blue environment
+        run: |
+          # 清理蓝色环境
+          kubectl delete deployment robusta-backend-blue -n production --ignore-not-found=true
+          kubectl delete deployment robusta-frontend-blue -n production --ignore-not-found=true
+
+      - name: Close maintenance window
+        if: always()
+        run: |
+          echo "Production deployment completed"
+          # 发送完成通知
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            MESSAGE="✅ Production deployment completed successfully. Maintenance window closed."
+          else
+            MESSAGE="❌ Production deployment failed. Investigation required."
+          fi
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"$MESSAGE\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
+
+  notify-results:
+    name: Notify Deployment Results
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    steps:
+      - name: Prepare notification
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          STATUS="${{ job.status }}"
+          VERSION="${{ needs.validate-deployment.outputs.target-sha }}"
+
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="✅"
+            MESSAGE="Deployment to $ENV completed successfully"
+          else
+            EMOJI="❌"
+            MESSAGE="Deployment to $ENV failed"
+          fi
+
+          echo "emoji=$EMOJI" >> $GITHUB_ENV
+          echo "message=$MESSAGE" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Send Slack notification
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"text\": \"${{ env.emoji }} ${{ env.message }}\",
+              \"attachments\": [
+                {
+                  \"fields\": [
+                    {
+                      \"title\": \"Environment\",
+                      \"value\": \"${{ github.event.inputs.environment }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Version\",
+                      \"value\": \"${{ env.version }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Initiated by\",
+                      \"value\": \"${{ github.actor }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Rollback mode\",
+                      \"value\": \"${{ github.event.inputs.rollback }}\",
+                      \"short\": true
+                    }
+                  ]
+                }
+              ]
+            }" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
+
+      - name: Update GitHub status
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            STATE="success"
+            DESCRIPTION="Deployment to ${{ github.event.inputs.environment }} completed successfully"
+          else
+            STATE="failure"
+            DESCRIPTION="Deployment to ${{ github.event.inputs.environment }} failed"
+          fi
+
+          gh api --method POST \
+            repos/${{ github.repository }}/statuses/${{ needs.validate-deployment.outputs.target-sha }} \
+            --field "state=$STATE" \
+            --field "target_url=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --field "description=$DESCRIPTION" \
+            --field "context=deployment/${{ github.event.inputs.environment }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

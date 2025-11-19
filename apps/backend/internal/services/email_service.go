@@ -1,10 +1,12 @@
 package services
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,7 +85,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	msg.WriteString(body.String())
 
-	addr := fmt.Sprintf("%s:%d", s.cfg.Email.SMTPHost, s.cfg.Email.SMTPPort)
+	addr := net.JoinHostPort(s.cfg.Email.SMTPHost, strconv.Itoa(s.cfg.Email.SMTPPort))
 	auth := smtp.PlainAuth("", s.cfg.Email.SMTPUser, s.cfg.Email.SMTPPass, s.cfg.Email.SMTPHost)
 
 	// 支持 STARTTLS/直连TLS 场景：先尝试 TLS，失败则退回非TLS
@@ -93,14 +95,19 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 		InsecureSkipVerify: false,            // 明确设置为false以确保安全
 		MinVersion:         tls.VersionTLS12, // 设置最低TLS版本为1.2
 	}
-	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	ctx := context.Background()
+	tlsDialer := &tls.Dialer{
+		NetDialer: &net.Dialer{},
+		Config:    tlsConfig,
+	}
+	conn, err := tlsDialer.DialContext(ctx, "tcp", addr)
 	if err == nil {
 		c, cerr := smtp.NewClient(conn, s.cfg.Email.SMTPHost)
 		if cerr == nil {
 			defer func() {
-				if err := c.Quit(); err != nil {
+				if quitErr := c.Quit(); quitErr != nil {
 					// 记录退出错误但不影响邮件发送
-					logger.S().Warnw("SMTP客户端退出时发生错误", "module", "email", "error", err)
+					logger.S().Warnw("SMTP客户端退出时发生错误", "module", "email", "error", quitErr)
 				}
 			}()
 			if err = c.Auth(auth); err == nil {
@@ -109,10 +116,10 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 						wc, werr := c.Data()
 						if werr == nil {
 							if _, werr = wc.Write([]byte(msg.String())); werr == nil {
-								wc.Close()
+								_ = wc.Close()
 								return nil
 							}
-							wc.Close()
+							_ = wc.Close()
 						}
 					}
 				}
@@ -125,7 +132,8 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	if err := smtp.SendMail(addr, auth, s.cfg.Email.From, []string{to}, []byte(msg.String())); err != nil {
 		// 再做一次兜底：非认证直连（某些内网MTA）
 		logger.S().Errorw("SendMail失败，尝试非认证兜底", "module", "email", "error", err)
-		c, dErr := net.Dial("tcp", addr)
+		dialer := &net.Dialer{}
+		c, dErr := dialer.DialContext(ctx, "tcp", addr)
 		if dErr != nil {
 			return fmt.Errorf("连接SMTP失败: %w", err)
 		}

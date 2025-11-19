@@ -62,33 +62,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    // 强化中文提示词
-    if (body.description) {
-      body.description = `${body.description}
-
-🌟 SYSTEM INSTRUCTION - 系统指令:
-You are HolmesGPT, a Kubernetes troubleshooting AI assistant. You MUST respond in Chinese (中文) for this request.
-你是 HolmesGPT，一个 Kubernetes 故障排查 AI 助手。你必须用中文回答这个请求。
-
-MANDATORY LANGUAGE REQUIREMENT - 强制语言要求:
-- All analysis MUST be in Chinese - 所有分析必须用中文
-- All explanations MUST be in Chinese - 所有解释必须用中文
-- All recommendations MUST be in Chinese - 所有建议必须用中文
-- Technical terms should be explained in Chinese - 技术术语应该用中文解释
-
-请确保你的回答完全使用中文，包括：
-1. 问题描述和分析
-2. 根本原因分析
-3. 解决方案步骤
-4. 预防措施建议
-5. 技术术语解释`
-    }
-
     // 项目后端 HolmesGPT 代理地址
     const backendBaseUrl = appConfig.apiBaseUrl.replace(/\/$/, '')
     const upstreamUrl = `${backendBaseUrl}/holmesgpt/stream/investigate`
 
-    console.log('通过后端代理 HolmesGPT 请求 (已添加中文提示):', {
+    console.log('通过后端代理 HolmesGPT 请求:', {
       url: upstreamUrl,
       body: JSON.stringify(body, null, 2)
     })

@@ -1,0 +1,235 @@
+# Spydon Helm Chart - 配置示例
+# 复制此文件并根据你的环境修改
+
+# 全局配置
+global:
+  domain: spydon.example.com
+  environment: production  # development, staging, production
+
+# 后端服务配置
+backend:
+  replicaCount: 2
+
+  image:
+    repository: registry.gitlab.com/your-org/spydon/backend
+    pullPolicy: IfNotPresent
+    tag: ""  # 留空使用 Chart appVersion
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  # 后端应用配置（对应 config.yaml）
+  config:
+    environment: production
+    port: "8080"
+
+    # 数据库配置（必需）
+    databaseUrl: "postgres://spydon:CHANGE_ME@postgres:5432/spydon?sslmode=disable"
+
+    # 安全密钥（必需 - 请使用强随机字符串）
+    jwtSecret: "CHANGE_ME_JWT_SECRET_AT_LEAST_32_CHARS"
+    hmacSecret: "CHANGE_ME_HMAC_SECRET_AT_LEAST_32_CHARS"
+    ingestApiKey: "CHANGE_ME_INGEST_API_KEY"
+
+    # OIDC 认证配置
+    oidc:
+      issuer: "https://auth.example.com"
+      clientId: "spydon-client"
+      clientSecret: "CHANGE_ME_OIDC_SECRET"
+      redirectUrl: "https://spydon.example.com/auth/callback"
+
+    # HolmesGPT AI 分析配置
+    holmesGpt:
+      url: "http://holmes-gpt:8081"
+      apiKey: "CHANGE_ME_HOLMES_API_KEY"
+      timeoutSeconds: 300
+      enabled: true
+      defaultDepth: "standard"
+      model: "deepseek-reasoner"
+      proxyAuthToken: ""
+
+    # CAS 单点登录配置（可选）
+    cas:
+      enabled: false
+      serverUrl: "https://cas.example.com/cas"
+      callbackPath: "/auth/cas/callback"
+      redirectUrl: "https://spydon.example.com"
+      defaultEmailDomain: "example.com"
+      emailAttribute: "mail"
+      nameAttribute: "displayName"
+      rolesAttribute: "roles"
+
+    # MinIO 对象存储配置
+    minio:
+      endpoint: "minio:9000"
+      accessKey: "minioadmin"
+      secretKey: "CHANGE_ME_MINIO_SECRET"
+      bucketName: "robusta-artifacts"
+      useSsl: false
+
+    # 应用设置
+    rateLimitRps: 100
+    logLevel: "info"
+    logFile: "server.log"
+
+    # 邮件通知配置（可选）
+    email:
+      smtpHost: "smtp.example.com"
+      smtpPort: 587
+      smtpUser: "noreply@example.com"
+      smtpPass: "CHANGE_ME_SMTP_PASSWORD"
+      from: "Spydon <noreply@example.com>"
+      rcaTo: "alerts@example.com"
+      enabled: false
+
+# 前端服务配置
+frontend:
+  replicaCount: 2
+
+  image:
+    repository: registry.gitlab.com/your-org/spydon/frontend
+    pullPolicy: IfNotPresent
+    tag: ""  # 留空使用 Chart appVersion
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  # 前端运行时配置（对应 runtime.json）
+  config:
+    apiUrl: "https://spydon.example.com/api"
+    wsUrl: "wss://spydon.example.com/ws"
+    minioEndpoint: "minio.example.com"
+    minioPort: "443"
+    minioUseSsl: "true"
+    environment: "production"
+
+# Ingress 配置
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  hosts:
+    - host: spydon.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: frontend
+              port: 3000
+        - path: /api
+          pathType: Prefix
+          backend:
+            service:
+              name: backend
+              port: 8080
+  tls:
+    - secretName: spydon-tls
+      hosts:
+        - spydon.example.com
+
+# PostgreSQL 数据库
+postgresql:
+  enabled: true
+  auth:
+    username: spydon
+    password: "CHANGE_ME_POSTGRES_PASSWORD"
+    database: spydon
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""  # 使用默认 StorageClass
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+
+# Redis 缓存
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClass: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+# MinIO 对象存储
+minio:
+  enabled: true
+  mode: standalone
+  auth:
+    rootUser: minioadmin
+    rootPassword: "CHANGE_ME_MINIO_ROOT_PASSWORD"
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+# ServiceAccount 配置
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod 安全配置
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# 节点选择器
+nodeSelector: {}
+
+# 容忍度
+tolerations: []
+
+# 亲和性
+affinity: {}

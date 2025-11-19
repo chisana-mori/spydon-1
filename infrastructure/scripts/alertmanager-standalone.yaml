@@ -17,6 +17,9 @@ data:
       webhook_configs:
       - url: http://robusta-forwarder.robusta.svc.cluster.local:3030/
         send_resolved: true
+        http_config:
+          authorization:
+            credentials: rsk_hLu-kBFk1oQPLszKtjc7cz7oNWtzwNFLWaZM3RA-MzA=
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -43,7 +43,7 @@ func (s *UserService) GetUsers(page, limit int, keyword string) ([]UserListItem,
 	var users []models.User
 	var total int64
 
-	query := s.db.DB.Model(&models.User{})
+	query := s.db.Model(&models.User{})
 
 	// 关键词搜索
 	if keyword != "" {
@@ -95,7 +95,7 @@ func (s *UserService) GetUserByID(userID string) (*models.User, error) {
 	}
 
 	var user models.User
-	if err := s.db.DB.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("用户不存在")
 		}
@@ -113,7 +113,7 @@ func (s *UserService) SetUserAdmin(userID string, isAdmin bool) error {
 	}
 
 	var user models.User
-	if err := s.db.DB.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("用户不存在")
 		}
@@ -122,7 +122,7 @@ func (s *UserService) SetUserAdmin(userID string, isAdmin bool) error {
 
 	// 更新管理员状态
 	user.IsAdmin = isAdmin
-	if err := s.db.DB.Save(&user).Error; err != nil {
+	if err := s.db.Save(&user).Error; err != nil {
 		return fmt.Errorf("更新用户权限失败: %w", err)
 	}
 
@@ -137,7 +137,7 @@ func (s *UserService) DeleteUser(userID string) error {
 	}
 
 	var user models.User
-	if err := s.db.DB.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("用户不存在")
 		}
@@ -145,7 +145,7 @@ func (s *UserService) DeleteUser(userID string) error {
 	}
 
 	// 软删除
-	if err := s.db.DB.Delete(&user).Error; err != nil {
+	if err := s.db.Delete(&user).Error; err != nil {
 		return fmt.Errorf("删除用户失败: %w", err)
 	}
 
@@ -155,7 +155,7 @@ func (s *UserService) DeleteUser(userID string) error {
 // GetAdminCount 获取管理员数量
 func (s *UserService) GetAdminCount() (int64, error) {
 	var count int64
-	if err := s.db.DB.Model(&models.User{}).Where("is_admin = ?", true).Count(&count).Error; err != nil {
+	if err := s.db.Model(&models.User{}).Where("is_admin = ?", true).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("统计管理员数量失败: %w", err)
 	}
 	return count, nil
@@ -169,7 +169,7 @@ func (s *UserService) UpdateUserProfile(userID string, name, picture string) err
 	}
 
 	var user models.User
-	if err := s.db.DB.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("用户不存在")
 		}
@@ -184,7 +184,7 @@ func (s *UserService) UpdateUserProfile(userID string, name, picture string) err
 		user.Picture = picture
 	}
 
-	if err := s.db.DB.Save(&user).Error; err != nil {
+	if err := s.db.Save(&user).Error; err != nil {
 		return fmt.Errorf("更新用户资料失败: %w", err)
 	}
 

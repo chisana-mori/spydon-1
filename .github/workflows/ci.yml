@@ -1,0 +1,420 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: ${{ github.repository }}/backend
+  FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
+
+jobs:
+  # 代码质量检查
+  quality-check:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Run backend linting
+        run: |
+          cd apps/backend
+          go fmt ./...
+          go vet ./...
+          if command -v golangci-lint &> /dev/null; then
+            golangci-lint run
+          fi
+
+      - name: Run frontend linting
+        run: |
+          cd apps/frontend
+          npm ci
+          npm run lint
+          npm run type-check
+
+  # 安全扫描
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # 后端单元测试
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          cd apps/backend
+          go mod download
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+        run: |
+          cd apps/backend
+          go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: apps/backend/coverage.out
+          flags: backend
+
+  # 前端单元测试
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd apps/frontend
+          npm ci
+
+      - name: Run tests
+        run: |
+          cd apps/frontend
+          npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: apps/frontend/coverage/lcov.info
+          flags: frontend
+
+  # 构建 Docker 镜像
+  build-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [quality-check, security-scan, backend-tests, frontend-tests]
+    if: github.event_name == 'push'
+    outputs:
+      backend-image: ${{ steps.backend-meta.outputs.tags }}
+      frontend-image: ${{ steps.frontend-meta.outputs.tags }}
+      backend-digest: ${{ steps.backend-build.outputs.digest }}
+      frontend-digest: ${{ steps.frontend-build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract backend metadata
+        id: backend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push backend image
+        id: backend-build
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/backend
+          push: true
+          tags: ${{ steps.backend-meta.outputs.tags }}
+          labels: ${{ steps.backend-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract frontend metadata
+        id: frontend-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push frontend image
+        id: frontend-build
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/frontend
+          push: true
+          tags: ${{ steps.frontend-meta.outputs.tags }}
+          labels: ${{ steps.frontend-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # 端到端测试
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Start test environment
+        run: |
+          # 创建测试环境的 Docker Compose 文件
+          cat > docker-compose.test.yml << EOF
+          version: '3.8'
+          services:
+            postgres:
+              image: postgres:15-alpine
+              environment:
+                POSTGRES_DB: test_db
+                POSTGRES_USER: postgres
+                POSTGRES_PASSWORD: postgres
+              ports:
+                - "5432:5432"
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U postgres"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+
+            redis:
+              image: redis:7-alpine
+              ports:
+                - "6379:6379"
+              healthcheck:
+                test: ["CMD", "redis-cli", "ping"]
+                interval: 10s
+                timeout: 3s
+                retries: 3
+
+            backend:
+              image: ${{ needs.build-images.outputs.backend-image }}
+              environment:
+                DATABASE_URL: postgres://postgres:postgres@postgres:5432/test_db?sslmode=disable
+                REDIS_URL: redis://redis:6379
+                ENVIRONMENT: test
+              ports:
+                - "8080:8080"
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                redis:
+                  condition: service_healthy
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+
+            frontend:
+              image: ${{ needs.build-images.outputs.frontend-image }}
+              environment:
+                NEXT_PUBLIC_API_URL: http://localhost:8080
+              ports:
+                - "3000:3000"
+              depends_on:
+                backend:
+                  condition: service_healthy
+          EOF
+
+          # 启动测试环境
+          docker compose -f docker-compose.test.yml up -d
+
+          # 等待服务启动
+          timeout 300 bash -c 'until curl -f http://localhost:8080/health && curl -f http://localhost:3000; do sleep 5; done'
+
+      - name: Install Playwright
+        run: |
+          cd apps/frontend
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Run E2E tests
+        run: |
+          cd apps/frontend
+          npx playwright test
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/frontend/playwright-report/
+          retention-days: 7
+
+      - name: Cleanup test environment
+        if: always()
+        run: |
+          docker compose -f docker-compose.test.yml down -v
+          docker system prune -f
+
+  # 部署到预览环境 (PR)
+  deploy-preview:
+    name: Deploy Preview Environment
+    runs-on: ubuntu-latest
+    needs: build-images
+    if: github.event_name == 'pull_request'
+    environment:
+      name: preview-pr-${{ github.event.number }}
+      url: https://spydon-preview-${{ github.event.number }}.example.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PREVIEW }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Deploy preview environment
+        run: |
+          export KUBECONFIG=kubeconfig
+
+          # 创建预览环境的命名空间
+          kubectl create namespace preview-pr-${{ github.event.number }} --dry-run=client -o yaml | kubectl apply -f -
+
+          # 使用 Helm 部署预览环境
+          helm upgrade --install preview-pr-${{ github.event.number }} \
+            ./infrastructure/helm/spydon \
+            --namespace preview-pr-${{ github.event.number }} \
+            --set environment=preview \
+            --set backend.image.repository=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }} \
+            --set backend.image.tag=${{ github.sha }} \
+            --set frontend.image.repository=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --set ingress.host=spydon-preview-${{ github.event.number }}.example.com \
+            --wait \
+            --timeout=10m
+
+      - name: Wait for deployment
+        run: |
+          export KUBECONFIG=kubeconfig
+          kubectl wait --for=condition=available --timeout=300s deployment/robusta-backend -n preview-pr-${{ github.event.number }}
+          kubectl wait --for=condition=available --timeout=300s deployment/robusta-frontend -n preview-pr-${{ github.event.number }}
+
+      - name: Run smoke tests
+        run: |
+          # 等待 Ingress 生效
+          timeout 300 bash -c 'until curl -f https://spydon-preview-${{ github.event.number }}.example.com/health; do sleep 5; done'
+
+  # 更新 GitOps 仓库 (main 分支)
+  update-gitops:
+    name: Update GitOps Repository
+    runs-on: ubuntu-latest
+    needs: [build-images, e2e-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update manifests
+        run: |
+          cd gitops
+
+          # 更新镜像标签
+          sed -i "s|image: .*backend:.*|image: ${{ needs.build-images.outputs.backend-image }}|g" environments/staging/backend.yaml
+          sed -i "s|image: .*frontend:.*|image: ${{ needs.build-images.outputs.frontend-image }}|g" environments/staging/frontend.yaml
+
+          # 提交更改
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git diff --staged --quiet || git commit -m "Update images to ${{ github.sha }}"
+          git push

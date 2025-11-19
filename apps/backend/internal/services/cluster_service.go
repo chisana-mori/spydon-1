@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -64,7 +65,7 @@ func (s *ClusterService) UpdateHeartbeat(ctx context.Context, cluster *models.Cl
 		cluster.ID = existingCluster.ID
 		cluster.CreatedAt = existingCluster.CreatedAt
 		return db.Save(cluster).Error
-	} else if result.Error == gorm.ErrRecordNotFound {
+	} else if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		// 集群不存在，创建新的
 		return db.Create(cluster).Error
 	} else {
@@ -125,7 +126,7 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 
 	// 使用原生SQL查询获取集群统计信息
 	query := `
-		SELECT 
+		SELECT
 			c.cluster_id,
 			c.name,
 			c.status,
@@ -134,7 +135,7 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 			COALESCE(alert_counts.critical_alerts, 0) as critical_count
 		FROM clusters c
 		LEFT JOIN (
-			SELECT 
+			SELECT
 				cluster_id,
 				COUNT(*) as total_alerts,
 				COUNT(CASE WHEN severity = 'critical' AND status = 'firing' THEN 1 END) as critical_alerts
@@ -159,7 +160,7 @@ func (s *ClusterService) getAlertTrends(days int) ([]AlertTrendData, error) {
 
 	// 使用原生SQL查询获取每日告警数量
 	query := `
-		SELECT 
+		SELECT
 			DATE(created_at) as date,
 			COUNT(*) as count
 		FROM alerts
@@ -213,7 +214,7 @@ func (s *ClusterService) dbWithContext(ctx context.Context) *gorm.DB {
 func (s *ClusterService) GetClusterByID(clusterID string) (*models.Cluster, error) {
 	var cluster models.Cluster
 	if err := s.db.Where("cluster_id = ?", clusterID).First(&cluster).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("集群不存在")
 		}
 		return nil, fmt.Errorf("获取集群失败: %w", err)

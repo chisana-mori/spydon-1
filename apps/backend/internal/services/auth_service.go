@@ -199,8 +199,8 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 
 	// 获取用户信息
 	var user models.User
-	if err := s.db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
-		return nil, fmt.Errorf("用户不存在: %w", err)
+	if queryErr := s.db.DB.Where("id = ?", userID).First(&user).Error; queryErr != nil {
+		return nil, fmt.Errorf("用户不存在: %w", queryErr)
 	}
 
 	// 生成新的JWT token
@@ -279,7 +279,7 @@ func (s *AuthService) exchangeCodeForToken(code string) (*TokenResponse, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token请求失败: %d", resp.StatusCode)
@@ -307,7 +307,7 @@ func (s *AuthService) getUserInfo(accessToken string) (*OIDCUserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("获取用户信息失败: %d", resp.StatusCode)
@@ -347,8 +347,8 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 			ProviderID:    oidcUser.Sub,
 		}
 
-		if err := s.db.DB.Create(&user).Error; err != nil {
-			return nil, err
+		if createErr := s.db.DB.Create(&user).Error; createErr != nil {
+			return nil, createErr
 		}
 	} else {
 		// 更新现有用户信息
@@ -402,8 +402,8 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 			LastLoginAt:   &now,
 		}
 
-		if err := s.db.DB.Create(&user).Error; err != nil {
-			return nil, err
+		if createErr := s.db.DB.Create(&user).Error; createErr != nil {
+			return nil, createErr
 		}
 	} else if err != nil {
 		return nil, err

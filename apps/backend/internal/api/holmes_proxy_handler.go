@@ -93,8 +93,8 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 	preferCache := false
 	forceRefresh := false
 
-	if err := json.Unmarshal(requestBody, &payload); err != nil {
-		logger.L().Warn("解析HolmesGPT请求体失败，将以透传方式继续", zap.Error(err))
+	if parseErr := json.Unmarshal(requestBody, &payload); parseErr != nil {
+		logger.L().Warn("解析HolmesGPT请求体失败，将以透传方式继续", zap.Error(parseErr))
 	} else {
 		alertID = strings.TrimSpace(payload.Subject.AlertID)
 		depth = strings.TrimSpace(payload.Depth)
@@ -182,7 +182,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 		ErrorWithDetails(c, http.StatusBadGateway, "HOLMESGPT_UPSTREAM_FAILURE", "HolmesGPT 请求失败", err.Error())
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

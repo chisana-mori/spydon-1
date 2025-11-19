@@ -1,0 +1,306 @@
+# GitLab CI/CD 环境和变量配置指南
+# 这个文件描述了在 GitLab 中需要配置的环境和变量
+
+# ===============================================================================
+# 项目级别 CI/CD 变量 (Settings > CI/CD > Variables)
+# ===============================================================================
+
+# 通用变量
+general_variables:
+  # 项目配置
+  PROJECT_NAME: "spydon"
+  PROJECT_DESCRIPTION: "Intelligent Alert Management Platform"
+
+  # 镜像仓库配置
+  CI_REGISTRY: "$CI_REGISTRY"
+  CI_REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE/spydon"
+
+  # 构建配置
+  DOCKER_PLATFORM: "linux/amd64,linux/arm64"
+  BUILD_TIMEOUT: "600"
+  COVERAGE_THRESHOLD: "70"
+
+  # 通知配置 (可选)
+  SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."
+  TEAMS_WEBHOOK_URL: "https://outlook.office.com/webhook/..."
+
+# 前端特定变量
+frontend_variables:
+  # API 配置
+  NEXT_PUBLIC_API_URL: "http://localhost:8080"
+  NEXT_PUBLIC_CI: "true"
+  NEXT_PUBLIC_TEST_MODE: "true"
+
+  # 前端构建配置
+  NODE_VERSION: "20"
+  NPM_REGISTRY: "https://registry.npmjs.org"
+
+# 后端特定变量
+backend_variables:
+  # Go 版本
+  GO_VERSION: "1.23"
+
+  # 数据库配置 (测试环境)
+  TEST_DATABASE_URL: "postgres://postgres:postgres@postgres:5432/test_db?sslmode=disable"
+  TEST_REDIS_URL: "redis://redis:6379"
+
+  # 服务配置
+  DATABASE_HOST: "postgres"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "robusta"
+  DATABASE_USER: "postgres"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+
+# ===============================================================================
+# 环境配置
+# ===============================================================================
+
+environments:
+  # 开发环境
+  development:
+    name: "development"
+    url: "https://spydon-dev.example.com"
+
+    variables:
+      # 环境标识
+      ENVIRONMENT: "development"
+      LOG_LEVEL: "debug"
+
+      # 部署配置
+      DEPLOY_REPLICAS_BACKEND: "1"
+      DEPLOY_REPLICAS_FRONTEND: "1"
+
+      # 资源配置
+      BACKEND_MEMORY_REQUEST: "256Mi"
+      BACKEND_MEMORY_LIMIT: "512Mi"
+      BACKEND_CPU_REQUEST: "250m"
+      BACKEND_CPU_LIMIT: "500m"
+
+      FRONTEND_MEMORY_REQUEST: "128Mi"
+      FRONTEND_MEMORY_LIMIT: "256Mi"
+      FRONTEND_CPU_REQUEST: "100m"
+      FRONTEND_CPU_LIMIT: "200m"
+
+      # Kubernetes 配置
+      KUBECONFIG_DATA: "$DEV_KUBECONFIG_DATA"
+      NAMESPACE_PREFIX: "spydon-dev"
+
+    protected: false
+    auto_stop_in: "1 week"
+
+  # 预生产环境 (Staging)
+  staging:
+    name: "staging"
+    url: "https://spydon-staging.example.com"
+
+    variables:
+      # 环境标识
+      ENVIRONMENT: "staging"
+      LOG_LEVEL: "info"
+
+      # 部署配置
+      DEPLOY_REPLICAS_BACKEND: "2"
+      DEPLOY_REPLICAS_FRONTEND: "2"
+
+      # 资源配置
+      BACKEND_MEMORY_REQUEST: "512Mi"
+      BACKEND_MEMORY_LIMIT: "1Gi"
+      BACKEND_CPU_REQUEST: "500m"
+      BACKEND_CPU_LIMIT: "1000m"
+
+      FRONTEND_MEMORY_REQUEST: "256Mi"
+      FRONTEND_MEMORY_LIMIT: "512Mi"
+      FRONTEND_CPU_REQUEST: "200m"
+      FRONTEND_CPU_LIMIT: "400m"
+
+      # Kubernetes 配置
+      KUBECONFIG_DATA: "$STAGING_KUBECONFIG_DATA"
+      NAMESPACE_PREFIX: "spydon-staging"
+
+      # 数据库配置
+      DATABASE_HOST: "postgres-staging.internal"
+      REDIS_HOST: "redis-staging.internal"
+
+      # 外部服务配置
+      MINIO_ENDPOINT: "minio-staging.internal"
+      MINIO_BUCKET_NAME: "spydon-staging"
+      MINIO_USE_SSL: "false"
+
+      HolmesGPT_URL: "http://holmesgpt-staging.internal"
+      HOLMES_GPT_ENABLED: "true"
+
+    protected: true
+    auto_stop_in: "never"
+
+  # 生产环境
+  production:
+    name: "production"
+    url: "https://spydon.example.com"
+
+    variables:
+      # 环境标识
+      ENVIRONMENT: "production"
+      LOG_LEVEL: "info"
+
+      # 部署配置
+      DEPLOY_REPLICAS_BACKEND: "3"
+      DEPLOY_REPLICAS_FRONTEND: "3"
+
+      # 资源配置
+      BACKEND_MEMORY_REQUEST: "1Gi"
+      BACKEND_MEMORY_LIMIT: "2Gi"
+      BACKEND_CPU_REQUEST: "1000m"
+      BACKEND_CPU_LIMIT: "2000m"
+
+      FRONTEND_MEMORY_REQUEST: "512Mi"
+      FRONTEND_MEMORY_LIMIT: "1Gi"
+      FRONTEND_CPU_REQUEST: "400m"
+      FRONTEND_CPU_LIMIT: "800m"
+
+      # Kubernetes 配置
+      KUBECONFIG_DATA: "$PRODUCTION_KUBECONFIG_DATA"
+      NAMESPACE_PREFIX: "spydon-prod"
+
+      # 数据库配置
+      DATABASE_HOST: "postgres-prod.internal"
+      REDIS_HOST: "redis-prod.internal"
+
+      # 外部服务配置
+      MINIO_ENDPOINT: "minio-prod.internal"
+      MINIO_BUCKET_NAME: "spydon-prod"
+      MINIO_USE_SSL: "true"
+
+      HolmesGPT_URL: "https://holmesgpt.example.com"
+      HOLMES_GPT_ENABLED: "true"
+      HOLMES_GPT_TIMEOUT: "30s"
+
+      # 安全配置
+      RATE_LIMIT_RPS: "1000"
+      JWT_EXPIRATION: "24h"
+
+      # 域名配置
+      PRODUCTION_URL: "https://spydon.example.com"
+      PRODUCTION_GREEN_URL: "https://spydon-green.example.com"
+      PREVIEW_DOMAIN: "spydon-preview.local"
+
+    protected: true
+    auto_stop_in: "never"
+
+# ===============================================================================
+# 受保护的变量 (Settings > CI/CD > Variables > Protected)
+# ===============================================================================
+
+protected_variables:
+  # Kubernetes 配置 (Base64 编码)
+  PRODUCTION_KUBECONFIG_DATA: "$BASE64_ENCODED_KUBECONFIG_PROD"
+  STAGING_KUBECONFIG_DATA: "$BASE64_ENCODED_KUBECONFIG_STAGING"
+
+  # 数据库密码
+  PRODUCTION_DATABASE_PASSWORD: "$PROD_DB_PASSWORD"
+  STAGING_DATABASE_PASSWORD: "$STAGING_DB_PASSWORD"
+
+  # Redis 密码
+  PRODUCTION_REDIS_PASSWORD: "$PROD_REDIS_PASSWORD"
+  STAGING_REDIS_PASSWORD: "$STAGING_REDIS_PASSWORD"
+
+  # JWT 密钥
+  JWT_SECRET: "$YOUR_JWT_SECRET"
+  HMAC_SECRET: "$YOUR_HMAC_SECRET"
+
+  # 外部服务密钥
+  MINIO_ACCESS_KEY: "$MINIO_ACCESS_KEY"
+  MINIO_SECRET_KEY: "$MINIO_SECRET_KEY"
+
+  # HolmesGPT 配置
+  HOLMES_GPT_API_KEY: "$HOLMES_GPT_API_KEY"
+
+  # GitOps 仓库配置
+  GITOPS_TOKEN: "$GITOPS_ACCESS_TOKEN"
+  GITOPS_REPO: "https://gitlab.com/your-org/spydon-gitops.git"
+
+# ===============================================================================
+# 预览环境变量 (用于 MR)
+# ===============================================================================
+
+preview_environment:
+  name: "preview"
+  url: "https://pr-$CI_MERGE_REQUEST_IID.spydon-preview.local"
+
+  variables:
+    ENVIRONMENT: "preview"
+    LOG_LEVEL: "debug"
+
+    # 预览环境特定配置
+    PREVIEW_DOMAIN: "spydon-preview.local"
+    KUBECONFIG_DATA: "$PREVIEW_KUBECONFIG_DATA"
+
+    # 最小化资源配置
+    DEPLOY_REPLICAS_BACKEND: "1"
+    DEPLOY_REPLICAS_FRONTEND: "1"
+
+    BACKEND_MEMORY_REQUEST: "256Mi"
+    BACKEND_MEMORY_LIMIT: "512Mi"
+    FRONTEND_MEMORY_REQUEST: "128Mi"
+    FRONTEND_MEMORY_LIMIT: "256Mi"
+
+  on_stop: "stop_preview"
+  auto_stop_in: "7 days"
+
+# ===============================================================================
+# 环境停止任务配置
+# ===============================================================================
+
+stop_preview:
+  name: "stop_preview"
+  when: "manual"
+  variables:
+    KUBECONFIG_DATA: "$PREVIEW_KUBECONFIG_DATA"
+    NAMESPACE_PREFIX: "spydon-preview"
+
+# ===============================================================================
+# 设置说明
+# ===============================================================================
+
+setup_instructions:
+  # 1. 在 GitLab 项目中创建环境
+  #    - Settings > Environments > New environment
+
+  # 2. 配置 CI/CD 变量
+  #    - Settings > CI/CD > Variables
+  #    - 添加变量时选择 "Protected" 用于生产环境变量
+
+  # 3. 配置 Kubernetes 集群
+  #    - Settings > Infrastructure > Kubernetes clusters
+  #    - 或手动配置 kubeconfig 并 Base64 编码
+
+  # 4. 配置外部服务
+  #    - 数据库、Redis、MinIO、HolmesGPT 等
+  #    - 确保网络连接和安全配置
+
+  # 5. 配置通知
+  #    - Slack Webhook URL
+  #    - Teams Webhook URL (可选)
+
+  # 6. 测试配置
+  #    - 先在开发环境测试
+  #    - 然后在预生产环境验证
+  #    - 最后在生产环境部署
+
+# ===============================================================================
+# 安全注意事项
+# ===============================================================================
+
+security_notes:
+  # 1. 所有敏感信息必须使用受保护的变量
+  # 2. 生产环境密钥必须单独管理
+  # 3. 定期轮换密钥和访问令牌
+  # 4. 使用最小权限原则配置 RBAC
+  # 5. 启用审计日志和监控
+
+  # 敏感变量列表 (必须保护):
+  # - 所有密码和密钥
+  # - kubeconfig 数据
+  # - API 访问令牌
+  # - 数据库连接字符串
+  # - JWT 密钥

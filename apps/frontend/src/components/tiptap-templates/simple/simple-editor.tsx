@@ -13,6 +13,7 @@ import { Highlight } from "@tiptap/extension-highlight"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
 import { Selection } from "@tiptap/extensions"
+import { Markdown } from "tiptap-markdown"
 
 // --- UI Primitives ---
 import { Button } from "@/components/tiptap-ui-primitive/button"
@@ -221,6 +222,16 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
           openOnClick: false,
           enableClickSelection: true,
         },
+      }),
+      Markdown.configure({
+        html: true,
+        tightLists: true,
+        tightListClass: 'tight',
+        bulletListMarker: '-',
+        linkify: true,
+        breaks: true,
+        transformPastedText: true,
+        transformCopiedText: true,
       }),
       HorizontalRule,
       TextAlign.configure({ types: ["heading", "paragraph"] }),

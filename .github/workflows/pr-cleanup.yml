@@ -1,0 +1,138 @@
+name: PR Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup-preview:
+    name: Cleanup Preview Environment
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_PREVIEW }}" | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+
+      - name: Delete preview namespace
+        run: |
+          export KUBECONFIG=kubeconfig
+          NAMESPACE="preview-pr-${{ github.event.pull_request.number }}"
+
+          echo "Cleaning up preview environment: $NAMESPACE"
+
+          # 删除 namespace 及其所有资源
+          kubectl delete namespace $NAMESPACE --ignore-not-found=true
+
+          # 等待 namespace 完全删除
+          kubectl wait --for=delete namespace/$NAMESPACE --timeout=300s || true
+
+      - name: Cleanup Helm releases
+        run: |
+          export KUBECONFIG=kubeconfig
+          RELEASE_NAME="preview-pr-${{ github.event.pull_request.number }}"
+
+          # 卸载 Helm release（如果存在）
+          helm uninstall $RELEASE_NAME --namespace "preview-pr-${{ github.event.pull_request.number }}" || true
+
+      - name: Cleanup DNS records (if applicable)
+        run: |
+          # 这里可以添加清理 DNS 记录的逻辑
+          # 例如清理 Ingress 记录、LoadBalancer IP 等
+          echo "DNS cleanup would happen here"
+
+  cleanup-artifacts:
+    name: Cleanup Temporary Artifacts
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true || github.event.pull_request.head.repo.full_name != github.repository
+    steps:
+      - name: Cleanup Docker images
+        run: |
+          # 清理临时构建的镜像
+          echo "Cleaning up temporary Docker images for PR #${{ github.event.pull_request.number }}"
+
+          # 这里可以添加清理镜像仓库中临时镜像的逻辑
+          # 例如删除 ghcr.io/owner/repo/backend:pr-xxx 等标签
+
+      - name: Cleanup test data
+        run: |
+          # 清理测试数据、临时存储等
+          echo "Cleaning up test data for PR #${{ github.event.pull_request.number }}"
+
+  notify-cleanup:
+    name: Notify Cleanup Completion
+    runs-on: ubuntu-latest
+    needs: [cleanup-preview, cleanup-artifacts]
+    if: always()
+    steps:
+      - name: Send cleanup notification
+        if: needs.cleanup-preview.result == 'success'
+        run: |
+          echo "Preview environment for PR #${{ github.event.pull_request.number }} has been successfully cleaned up"
+
+          # 发送 Slack 通知（可选）
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data "{
+                \"text\": \"🧹 Preview environment cleanup completed\",
+                \"attachments\": [
+                  {
+                    \"fields\": [
+                      {
+                        \"title\": \"PR\",
+                        \"value\": \"#${{ github.event.pull_request.number }}\",
+                        \"short\": true
+                      },
+                      {
+                        \"title\": \"Title\",
+                        \"value\": \"${{ github.event.pull_request.title }}\",
+                        \"short\": false
+                      },
+                      {
+                        \"title\": \"Merged by\",
+                        \"value\": \"${{ github.event.pull_request.merged_by.login }}\",
+                        \"short\": true
+                      }
+                    ]
+                  }
+                ]
+              }" \
+              "${{ secrets.SLACK_WEBHOOK_URL }}"
+          fi
+
+      - name: Send cleanup failure notification
+        if: needs.cleanup-preview.result == 'failure'
+        run: |
+          echo "Failed to cleanup preview environment for PR #${{ github.event.pull_request.number }}"
+
+          # 发送错误通知
+          if [ -n "${{ secrets.SLACK_WEBHOOK_URL }}" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data "{
+                \"text\": \"❌ Preview environment cleanup failed\",
+                \"attachments\": [
+                  {
+                    \"fields\": [
+                      {
+                        \"title\": \"PR\",
+                        \"value\": \"#${{ github.event.pull_request.number }}\",
+                        \"short\": true
+                      },
+                      {
+                        \"title\": \"Error\",
+                        \"value\": \"Manual cleanup may be required\",
+                        \"short\": false
+                      }
+                    ],
+                    \"color\": \"danger\"
+                  }
+                ]
+              }" \
+              "${{ secrets.SLACK_WEBHOOK_URL }}"
+          fi

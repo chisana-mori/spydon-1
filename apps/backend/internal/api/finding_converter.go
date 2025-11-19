@@ -155,21 +155,12 @@ func (c *FindingToAlertConverter) buildAggregationKey() {
 	}
 }
 
-// buildFingerprint 构建指纹
-func (c *FindingToAlertConverter) buildFingerprint() {
-	c.fingerprint = c.finding.Fingerprint
-
-	if c.fingerprint == "" {
-		c.fingerprint = generateFingerprint(c.title, c.clusterID, c.aggregationKey)
-	}
-}
-
 // parseTimes 解析时间
 func (c *FindingToAlertConverter) parseTimes() {
-	if !c.finding.StartsAt.Time.IsZero() {
+	if !c.finding.StartsAt.IsZero() {
 		c.startsAt = &c.finding.StartsAt.Time
 	}
-	if c.finding.EndsAt != nil && !c.finding.EndsAt.Time.IsZero() {
+	if c.finding.EndsAt != nil && !c.finding.EndsAt.IsZero() {
 		c.endsAt = &c.finding.EndsAt.Time
 	}
 }
@@ -188,8 +179,8 @@ func (c *FindingToAlertConverter) buildLabels() {
 		}
 	}
 
-	c.labels["source"] = string(c.finding.Source.Value)
-	c.labels["finding_type"] = string(c.finding.FindingType.Value)
+	c.labels["source"] = c.finding.Source.Value
+	c.labels["finding_type"] = c.finding.FindingType.Value
 
 	c.labels["subject_type"] = c.finding.Subject.SubjectType.String()
 	if c.finding.Subject.Namespace != "" {

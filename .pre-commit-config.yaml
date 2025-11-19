@@ -1,0 +1,76 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: check-json
+
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        entry: bash -c 'cd apps/backend && go fmt ./...'
+        language: system
+        types: [go]
+
+      - id: go-vet
+        name: go vet
+        entry: bash -c 'cd apps/backend && go vet ./...'
+        language: system
+        types: [go]
+
+      - id: go-test
+        name: go test
+        entry: bash -c 'cd apps/backend && go test ./... -count=1'
+        language: system
+        types: [go]
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: bash -c
+        args:
+          - |
+            BIN_DIR="${TMPDIR:-/tmp}/golangci-bin"
+            mkdir -p "$BIN_DIR"
+            if ! command -v golangci-lint >/dev/null 2>&1; then
+              echo "golangci-lint 未安装，正在下载..." 1>&2
+              curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh |
+                sh -s -- -b "$BIN_DIR" v2.6.2
+              export PATH="$BIN_DIR:$PATH"
+            fi
+            cd apps/backend && golangci-lint run --config .golangci-fast.yml
+        language: system
+        pass_filenames: false
+        types: [go]
+        always_run: true
+
+      - id: commit-msg-lint
+        name: commit message lint
+        stages: [commit-msg]
+        language: system
+        entry: bash -c
+        args:
+          - |
+            MSG_FILE="${1:-}"
+            HEAD_LINE="$(sed -n '1p' "$MSG_FILE" | tr -d '\r')"
+            REGEX='^(feat|fix|refactor|docs|chore|test|perf|ci|build|style)(\([a-z0-9\-]+\))?: .+'
+            if ! printf "%s" "$HEAD_LINE" | LC_ALL=C grep -Eq "$REGEX"; then
+              echo "提交信息不符合规范: $HEAD_LINE" 1>&2
+              echo "格式: <type>(scope): message" 1>&2
+              echo "type 必须为: feat|fix|refactor|docs|chore|test|perf|ci|build|style" 1>&2
+              exit 1
+            fi
+          - commit-msg-lint
+        files: ''
+
+      - id: pre-push-test
+        name: pre-push test
+        stages: [pre-push]
+        language: system
+        entry: bash -c 'if command -v go >/dev/null 2>&1; then cd apps/backend && go test ./... -count=1; fi'
+        pass_filenames: false
+        types: [go]

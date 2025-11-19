@@ -22,7 +22,8 @@ import {
   CalendarDays,
   Layers,
   ChevronDown,
-  X
+  X,
+  ExternalLink
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import RobustaAPI from '@/lib/api'
@@ -30,7 +31,7 @@ import { format, subDays, addHours, parseISO } from 'date-fns'
 import type { AlertFilters } from '@/types/api'
 
 export default function Alerts() {
-  const [filters, setFilters] = useState<AlertFilters>({})
+  const [filters, setFilters] = useState<AlertFilters>({ status: 'firing' })
   const [searchTerm, setSearchTerm] = useState('')
   const [clusterSearch, setClusterSearch] = useState('')
   const [selectedClusters, setSelectedClusters] = useState<string[]>([])
@@ -74,11 +75,11 @@ export default function Alerts() {
 
   const alerts = useMemo(() => alertsData?.data || [], [alertsData?.data])
   const clusters = clustersData?.data || []
-  
+
   // 过滤集群列表
   const filteredClusters = useMemo(() => {
     if (!clusterSearch) return clusters;
-    return clusters.filter(cluster => 
+    return clusters.filter(cluster =>
       cluster.name.toLowerCase().includes(clusterSearch.toLowerCase()) ||
       cluster.cluster_id.toLowerCase().includes(clusterSearch.toLowerCase())
     );
@@ -106,16 +107,16 @@ export default function Alerts() {
         return timeB.getTime() - timeA.getTime() // 改为倒序：最新的在前面
       })
   }, [alerts, timeRangeStart, timeRangeEnd, selectedClusters])
-  
+
   // 切换集群选择
   const toggleCluster = (clusterId: string) => {
-    setSelectedClusters(prev => 
+    setSelectedClusters(prev =>
       prev.includes(clusterId)
         ? prev.filter(id => id !== clusterId)
         : [...prev, clusterId]
     )
   }
-  
+
   // 清空集群选择
   const clearClusters = () => {
     setSelectedClusters([])
@@ -148,11 +149,10 @@ export default function Alerts() {
                   setUseAbsoluteTime(false)
                   setTimeRange(option.value)
                 }}
-                className={`h-8 px-3 text-sm rounded-md ${
-                  !useAbsoluteTime && timeRange === option.value
-                    ? 'bg-black text-white hover:bg-gray-900'
-                    : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-                }`}
+                className={`h-8 px-3 text-sm rounded-md ${!useAbsoluteTime && timeRange === option.value
+                  ? 'bg-black text-white hover:bg-gray-900'
+                  : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                  }`}
               >
                 {option.label}
               </Button>
@@ -164,11 +164,10 @@ export default function Alerts() {
                 <Button
                   variant={useAbsoluteTime ? "default" : "ghost"}
                   size="sm"
-                  className={`h-8 px-3 text-sm rounded-md flex items-center gap-1 ${
-                    useAbsoluteTime
-                      ? 'bg-black text-white hover:bg-gray-900'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-                  }`}
+                  className={`h-8 px-3 text-sm rounded-md flex items-center gap-1 ${useAbsoluteTime
+                    ? 'bg-black text-white hover:bg-gray-900'
+                    : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
                 >
                   <CalendarDays className="h-3 w-3" />
                   绝对日期
@@ -229,12 +228,12 @@ export default function Alerts() {
         </div>
 
         {/* 筛选标签行 */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 flex-wrap">
           {/* 集群筛选 - 多选搜索下拉 */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <Layers className="h-4 w-4 text-gray-500" />
             <span className="text-sm text-gray-600">集群</span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 flex-wrap">
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -242,7 +241,7 @@ export default function Alerts() {
                     size="sm"
                     className="h-7 px-3 text-xs rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"
                   >
-                    {selectedClusters.length === 0 
+                    {selectedClusters.length === 0
                       ? '所有集群'
                       : `已选 ${selectedClusters.length} 个集群`}
                     <ChevronDown className="h-3 w-3" />
@@ -298,21 +297,22 @@ export default function Alerts() {
                   </div>
                 </PopoverContent>
               </Popover>
-              
+
               {/* 显示已选集群标签 */}
               {selectedClusters.length > 0 && (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
                   {selectedClusters.slice(0, 2).map((clusterId) => {
                     const cluster = clusters.find(c => c.cluster_id === clusterId);
                     return (
                       <div
                         key={clusterId}
-                        className="inline-flex items-center gap-1 h-7 px-2 text-xs rounded-full bg-black text-white"
+                        className="inline-flex items-center gap-1 h-7 px-2 text-xs rounded-full bg-black text-white max-w-[200px]"
+                        title={cluster?.name || clusterId}
                       >
-                        <span className="max-w-24 truncate">{cluster?.name || clusterId}</span>
+                        <span className="truncate">{cluster?.name || clusterId}</span>
                         <button
                           onClick={() => toggleCluster(clusterId)}
-                          className="hover:bg-white/20 rounded-full p-0.5"
+                          className="hover:bg-white/20 rounded-full p-0.5 flex-shrink-0"
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -320,7 +320,7 @@ export default function Alerts() {
                     );
                   })}
                   {selectedClusters.length > 2 && (
-                    <span className="text-xs text-gray-600">
+                    <span className="text-xs text-gray-600 flex-shrink-0">
                       +{selectedClusters.length - 2}
                     </span>
                   )}
@@ -346,11 +346,10 @@ export default function Alerts() {
                   variant={(filters.severity || '') === option.value ? "default" : "ghost"}
                   size="sm"
                   onClick={() => handleFilterChange('severity', option.value)}
-                  className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 ${
-                    (filters.severity || '') === option.value
-                      ? 'bg-black text-white hover:bg-gray-900'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 ${(filters.severity || '') === option.value
+                    ? 'bg-black text-white hover:bg-gray-900'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   <div className={`w-2 h-2 rounded-full ${option.color}`} />
                   {option.label}
@@ -375,11 +374,10 @@ export default function Alerts() {
                   variant={(filters.status || '') === option.value ? "default" : "ghost"}
                   size="sm"
                   onClick={() => handleFilterChange('status', option.value)}
-                  className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 ${
-                    (filters.status || '') === option.value
-                      ? 'bg-black text-white hover:bg-gray-900'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className={`h-7 px-3 text-xs rounded-full flex items-center gap-1.5 ${(filters.status || '') === option.value
+                    ? 'bg-black text-white hover:bg-gray-900'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
                 >
                   <div className={`w-2 h-2 rounded-full ${option.color}`} />
                   {option.label}
@@ -466,60 +464,108 @@ export default function Alerts() {
                     }
                   }
 
+                  // 调试：打印第一个告警的数据结构
+                  if (index === 0) {
+                    console.log('Alert data structure:', alert)
+                    console.log('Alert annotations:', alert.annotations)
+                    console.log('Alert labels:', alert.labels)
+                  }
+
                   return (
                     <div
                       key={alert.id}
-                      className={`flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors ${
-                        index !== timelineAlerts.length - 1 ? 'border-b border-gray-100' : ''
-                      }`}
+                      className={`flex items-start gap-4 px-6 py-5 hover:bg-gray-50 transition-colors ${index !== timelineAlerts.length - 1 ? 'border-b border-gray-100' : ''
+                        }`}
                     >
-                      {/* 左侧内容 */}
-                      <div className="flex items-center gap-4 flex-1">
-                        {/* 严重级别指示器 */}
-                        <div className={`w-2.5 h-2.5 rounded-full ${getSeverityColor(alert.severity)} flex-shrink-0`} />
+                      {/* 严重级别指示器 */}
+                      <div className={`w-3 h-3 rounded-full ${getSeverityColor(alert.severity)} flex-shrink-0 mt-1.5`} />
 
-                        {/* 告警信息 */}
-                        <div className="flex-1 min-w-0">
-                          <Link
-                            href={resolveAppPath(`/alerts/${alert.id}`)}
-                            className="text-lg font-medium text-gray-900 hover:text-blue-600 transition-colors block mb-1"
-                          >
-                            {alert.title}
-                          </Link>
+                      {/* 主要内容区域 */}
+                      <div className="flex-1 min-w-0 space-y-2">
+                        {/* 标题 */}
+                        <Link
+                          href={resolveAppPath(`/alerts/${alert.id}`)}
+                          className="text-base font-semibold text-gray-900 hover:text-blue-600 transition-colors block"
+                        >
+                          {alert.title}
+                        </Link>
 
-                          {/* 集群和标签信息 */}
-                          <div className="flex items-center gap-3">
-                            <span className="text-sm text-gray-600">
-                              集群: {alert.cluster?.name || alert.cluster_id || 'robusta-kind'}
-                            </span>
+                        {/* 描述信息 */}
+                        {alert.description && (
+                          <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed" title={alert.description}>
+                            {alert.description}
+                          </p>
+                        )}
 
-                            {/* 严重级别标签 */}
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${getSeverityColor(alert.severity)}`}>
-                              {getSeverityLabel(alert.severity)}
-                            </span>
+                        {/* 元信息行 */}
+                        <div className="flex items-center gap-3 flex-wrap text-sm">
+                          {/* 集群 */}
+                          <span className="text-gray-600">
+                            集群: <span className="font-medium">{alert.cluster?.name || alert.cluster_id || 'robusta-kind'}</span>
+                          </span>
 
-                            {/* 状态标签 */}
-                            {alert.status === 'firing' && (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          <span className="text-gray-300">•</span>
+
+                          {/* 严重级别 */}
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getSeverityColor(alert.severity)}`}>
+                            {getSeverityLabel(alert.severity)}
+                          </span>
+
+                          {/* 状态 */}
+                          {alert.status === 'firing' && (
+                            <>
+                              <span className="text-gray-300">•</span>
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                                 触发中
                               </span>
-                            )}
+                            </>
+                          )}
 
-                            {/* 时间信息 */}
-                            <div className="flex items-center gap-1 text-sm text-gray-500">
-                              <Clock className="h-4 w-4" />
-                              <span>
-                                {format(parseISO(alert.starts_at || alert.created_at), 'HH:mm:ss')}
-                              </span>
-                            </div>
+                          <span className="text-gray-300">•</span>
+
+                          {/* 时间 */}
+                          <div className="flex items-center gap-1.5 text-gray-500">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span className="text-xs">
+                              {format(parseISO(alert.starts_at || alert.created_at), 'yyyy-MM-dd HH:mm:ss')}
+                            </span>
                           </div>
+
+                          {/* Generator URL 按钮 */}
+                          {(() => {
+                            const generatorUrl = (alert as any).generator_url ||
+                              (alert as any).generatorURL ||
+                              alert.annotations?.generatorURL ||
+                              alert.annotations?.generator_url ||
+                              alert.labels?.generatorURL ||
+                              alert.labels?.generator_url
+
+                            if (generatorUrl) {
+                              return (
+                                <>
+                                  <span className="text-gray-300">•</span>
+                                  <a
+                                    href={generatorUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 hover:border-gray-400 rounded-md transition-all shadow-sm hover:shadow"
+                                    title={generatorUrl}
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                    <span>指标</span>
+                                  </a>
+                                </>
+                              )
+                            }
+                            return null
+                          })()}
                         </div>
                       </div>
 
-                      {/* 右侧查看详情按钮 */}
+                      {/* 右侧操作按钮 */}
                       <Link
                         href={resolveAppPath(`/alerts/${alert.id}`)}
-                        className="ml-4 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:text-gray-900 transition-colors flex-shrink-0"
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 transition-all flex-shrink-0"
                       >
                         查看详情
                       </Link>

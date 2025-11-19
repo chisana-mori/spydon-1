@@ -198,7 +198,7 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 	}
 
 	username := authResp.User
-	attributes := cas.UserAttributes(authResp.Attributes)
+	attributes := authResp.Attributes
 	loginResp, err := h.authService.LoginWithCAS(username, attributes)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "CAS_LOGIN_FAILED", "CAS 登录失败", err.Error())

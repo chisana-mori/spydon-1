@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spydon-production
+  labels:
+    name: spydon-production
+    environment: production
+    app: spydon
+    security-level: high
+  annotations:
+    description: "Spydon Production Environment"
+    contact: "devops@company.com"
+    created-by: "argocd"
+    argocd.argoproj.io/sync-options: CreateNamespace=true

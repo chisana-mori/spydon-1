@@ -1,27 +1,27 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import {
-  Brain,
-  Play,
-  Square,
-  RotateCcw,
-  Download,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  MessageSquare,
-  Settings,
-  Volume2,
-  VolumeX,
-  Clock
-} from 'lucide-react'
+import { Brain, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { Alert } from '@/types/api'
-import { ChatMessage, HolmesStructuredData, HolmesTaskItem, HolmesTaskSection, formatSummaryText } from './ChatMessage'
+import { HolmesStructuredData, HolmesTaskItem, HolmesTaskSection, formatSummaryText } from './ChatMessage'
+import {
+  parseProgress,
+  normalizePlainText,
+  appendTextChunk,
+  deduplicateSummaryBlocks,
+  buildSummarySignature,
+  extractHolmesStructuredData,
+  mergeHolmesStructuredData,
+  looksLikeStructuredSummary,
+  structuredDataToMarkdown,
+  sanitizeStructuredData
+} from './holmesUtils'
+import { buildCachedSSEChunks, createCachedChunkIterable, createResponseChunkIterable, consumeSSEChunks } from './sseHelpers'
+import { ControlBar } from './ControlBar'
+import { ContentArea } from './ContentArea'
+import { EnhancedHolmesGPTChatProps, AnalysisState, ChatSettings, StreamProcessor } from './holmesTypes'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { appConfig } from '@/config'
@@ -33,50 +33,7 @@ const generateUniqueId = (prefix: string = 'msg') => {
   return `${prefix}-${Date.now()}-${messageIdCounter}-${Math.random().toString(36).slice(2)}`
 }
 
-interface EnhancedHolmesGPTChatProps {
-  alert: Alert
-  showCard?: boolean  // 控制是否显示外层Card
-  cachedResult?: any  // 缓存的RCA结果
-  loadingCache?: boolean  // 是否正在加载缓存
-}
 
-interface AnalysisMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: string
-  isStreaming?: boolean
-  toolCalls?: Array<{
-    name: string
-    input: any
-    output?: any
-    status: 'pending' | 'success' | 'error'
-    command?: string
-  }>
-  structuredData?: HolmesStructuredData
-}
-
-interface AnalysisState {
-  status: 'idle' | 'analyzing' | 'completed' | 'error'
-  messages: AnalysisMessage[]
-  error?: string
-  totalSteps?: number
-  completedSteps?: number
-}
-
-interface StreamProcessor {
-  appendChunk: (chunk: string) => boolean
-  finalize: (status?: AnalysisState['status']) => void
-  processAnalysisData: (payload: any) => void
-  processDataItem: (payload: any) => void
-}
-
-interface ChatSettings {
-  autoScroll: boolean
-  soundEnabled: boolean
-  showToolCalls: boolean
-  language: 'zh-CN' | 'en-US'
-}
 
 export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   alert,
@@ -231,123 +188,13 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
     replayCachedResult(cachedResult)
   }, [cachedResult, loadingCache, isReplayingCache, analysisState.status, analysisState.messages.length, restartAnalysis])
 
-  const buildCachedSSEChunks = (cached: any): string[] => {
-    if (Array.isArray(cached?.stream_chunks) && cached.stream_chunks.length > 0) {
-      return cached.stream_chunks
-    }
 
-    const events: string[] = []
-    const pushEvent = (payload: any) => {
-      events.push(`data: ${JSON.stringify(payload)}\n\n`)
-    }
 
-    if (cached?.analysis) {
-      pushEvent({ type: 'analysis', data: cached.analysis })
-    }
 
-    const fullText = cached?.metadata?.full_text
-    if (fullText) {
-      pushEvent({ type: 'analysis', data: { content: fullText } })
-    }
 
-    const summary = cached?.metadata?.summary
-    if (summary) {
-      pushEvent({ type: 'analysis', data: { content: summary, summary } })
-    }
 
-    if (events.length) {
-      pushEvent({ type: 'complete', data: {} })
-      events.push('data: [DONE]\n\n')
-    }
 
-    return events
-  }
 
-  const createCachedChunkIterable = (chunks: string[]): AsyncIterable<string> => ({
-    async *[Symbol.asyncIterator]() {
-      for (const chunk of chunks) {
-        if (typeof chunk !== 'string') continue
-        if (!chunk) continue
-        yield chunk
-      }
-    }
-  })
-
-  const createResponseChunkIterable = (response: Response) => {
-    if (!response.body) {
-      throw new Error('无法读取响应流')
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let completed = false
-
-    const iterable: AsyncIterable<string> = {
-      async *[Symbol.asyncIterator]() {
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) {
-              completed = true
-              const remaining = decoder.decode()
-              if (remaining) {
-                yield remaining
-              }
-              break
-            }
-            if (value) {
-              yield decoder.decode(value, { stream: true })
-            }
-          }
-        } finally {
-          if (!completed) {
-            try {
-              await reader.cancel()
-            } catch (error) {
-              console.warn('取消 SSE 读取器失败:', error)
-            }
-          }
-          try {
-            reader.releaseLock()
-          } catch (error) {
-            console.warn('释放 SSE 读取器失败:', error)
-          }
-        }
-      }
-    }
-
-    const stop = async () => {
-      completed = true
-      try {
-        await reader.cancel()
-      } catch (error) {
-        console.warn('主动停止 SSE 读取器失败:', error)
-      }
-    }
-
-    return { iterable, stop }
-  }
-
-  const consumeSSEChunks = async (
-    iterable: AsyncIterable<string>,
-    processor: StreamProcessor,
-    options?: { onStop?: () => void | Promise<void> }
-  ): Promise<void> => {
-    for await (const chunk of iterable) {
-      if (!chunk) continue
-      const shouldStop = processor.appendChunk(chunk)
-      if (shouldStop) {
-        if (options?.onStop) {
-          try {
-            await options.onStop()
-          } catch (error) {
-            console.warn('停止 SSE 流时出错:', error)
-          }
-        }
-        break
-      }
-    }
-  }
 
   // 回放缓存的RCA结果
   const replayCachedResult = async (cached: any) => {
@@ -403,29 +250,25 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
 
   // 构建 HolmesGPT 调查请求
   const buildInvestigateRequest = () => {
+    const alertPayload = {
+      id: alert.id,
+      fingerprint: alert.fingerprint,
+      cluster_id: alert.cluster_id,
+      title: alert.title,
+      description: alert.description || '',
+      severity: alert.severity,
+      status: alert.status,
+      labels: alert.labels || {},
+      annotations: alert.annotations || {},
+      created_at: alert.created_at,
+      starts_at: alert.starts_at,
+      ends_at: alert.ends_at
+    }
+
     return {
       source: 'robusta',
-      title: `${alert.title}`,
-      description: `${alert.description || ''}
-
-🚨 重要指令 - CRITICAL INSTRUCTION:
-你必须使用中文回答所有问题！You MUST respond in Chinese for all questions!
-请用中文提供详细的根因分析、解决方案和预防措施。
-Please provide detailed root cause analysis, solutions, and preventive measures in Chinese.
-
-分析要求：
-1. 使用中文描述问题现象
-2. 使用中文分析根本原因
-3. 使用中文提供解决步骤
-4. 使用中文给出预防建议
-5. 所有技术术语请用中文解释
-
-Analysis Requirements:
-1. Describe the problem in Chinese
-2. Analyze root causes in Chinese  
-3. Provide solution steps in Chinese
-4. Give prevention suggestions in Chinese
-5. Explain all technical terms in Chinese`,
+      title: alert.title,
+      description: `${alert.description || ''}${alert.description ? '\n\n' : ''}请用中文回答全部内容。`,
       subject: {
         alert_id: alert.id,
         fingerprint: alert.fingerprint,
@@ -439,15 +282,8 @@ Analysis Requirements:
         ends_at: alert.ends_at
       },
       context: {
-        cluster_name: alert.cluster_id,
-        alert_fingerprint: alert.fingerprint,
-        alert_severity: alert.severity,
-        alert_status: alert.status,
-        alert_labels: alert.labels || {},
-        alert_annotations: alert.annotations || {},
-        language_requirement: '必须使用中文 - MUST USE CHINESE',
-        response_language: 'zh-CN',
-        instruction: '请用中文回答所有问题，包括技术分析、解决方案和建议。Please respond in Chinese for all technical analysis, solutions and recommendations.'
+        alert: alertPayload,
+        response_language: settings.language || 'zh-CN'
       },
       source_instance_id: 'WebUI-Chinese-Enhanced',
       include_tool_calls: settings.showToolCalls,
@@ -456,20 +292,7 @@ Analysis Requirements:
     }
   }
 
-  // 解析任务进度
-  const parseProgress = (structuredData?: HolmesStructuredData) => {
-    if (!structuredData) return { total: 0, completed: 0 }
-    
-    const allTasks = [
-      ...(structuredData.tasks || []),
-      ...(structuredData.taskSections?.flatMap(section => section.tasks) || [])
-    ]
-    
-    const completed = allTasks.filter(task => task.status === 'completed').length
-    const total = allTasks.length
-    
-    return { total, completed }
-  }
+
 
   // 音效播放
   const playNotificationSound = () => {
@@ -486,135 +309,24 @@ Analysis Requirements:
     }
   }
 
-  // JSON解析逻辑（复用原有逻辑）
-  const normalizeTaskStatus = (status: any): HolmesTaskItem['status'] => {
-    const value = String(status ?? '').toLowerCase()
-    if (value.includes('progress') || value.includes('running')) return 'in_progress'
-    if (value.includes('complete') || value.includes('done') || value.includes('success')) return 'completed'
-    return 'pending'
-  }
 
-  const parseJsonObjectSequence = (raw: string): any[] => {
-    const trimmed = raw.trim()
-    if (!trimmed) return []
-
-    const result: any[] = []
-    let buffer = ''
-    let depth = 0
-    let inString = false
-    let escape = false
-
-    const flushBuffer = () => {
-      const candidate = buffer.trim()
-      if (!candidate) {
-        buffer = ''
-        return
-      }
-      try {
-        result.push(JSON.parse(candidate))
-      } catch {
-        // 忽略无法解析的片段
-      }
-      buffer = ''
-    }
-
-    for (let i = 0; i < trimmed.length; i += 1) {
-      const char = trimmed[i]
-      buffer += char
-
-      if (escape) {
-        escape = false
-        continue
-      }
-
-      if (char === '\\') {
-        escape = true
-        continue
-      }
-
-      if (char === '"') {
-        inString = !inString
-        continue
-      }
-
-      if (!inString) {
-        if (char === '{' || char === '[') depth += 1
-        if (char === '}' || char === ']') depth -= 1
-      }
-
-      if (depth === 0 && !inString) {
-        flushBuffer()
-      }
-    }
-
-    flushBuffer()
-    return result
-  }
-
-  const extractTodos = (payload: any): HolmesTaskItem[] | undefined => {
-    console.log('Extracting todos from payload:', payload)
-    
-    // 支持多种数据结构，包括最新的JSON格式
-    const candidates = [
-      payload?.todos,
-      payload?.params?.todos,
-      payload?.data?.todos,
-      payload?.result?.params?.todos,
-      // 新增：直接从result.data解析任务状态文本
-      payload?.result?.data ? parseTasksFromStatusText(payload.result.data) : null
-    ].filter(item => item && (Array.isArray(item) || typeof item === 'string'))
-
-    console.log('Todo candidates found:', candidates)
-
-    if (!candidates.length) return undefined
-
-    const seen = new Map<string, HolmesTaskItem>()
-
-    candidates.forEach(candidate => {
-      if (Array.isArray(candidate)) {
-        candidate.forEach((item: any, index: number) => {
-          if (!item) return
-          const content = typeof item.content === 'string' ? item.content.trim() : undefined
-          if (!content) return
-          const id = String(item.id ?? index)
-          const note = typeof item.note === 'string' ? item.note : undefined
-          seen.set(id || content, {
-            id,
-            content,
-            status: normalizeTaskStatus(item.status),
-            note
-          })
-        })
-      } else if (typeof candidate === 'string') {
-        // 从状态文本中解析任务
-        const tasks = parseTasksFromStatusText(candidate)
-        if (tasks) {
-          tasks.forEach(task => {
-            seen.set(task.id, task)
-          })
-        }
-      }
-    })
-
-    return Array.from(seen.values())
-  }
 
   // 新增：从状态文本解析任务列表
   const parseTasksFromStatusText = (statusText: string): HolmesTaskItem[] | null => {
     if (typeof statusText !== 'string') return null
-    
+
     const tasks: HolmesTaskItem[] = []
     const lines = statusText.split('\n')
-    
+
     console.log('Parsing status text lines:', lines)
-    
+
     for (const line of lines) {
       // 匹配格式：[✓] [1] 任务内容 或 [ ] [2] 任务内容 或 [~] [3] 任务内容
       const taskMatch = line.match(/\[(.*?)\]\s*\[(\d+)\]\s*(.*)/)
       if (taskMatch) {
         const [, statusSymbol, id, content] = taskMatch
         let status: HolmesTaskItem['status'] = 'pending'
-        
+
         if (statusSymbol.includes('✓')) {
           status = 'completed'
         } else if (statusSymbol.includes('~') || statusSymbol.includes('▶')) {
@@ -622,20 +334,20 @@ Analysis Requirements:
         } else {
           status = 'pending'
         }
-        
+
         const task = {
           id,
           content: content.trim(),
           status
         }
-        
+
         console.log('Parsed task:', task)
         tasks.push(task)
       } else {
         console.log('Line did not match task pattern:', line)
       }
     }
-    
+
     console.log('Final parsed tasks:', tasks)
     return tasks.length > 0 ? tasks : null
   }
@@ -659,566 +371,17 @@ Analysis Requirements:
     return `完成 ${completed} · 进行中 ${inProgress} · 待处理 ${pending}`
   }
 
-  const formatSectionsToMarkdown = (sections: Record<string, any>): string | undefined => {
-    if (!sections || typeof sections !== 'object') return undefined
 
-    const blocks: string[] = []
 
-    Object.entries(sections).forEach(([rawTitle, rawContent]) => {
-      if (rawContent === undefined || rawContent === null) {
-        return
-      }
 
-      const title = typeof rawTitle === 'string' ? formatSummaryText(rawTitle) : String(rawTitle)
-      const content = typeof rawContent === 'string'
-        ? formatSummaryText(rawContent)
-        : formatSummaryText(JSON.stringify(rawContent, null, 2))
 
-      const normalizedContent = content.trim()
-      if (!normalizedContent) {
-        return
-      }
 
-      blocks.push(`### ${title}\n${normalizedContent}`)
-    })
 
-    return blocks.length ? blocks.join('\n\n') : undefined
-  }
 
-  const looksLikeStructuredSummary = (text: string): boolean => {
-    const normalized = normalizePlainText(text)
-    if (!normalized) return false
-    if (normalized.startsWith('#')) return true
-    if (/(问题描述|根本原因|解决方案|预防建议)/.test(normalized)) return true
-    const lines = normalized.split('\n')
-    if (lines.length >= 4 && normalized.length >= 120) return true
-    return false
-  }
 
-  const extractHolmesStructuredDataFromObject = (payload: any): HolmesStructuredData | undefined => {
-    if (!payload || typeof payload !== 'object') return undefined
 
-    console.log('Extracting structured data from object:', payload)
 
-    const planTextCandidates = [payload.content, payload.result?.message]
-      .filter((value) => typeof value === 'string' && value.trim()) as string[]
-    let planText: string | undefined = planTextCandidates[0]?.trim()
 
-    const toolName = typeof payload.tool_name === 'string'
-      ? payload.tool_name
-      : typeof payload.name === 'string'
-        ? payload.name
-        : undefined
-
-    console.log('Tool name:', toolName)
-
-    const tasks = extractTodos(payload)
-    console.log('Extracted tasks:', tasks)
-    const statusText = deriveStatusText(payload)
-    let summary: string | undefined
-    let progressText: string | undefined
-    const summaryParts: string[] = []
-
-    const analysisContent = typeof payload.analysis === 'string' ? payload.analysis.trim() : undefined
-
-    let sectionsSummary: string | undefined
-    if (payload.sections && typeof payload.sections === 'object') {
-      try {
-        sectionsSummary = formatSectionsToMarkdown(payload.sections)
-      } catch (error) {
-        console.warn('Failed to format sections summary:', error)
-      }
-    }
-
-    // 检测是否为最终分析报告
-    const isFinalReport = payload.content && typeof payload.content === 'string' && 
-      (payload.content.includes('# 问题分析报告') || 
-       payload.content.includes('## 问题描述') ||
-       payload.content.includes('## 根本原因分析') ||
-       payload.content.includes('## 解决方案'))
-
-    if (isFinalReport) {
-      if (typeof payload.content === 'string' && payload.content.trim()) {
-        summaryParts.push(payload.content.trim())
-      }
-      planText = undefined
-    } else {
-      if (sectionsSummary) {
-        summaryParts.push(sectionsSummary)
-      }
-
-      if ((!planText || /^write\s*\[/i.test(planText)) && tasks && tasks.length) {
-        planText = 'HolmesGPT 已生成调查任务清单，以下为建议的调查步骤。'
-      }
-      if (!planText && typeof payload.content === 'string') {
-        planText = payload.content.trim()
-      }
-
-      if ((!tasks || tasks.length === 0) && planText && !isFinalReport) {
-        // 非最终报告且无任务信息的纯文本，按“排查进度”展示，而不是“分析结论”
-        progressText = planText
-        planText = undefined
-      }
-    }
-
-    if (analysisContent) {
-      const normalizedAnalysis = analysisContent.trim()
-      const canonicalAnalysis = canonicalizeSummaryFragment(normalizedAnalysis)
-      const canonicalContent = typeof payload.content === 'string'
-        ? canonicalizeSummaryFragment(payload.content)
-        : null
-      if (!canonicalAnalysis || !canonicalContent || canonicalAnalysis !== canonicalContent) {
-        summaryParts.push(analysisContent)
-      }
-    }
-
-    if (summaryParts.length) {
-      summary = deduplicateSummaryBlocks(summaryParts.join('\n\n'))
-    }
-
-    const commands = collectCommands(payload)
-
-    const hasInfo = Boolean(planText || progressText || (tasks && tasks.length) || commands.length || toolName || statusText || summary)
-
-    if (!hasInfo) {
-      return undefined
-    }
-
-    // 为同一个工具调用生成稳定的ID，避免重复创建卡片
-    const canonicalToolNameRaw = typeof payload.tool_name === 'string'
-      ? payload.tool_name
-      : typeof payload.name === 'string'
-        ? payload.name
-        : undefined
-    const canonicalToolName = canonicalToolNameRaw?.trim()
-
-    const isTodoWrite = canonicalToolName ? canonicalToolName.toLowerCase().includes('todo') : false
-
-    const sectionId = (() => {
-      if (isTodoWrite) {
-        return 'todo-write-main'
-      }
-
-      if (payload.tool_call_id) return String(payload.tool_call_id)
-      if (payload.id) return String(payload.id)
-      if (payload.call_id) return String(payload.call_id)
-
-      if (canonicalToolName) {
-        return `section-${canonicalToolName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`
-      }
-
-      return 'section-default'
-    })()
-
-    const statusSummary = extractTaskStatus(payload.result?.data)
-    const sectionTitle = (() => {
-      if (isTodoWrite) {
-        return statusSummary ? `任务更新 · ${statusSummary}` : '任务更新'
-      }
-      if (canonicalToolName) {
-        return `${canonicalToolName} 调用`
-      }
-      return 'HolmesGPT 调用'
-    })()
-
-    const result: HolmesStructuredData = {
-      planText,
-      tasks,
-      toolName,
-      statusText: statusSummary || statusText || undefined,
-      progressText,
-      summary,
-      taskSections: ((tasks && tasks.length) || commands.length) ? [{
-        id: sectionId,
-        title: sectionTitle,
-        toolName: toolName || 'HolmesGPT',
-        tasks: tasks || [],
-        statusText: statusSummary || statusText || undefined,
-        commands: commands.length ? commands : undefined,
-      }] : undefined,
-      raw: payload
-    }
-
-    console.log('Extracted structured data result:', result)
-    return result
-  }
-
-  const extractHolmesStructuredData = (payload: any): HolmesStructuredData | undefined => {
-    if (!payload) return undefined
-
-    if (typeof payload === 'string') {
-      const objects = parseJsonObjectSequence(payload)
-      if (!objects.length) {
-        return {
-          summary: payload,
-        }
-      }
-      return objects.reduce<HolmesStructuredData | undefined>((acc, item) => {
-        const structured = extractHolmesStructuredData(item)
-        return mergeHolmesStructuredData(acc, structured)
-      }, undefined)
-    }
-
-    if (Array.isArray(payload)) {
-      return payload.reduce<HolmesStructuredData | undefined>((acc, item) => {
-        const structured = extractHolmesStructuredData(item)
-        return mergeHolmesStructuredData(acc, structured)
-      }, undefined)
-    }
-
-    return extractHolmesStructuredDataFromObject(payload)
-  }
-
-  const mergeHolmesStructuredData = (
-    previous?: HolmesStructuredData,
-    next?: HolmesStructuredData
-  ): HolmesStructuredData | undefined => {
-    if (!previous && !next) return undefined
-    if (!previous) return next
-    if (!next) return previous
-
-    // If 'next' is just a summary, merge it simply to avoid complex logic overwriting tasks.
-    if (next.summary && !next.planText && !next.tasks && !next.taskSections && !next.toolName) {
-        const newSummary = appendTextChunk(previous.summary || '', next.summary);
-        return {
-            ...previous,
-            summary: newSummary,
-        };
-    }
-    // If 'next' is just a progressText, merge it similarly
-    if (next.progressText && !next.planText && !next.tasks && !next.taskSections && !next.toolName && !next.summary) {
-        const newProgress = appendTextChunk((previous as any).progressText || '', next.progressText);
-        return {
-            ...previous,
-            progressText: newProgress,
-        } as HolmesStructuredData;
-    }
-
-    const merged: HolmesStructuredData = {
-      planText: next.planText || previous.planText,
-      toolName: next.toolName || previous.toolName,
-      statusText: next.statusText || previous.statusText,
-      raw: undefined,
-      tasks: []
-    }
-
-    const collectRaw = (value?: any) => {
-      if (value === undefined) return []
-      return Array.isArray(value) ? value : [value]
-    }
-
-    const rawCombined = [...collectRaw(previous.raw), ...collectRaw(next.raw)]
-    if (rawCombined.length) {
-      merged.raw = rawCombined
-    }
-
-    const order: string[] = []
-    const taskMap = new Map<string, HolmesTaskItem>()
-
-    const registerTask = (task?: HolmesTaskItem) => {
-      if (!task) return
-      const key = task.id || task.content
-      if (!taskMap.has(key)) {
-        order.push(key)
-      }
-      taskMap.set(key, {
-        ...task,
-        content: normalizePlainText(task.content),
-        note: task.note ? normalizePlainText(task.note) : task.note
-      })
-    }
-
-    previous.tasks?.forEach(registerTask)
-    next.tasks?.forEach(registerTask)
-
-    merged.tasks = order.map(key => taskMap.get(key)!).filter(Boolean)
-
-    let summaryText = previous.summary || ''
-    if (next.summary) {
-      summaryText = appendTextChunk(summaryText, next.summary)
-    }
-    if (summaryText.trim()) {
-      merged.summary = deduplicateSummaryBlocks(summaryText)
-    }
-
-    // merge progressText
-    const prevProgress = (previous as any).progressText || ''
-    const incomingProgress = next.progressText || ''
-    const combinedProgress = incomingProgress ? appendTextChunk(prevProgress, incomingProgress) : prevProgress
-    if (combinedProgress && combinedProgress.trim()) {
-      (merged as any).progressText = combinedProgress
-    }
-
-    const sectionMap = new Map<string, HolmesTaskSection>()
-    const sectionOrder: string[] = []
-
-    const registerSection = (section?: HolmesTaskSection) => {
-      if (!section) return
-       
-      if (!sectionMap.has(section.id)) {
-        sectionOrder.push(section.id)
-        sectionMap.set(section.id, section)
-        } else {
-          // 合并相同ID的section，主要是合并任务列表
-          const existing = sectionMap.get(section.id)!
-          const mergedSection: HolmesTaskSection = {
-            id: section.id,
-            // 保留现有的基本信息，只更新可变的状态信息
-            title: section.title || existing.title, // 优先使用新标题
-            statusText: section.statusText || existing.statusText, // 更新状态文本
-            toolName: section.toolName || existing.toolName,
-            tasks: [],
-            commands: appendCommands(existing.commands, section.commands),
-          }
-        
-        // 合并任务：以ID或content为键，新状态覆盖旧状态
-        const taskMap = new Map()
-        const taskOrder: string[] = []
-        
-        const addTask = (task: any) => {
-          if (!task) return
-          const key = task.id || task.content
-          if (!taskMap.has(key)) {
-            taskOrder.push(key)
-          }
-          // 新的任务状态覆盖旧的（例如：pending -> completed）
-          taskMap.set(key, task)
-        }
-        
-        // 先添加现有任务，再添加新任务（新任务会覆盖相同ID的旧任务）
-        existing.tasks?.forEach(addTask)
-        section.tasks?.forEach(addTask)
-        
-        mergedSection.tasks = taskOrder.map(key => taskMap.get(key)!).filter(Boolean)
-        sectionMap.set(section.id, mergedSection)
-      }
-    }
-
-    previous.taskSections?.forEach(registerSection)
-    next.taskSections?.forEach(section => {
-      if (!section) return
-      if (!section.tasks?.length) return
-
-      // 如果是 TodoWrite 且新增任务，与现有段 ID 合并
-      if (section.id === 'todo-write-main' && sectionMap.has('todo-write-main')) {
-        registerSection(section)
-        return
-      }
-
-      registerSection(section)
-    })
-
-    const sections = sectionOrder.map(id => sectionMap.get(id)!).filter(Boolean)
-    if (sections.length > 0) {
-      merged.taskSections = sections
-    }
-
-    if (!merged.tasks?.length) {
-      delete merged.tasks
-    }
-
-    if (merged.planText) {
-      merged.planText = normalizePlainText(merged.planText)
-    }
-    if ((merged as any).progressText) {
-      (merged as any).progressText = normalizePlainText((merged as any).progressText)
-    }
-    if (merged.statusText) {
-      merged.statusText = normalizePlainText(merged.statusText)
-    }
-    if (merged.summary) {
-      merged.summary = normalizePlainText(merged.summary)
-    }
-
-    return merged
-  }
-
-  function normalizePlainText(text: string): string {
-    if (!text) return text
-    let result = text
-    result = result.replace(/\r\n/g, '\n')
-    result = result.replace(/\u000d\u000a/gi, '\n')
-    result = result.replace(/\\r\\n/g, '\n')
-    result = result.replace(/\\n/g, '\n')
-    result = result.replace(/\\t/g, '    ')
-    result = result.replace(/\u00a0/g, ' ')
-    result = result.replace(/\n{3,}/g, '\n\n')
-    return result.trimEnd()
-  }
-
-  function appendTextChunk(base: string, chunk: string): string {
-    const normalizedBase = normalizePlainText(base)
-    if (!chunk) return normalizedBase
-    const normalizedChunk = normalizePlainText(chunk)
-    const trimmedChunk = normalizedChunk.trim()
-    if (!trimmedChunk) return base
-    const flatChunk = trimmedChunk.replace(/\s+/g, ' ')
-    const flatBase = normalizedBase.replace(/\s+/g, ' ')
-    if (flatBase.includes(flatChunk)) return normalizedBase
-    return normalizedBase ? `${normalizedBase}\n\n${trimmedChunk}` : trimmedChunk
-  }
-
-  function appendCommands(existing?: string[], incoming?: string[]): string[] | undefined {
-    const merged = new Set<string>()
-    existing?.forEach(cmd => {
-      if (cmd && cmd.trim()) merged.add(cmd.trim())
-    })
-    incoming?.forEach(cmd => {
-      if (cmd && cmd.trim()) merged.add(cmd.trim())
-    })
-    return merged.size ? Array.from(merged) : undefined
-  }
-
-  function canonicalizeSummaryFragment(fragment: string): string {
-    if (!fragment) return ''
-    const normalized = normalizePlainText(fragment)
-    return normalized
-      .replace(/(^|\n)#+\s*/g, '$1')
-      .replace(/(^|\n)[-*]\s+/g, '$1')
-      .replace(/(^|\n)\d+\.\s+/g, '$1')
-      .replace(/[`*_]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase()
-  }
-
-  function deduplicateSummaryBlocks(text: string): string {
-    if (!text) return text
-    const parts = text
-      .split(/\n{2,}/)
-      .map(part => normalizePlainText(part).trim())
-      .filter(Boolean)
-    const seen = new Set<string>()
-    const unique: string[] = []
-    parts.forEach(part => {
-      const signature = canonicalizeSummaryFragment(part)
-      if (signature && !seen.has(signature)) {
-        seen.add(signature)
-        unique.push(part)
-      }
-    })
-    return unique.join('\n\n')
-  }
-
-  function buildSummarySignature(text: string): string | null {
-    if (!text || typeof text !== 'string') return null
-    const canonical = canonicalizeSummaryFragment(text)
-    if (!canonical) return null
-    // 添加长度信息以提高去重准确性
-    return `${canonical.length}:${canonical.substring(0, 100)}`
-  }
-
-  function collectCommands(payload: any): string[] {
-    const commands: string[] = []
-
-    const tryAdd = (value?: any) => {
-      if (typeof value === 'string') {
-        const trimmed = value.trim()
-        if (trimmed && !commands.includes(trimmed)) {
-          commands.push(trimmed)
-        }
-      }
-    }
-
-    tryAdd(payload?.invocation)
-    tryAdd(payload?.description)
-    tryAdd(payload?.command)
-    tryAdd(payload?.result?.invocation)
-    tryAdd(payload?.result?.description)
-
-    return commands
-  }
-
-  const formatTaskListMarkdown = (tasks: HolmesTaskItem[], indent = ''): string => {
-    if (!tasks?.length) return ''
-    return tasks
-      .map(task => {
-        const checkbox = task.status === 'completed' ? '[x]' : task.status === 'in_progress' ? '[-]' : '[ ]'
-        const lines = [`${indent}- ${checkbox} ${task.content}`]
-        if (task.note) {
-          lines.push(`${indent}  > 备注：${task.note}`)
-        }
-        return lines.join('\n')
-      })
-      .join('\n')
-  }
-
-  const formatCommandsMarkdown = (commands?: string[]): string => {
-    if (!commands || commands.length === 0) return ''
-    const blocks: string[] = []
-    commands.forEach(cmd => {
-      const normalized = (cmd || '').replace(/\r\n/g, '\n').trim()
-      if (!normalized) {
-        return
-      }
-      blocks.push('```bash')
-      blocks.push(normalized)
-      blocks.push('```')
-    })
-    return blocks.join('\n\n')
-  }
-
-  const structuredDataToMarkdown = (
-    data?: HolmesStructuredData,
-    options?: { headingLevel?: number; summaryTitle?: string }
-  ): string | undefined => {
-    if (!data) return undefined
-    const { headingLevel = 3, summaryTitle = '分析结论' } = options || {}
-    const sections: string[] = []
-    const heading = (title: string, levelOffset = 0) => {
-      const level = Math.min(6, headingLevel + levelOffset)
-      return `${'#'.repeat(level)} ${title}`
-    }
-
-    if (data.planText) {
-      sections.push(`${heading('分析计划')}\n${data.planText}`)
-    }
-
-    if (data.progressText) {
-      sections.push(`${heading('排查进度')}\n${data.progressText}`)
-    }
-
-    if (data.tasks?.length) {
-      const tasksMarkdown = formatTaskListMarkdown(data.tasks)
-      if (tasksMarkdown) {
-        sections.push(`${heading('任务列表')}\n${tasksMarkdown}`)
-      }
-    }
-
-    if (data.taskSections?.length) {
-      const sectionLines: string[] = []
-      data.taskSections.forEach(section => {
-        if (!section || !section.tasks?.length) return
-        sectionLines.push(`${heading(section.title || section.toolName || '任务', 1)}`)
-        if (section.statusText) {
-          sectionLines.push(`> 状态：${section.statusText}`)
-        }
-        const tasksMarkdown = formatTaskListMarkdown(section.tasks, '  ')
-        if (tasksMarkdown) {
-          sectionLines.push(tasksMarkdown)
-        }
-        if (section.commands?.length) {
-          const commandsMarkdown = formatCommandsMarkdown(section.commands)
-          if (commandsMarkdown) {
-            sectionLines.push(`${heading('执行命令', 2)}`)
-            sectionLines.push(commandsMarkdown)
-          }
-        }
-      })
-      if (sectionLines.length) {
-        sections.push(sectionLines.join('\n'))
-      }
-    }
-
-    if (data.summary) {
-      const formatted = formatSummaryText(data.summary)
-      if (formatted.trim()) {
-        sections.push(`${heading(summaryTitle)}\n${formatted}`)
-      }
-    }
-
-    return sections.length ? sections.join('\n\n') : undefined
-  }
 
   const createStreamProcessor = (options: {
     initialTimestamp: string
@@ -1299,18 +462,18 @@ Analysis Requirements:
       if (!normalizedSummary) return
       const dedupedSummary = deduplicateSummaryBlocks(normalizedSummary)
       if (!dedupedSummary.trim()) return
-      
+
       // 生成签名用于去重
       const signature = buildSummarySignature(dedupedSummary)
       if (signature && signature === lastSummarySignatureRef.current) {
         console.log('检测到重复的summary，跳过添加')
         return
       }
-      
+
       if (signature) {
         lastSummarySignatureRef.current = signature
       }
-      
+
       setPinnedSummaryData(prev => {
         const merged = mergeHolmesStructuredData(
           prev,
@@ -1529,10 +692,10 @@ Analysis Requirements:
         }
 
         const mergedStructured = mergeHolmesStructuredData(currentAssistantMessage.structuredData, structuredForMessage)
-        
+
         // 只有在没有summary的情况下才添加到content
         const shouldAddToContent = !structured?.summary
-        
+
         currentAssistantMessage = {
           ...currentAssistantMessage,
           structuredData: mergedStructured,
@@ -1643,7 +806,7 @@ Analysis Requirements:
             console.warn('Failed to parse analysis string as JSON:', error)
           }
         }
-        
+
         // 检查是否看起来像结构化的summary（只在非ai_message事件时）
         if (eventType !== 'ai_message' && looksLikeStructuredSummary(trimmed)) {
           appendSummary(trimmed)
@@ -1783,43 +946,35 @@ Analysis Requirements:
     }
   }
 
-  // 开始分析（带自动重连）
-  const startAnalysis = async (retryCount = 0, maxRetries = 3) => {
+  // 开始分析
+  const startAnalysis = async () => {
     const controller = new AbortController()
     setAbortController(controller)
 
-    // 只在首次调用时添加用户消息
-    if (retryCount === 0) {
-      const userMessage: AnalysisMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
-        timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN })
-      }
-
-      setAnalysisState({
-        status: 'analyzing',
-        messages: [userMessage],
-        totalSteps: 0,
-        completedSteps: 0
-      })
-      allTasksCompletedRef.current = false;
-      setPinnedTasksData(undefined)
-      setPinnedSummaryData(undefined)
-      lastSummarySignatureRef.current = null
-    } else {
-      // 重连时只更新状态
-      setAnalysisState(prev => ({
-        ...prev,
-        status: 'analyzing'
-      }))
+    // 添加用户消息
+    const userMessage: AnalysisMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: `请分析告警：${alert.title}\n\n描述：${alert.description || '无描述'}`,
+      timestamp: format(new Date(), 'HH:mm:ss', { locale: zhCN })
     }
+
+    setAnalysisState({
+      status: 'analyzing',
+      messages: [userMessage],
+      totalSteps: 0,
+      completedSteps: 0
+    })
+    allTasksCompletedRef.current = false;
+    setPinnedTasksData(undefined)
+    setPinnedSummaryData(undefined)
+    lastSummarySignatureRef.current = null
 
     try {
       // 构建 API 路径，包含 basePath（如果配置了）
       const basePath = appConfig.basePath || ''
       const apiPath = `${basePath}/api/holmesgpt/stream/investigate`
-      
+
       const response = await fetch(apiPath, {
         method: 'POST',
         headers: {
@@ -1844,7 +999,7 @@ Analysis Requirements:
       processor.finalize('completed')
 
       playNotificationSound()
-      
+
     } catch (error: any) {
       if (error.name === 'AbortError') {
         setAnalysisState(prev => ({
@@ -1852,41 +1007,11 @@ Analysis Requirements:
           messages: prev.messages.slice(0, -1) // 移除未完成的助手消息
         }))
       } else {
-        console.error('流处理错误:', error)
-        
-        // 检查是否为网络连接错误，且未超过重试次数
-        const isNetworkError = 
-          error.message?.includes('Failed to fetch') ||
-          error.message?.includes('NetworkError') ||
-          error.message?.includes('SocketError') ||
-          error.code === 'UND_ERR_SOCKET' ||
-          error.name === 'TypeError'
-        
-        if (isNetworkError && retryCount < maxRetries) {
-          const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000) // 指数退避，最多5秒
-          console.log(`连接中断，${retryDelay}ms 后自动重连 (${retryCount + 1}/${maxRetries})...`)
-          
-          // 显示重连提示
-          setAnalysisState(prev => ({
-            ...prev,
-            status: 'analyzing',
-            error: `连接中断，正在重连... (${retryCount + 1}/${maxRetries})`
-          }))
-          
-          // 延迟后重试
-          await new Promise(resolve => setTimeout(resolve, retryDelay))
-          
-          // 递归调用，增加重试计数
-          return startAnalysis(retryCount + 1, maxRetries)
-        }
-        
-        // 超过重试次数或非网络错误，显示错误
+        console.error('分析失败:', error)
         setAnalysisState(prev => ({
           status: 'error',
           messages: prev.messages,
-          error: retryCount >= maxRetries 
-            ? `连接失败，已重试 ${maxRetries} 次：${error.message || '分析过程中发生错误'}`
-            : error.message || '分析过程中发生错误'
+          error: error.message || '分析过程中发生错误'
         }))
       }
     } finally {
@@ -1895,7 +1020,7 @@ Analysis Requirements:
   }
 
   const handleReanalyze = () => {
-    void startAnalysis(0, 3) // 从0开始重试，最多3次
+    void startAnalysis()
   }
 
   // 停止分析
@@ -2027,333 +1152,92 @@ Analysis Requirements:
     return lines.filter(Boolean).join('\n\n')
   }
 
-  // 内容区域组件
-  const ContentArea = () => (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div
-        ref={scrollAreaRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-6 py-4 flex flex-col"
-      >
-        {analysisState.messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center flex-1 text-center p-8">
-            <div className="relative mb-6">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-                <Brain className="h-8 w-8 text-blue-600" />
-              </div>
-              <div className="absolute -top-1 -right-1 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                <MessageSquare className="h-3 w-3 text-white" />
-              </div>
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">准备开始智能分析</h3>
-            <p className="text-sm text-gray-500 max-w-md leading-relaxed">
-              点击"开始RCA分析"按钮，HolmesGPT 将为您分析告警的根本原因，并提供详细的解决方案和预防措施。
-              分析过程包括任务规划、并行调查和结论总结。
-            </p>
-            <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <div className="text-blue-600 font-semibold text-lg">📋</div>
-                <div className="text-xs text-blue-700 mt-1">任务规划</div>
-              </div>
-              <div className="p-3 bg-green-50 rounded-lg">
-                <div className="text-green-600 font-semibold text-lg">🔍</div>
-                <div className="text-xs text-green-700 mt-1">并行调查</div>
-              </div>
-              <div className="p-3 bg-purple-50 rounded-lg">
-                <div className="text-purple-600 font-semibold text-lg">📝</div>
-                <div className="text-xs text-purple-700 mt-1">结论总结</div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-0">
-            {(() => {
-              const summarySignature = pinnedSummaryData?.summary ? buildSummarySignature(pinnedSummaryData.summary) : null
-              const seenContentSignatures = new Set<string>()
+  // 内容区域组件（已拆分，保留旧实现以便审阅）
+  const LegacyContentArea = () => null
 
-              return analysisState.messages.map(message => {
-                const sanitized = sanitizeStructuredData(message.structuredData)
-                const contentSignature = message.content?.trim() ? buildSummarySignature(message.content) : null
 
-                if (message.role === 'assistant') {
-                  const hasToolCalls = Array.isArray(message.toolCalls) && message.toolCalls.length > 0
-                  const hasStructured = Boolean(sanitized)
-                  const hasContent = Boolean(message.content?.trim())
-                  
-                  // 如果消息什么都没有，直接隐藏
-                  if (!hasToolCalls && !hasStructured && !hasContent) {
-                    return null
-                  }
 
-                  // 如果消息的内容与底部固定的summary重复
-                  if (contentSignature && summarySignature && contentSignature === summarySignature) {
-                    // 如果只有重复的content，没有其他内容，则隐藏整个消息
-                    if (!hasToolCalls && !hasStructured) {
-                      console.log('隐藏与pinnedSummary重复的消息:', message.id)
-                      return null
-                    }
-                    // 如果有其他内容，只清空content
-                  }
+  // 控制栏组件
+  // 控制栏组件（已拆分，保留旧实现以便审阅）
+  const LegacyControlBar = () => null
 
-                  // 检查content是否与之前的消息重复
-                  if (contentSignature && !hasStructured && !hasToolCalls) {
-                    if (seenContentSignatures.has(contentSignature)) {
-                      console.log('隐藏重复的content消息:', message.id)
-                      return null
-                    }
-                    seenContentSignatures.add(contentSignature)
-                  }
-                }
-
-                // 如果content与pinnedSummary重复，清空content避免重复显示
-                let displayContent = message.content
-                if (message.role === 'assistant' && contentSignature && summarySignature && contentSignature === summarySignature) {
-                  console.log('清空与pinnedSummary重复的content:', message.id)
-                  displayContent = ''
-                }
-
-                return (
-                  <ChatMessage
-                    key={message.id}
-                    role={message.role}
-                    content={displayContent}
-                    timestamp={message.timestamp}
-                    isStreaming={message.isStreaming}
-                    toolCalls={message.toolCalls || []}
-                    structuredData={sanitized}
-                  />
-                )
-              })
-            })()}
-            {pinnedTasksData && (() => {
-              const prog = parseProgress(pinnedTasksData)
-              const pinnedIsStreaming = analysisState.status === 'analyzing' && (!pinnedSummaryData) && (prog.total === 0 || prog.completed < prog.total)
-              return (
-                <ChatMessage
-                  key={tasksMessageIdRef.current}
-                  role="assistant"
-                  content={''}
-                  timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
-                  isStreaming={pinnedIsStreaming}
-                  toolCalls={[]}
-                  structuredData={pinnedTasksData}
-                />
-              )
-            })()}
-            {pinnedSummaryData && (
-              <ChatMessage
-                key={summaryMessageIdRef.current}
-                role="assistant"
-                content={''}
-                timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
-                isStreaming={false}
-                toolCalls={[]}
-                structuredData={pinnedSummaryData}
-              />
-            )}
-            {showScrollToLatest && (
-              <div className="sticky bottom-4 flex justify-end">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="shadow"
-                  onClick={handleScrollToLatest}
-                >
-                  回到最新
-                </Button>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
+  // 根据showCard决定返回结构
+  if (!showCard) {
+    return (
+      <div className="w-full h-full flex flex-col bg-white border rounded-lg overflow-hidden">
+        <ControlBar
+          statusIcon={getStatusIcon()}
+          statusText={getStatusText()}
+          progressText={getProgressText()}
+          showSettings={showSettings}
+          toggleSettings={() => setShowSettings(!showSettings)}
+          settings={settings}
+          setSettings={setSettings}
+          analysisStatus={analysisState.status}
+          loadingCache={loadingCache}
+          cachedResult={cachedResult}
+          isReplayingCache={isReplayingCache}
+          onStart={startAnalysis}
+          onStop={stopAnalysis}
+          onReanalyze={handleReanalyze}
+          onDownload={downloadAnalysis}
+        />
+        <ContentArea
+          analysisState={analysisState}
+          scrollAreaRef={scrollAreaRef}
+          messagesEndRef={messagesEndRef}
+          handleScroll={handleScroll}
+          showScrollToLatest={showScrollToLatest}
+          handleScrollToLatest={handleScrollToLatest}
+          pinnedTasksData={pinnedTasksData}
+          pinnedSummaryData={pinnedSummaryData}
+          tasksMessageId={tasksMessageIdRef.current}
+          summaryMessageId={summaryMessageIdRef.current}
+          onReanalyze={handleReanalyze}
+        />
       </div>
-      
-      {analysisState.status === 'error' && analysisState.error && (
-        <div className="p-4 border-t bg-red-50">
-          <div className="flex items-center space-x-2 text-red-600">
-            <AlertCircle className="h-4 w-4" />
-            <span className="text-sm font-medium">分析失败</span>
-          </div>
-          <p className="text-sm text-red-600 mt-1">{analysisState.error}</p>
-          <Button
-            onClick={handleReanalyze}
-            variant="default"
-            size="sm"
-            className="mt-2 bg-black text-white hover:bg-black/90"
-          >
-            重试分析
-          </Button>
-        </div>
-      )}
-    </div>
-  )
-
-  // 过滤掉 TodoWrite 任务段和summary，避免在普通消息中重复展示
-  function sanitizeStructuredData(data?: HolmesStructuredData): HolmesStructuredData | undefined {
-    if (!data) return data
-    let changed = false
-    const next: HolmesStructuredData = { ...data }
-    
-    // 过滤掉 TodoWrite 任务段
-    const hadSections = Array.isArray(next.taskSections) && next.taskSections.length > 0
-    const filtered = hadSections ? next.taskSections!.filter(s => s.id !== 'todo-write-main') : []
-    const removedTodo = hadSections && filtered.length !== next.taskSections!.length
-    if (removedTodo) {
-      next.taskSections = filtered
-      changed = true
-    }
-    
-    // 如果是TodoWrite相关的消息，清理相关字段
-    const isTodoLike = removedTodo || (typeof next.toolName === 'string' && next.toolName.toLowerCase().includes('todo'))
-    if (isTodoLike) {
-      if (next.planText) { next.planText = undefined as any; changed = true }
-      if (next.statusText) { next.statusText = undefined as any; changed = true }
-      if (next.toolName) { next.toolName = undefined as any; changed = true }
-      // 避免顶层 tasks（若存在）残留导致重复
-      if (next.tasks && next.tasks.length) { delete (next as any).tasks; changed = true }
-    }
-    
-    // 不在普通消息中展示结论，结论固定在底部的pinnedSummaryData中
-    if ((next as any).summary) { 
-      delete (next as any).summary
-      changed = true 
-    }
-    
-    // 如果去除后不再包含任何可渲染的结构信息，则返回 undefined 以隐藏该卡片
-    const hasRenderable = Boolean(
-      next.planText ||
-      (next as any).progressText ||
-      (next.taskSections && next.taskSections.length)
     )
-    if (!hasRenderable) return undefined
-    
-    return changed ? next : data
   }
 
-  // 控制栏组件 - 简化版，按钮移到左侧
-  const ControlBar = () => (
-    <div className="flex-shrink-0 px-6 py-3 bg-muted/30">
-      <div className="flex items-center justify-between gap-4">
-        {/* 左侧：操作按钮 */}
-        <div className="flex items-center gap-2">
-          {analysisState.status === 'idle' && !loadingCache && (
-            <Button onClick={() => startAnalysis(0, 3)} size="sm" className="bg-primary hover:bg-primary/90">
-              <Play className="h-4 w-4 mr-2" />
-              开始RCA分析
-            </Button>
-          )}
-          {loadingCache && (
-            <Button disabled size="sm">
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              加载缓存中...
-            </Button>
-          )}
-          {analysisState.status === 'analyzing' && (
-            <Button onClick={stopAnalysis} variant="outline" size="sm">
-              <Square className="h-4 w-4 mr-2" />
-              停止分析
-            </Button>
-          )}
-          {(analysisState.status === 'completed' || analysisState.status === 'error') && (
-            <>
-              <Button
-                onClick={handleReanalyze}
-                variant="default"
-                size="sm"
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                重新分析
-              </Button>
-              {analysisState.messages.length > 0 && (
-                <Button onClick={downloadAnalysis} variant="outline" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  下载结果
-                </Button>
-              )}
-            </>
-          )}
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowSettings(!showSettings)}
-            className="h-8 w-8 p-0"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* 右侧：状态信息 */}
-        <div className="flex items-center gap-3">
-          {/* 显示缓存状态提示 */}
-          {cachedResult && analysisState.status === 'completed' && !isReplayingCache && (
-            <Badge variant="outline" className="text-xs">
-              <Clock className="h-3 w-3 mr-1" />
-              缓存结果 ({format(new Date(cachedResult.cached_at), 'MM-dd HH:mm', { locale: zhCN })})
-            </Badge>
-          )}
-          
-          {getProgressText() && (
-            <Badge variant="secondary" className="text-xs">
-              {getProgressText()}
-            </Badge>
-          )}
-          
-          <div className="flex items-center gap-2">
-            {getStatusIcon()}
-            <span className="text-sm font-medium">{getStatusText()}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 设置面板 */}
-      {showSettings && (
-        <div className="mt-3 p-3 bg-background rounded-lg border">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">自动滚动</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSettings(prev => ({ ...prev, autoScroll: !prev.autoScroll }))}
-                className={`h-7 text-xs ${settings.autoScroll ? 'bg-primary/10 border-primary/30' : ''}`}
-              >
-                {settings.autoScroll ? '已启用' : '已禁用'}
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">提示音</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
-                className={`h-7 w-7 p-0 ${settings.soundEnabled ? 'bg-primary/10 border-primary/30' : ''}`}
-              >
-                {settings.soundEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">工具调用</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSettings(prev => ({ ...prev, showToolCalls: !prev.showToolCalls }))}
-                className={`h-7 text-xs ${settings.showToolCalls ? 'bg-primary/10 border-primary/30' : ''}`}
-              >
-                {settings.showToolCalls ? '已启用' : '已禁用'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-
-  // 统一返回结构，不使用Card包裹
   return (
-    <div className="w-full h-full flex flex-col">
-      <ControlBar />
-      <ContentArea />
-    </div>
+    <Card className="w-full h-full flex flex-col">
+      <CardHeader className="pb-3 flex-shrink-0">
+        <ControlBar
+          statusIcon={getStatusIcon()}
+          statusText={getStatusText()}
+          progressText={getProgressText()}
+          showSettings={showSettings}
+          toggleSettings={() => setShowSettings(!showSettings)}
+          settings={settings}
+          setSettings={setSettings}
+          analysisStatus={analysisState.status}
+          loadingCache={loadingCache}
+          cachedResult={cachedResult}
+          isReplayingCache={isReplayingCache}
+          onStart={startAnalysis}
+          onStop={stopAnalysis}
+          onReanalyze={handleReanalyze}
+          onDownload={downloadAnalysis}
+        />
+      </CardHeader>
+
+      <Separator className="flex-shrink-0" />
+
+      <CardContent className="p-0 flex-1 flex flex-col min-h-0">
+        <ContentArea
+          analysisState={analysisState}
+          scrollAreaRef={scrollAreaRef}
+          messagesEndRef={messagesEndRef}
+          handleScroll={handleScroll}
+          showScrollToLatest={showScrollToLatest}
+          handleScrollToLatest={handleScrollToLatest}
+          pinnedTasksData={pinnedTasksData}
+          pinnedSummaryData={pinnedSummaryData}
+          tasksMessageId={tasksMessageIdRef.current}
+          summaryMessageId={summaryMessageIdRef.current}
+          onReanalyze={handleReanalyze}
+        />
+      </CardContent>
+    </Card>
   )
 }

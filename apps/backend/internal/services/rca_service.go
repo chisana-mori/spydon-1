@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,7 +44,7 @@ func (s *RCAService) GetRCARunsByAlertID(alertID uuid.UUID) ([]models.RCARun, er
 func (s *RCAService) GetRCARunByID(id uuid.UUID) (*models.RCARun, error) {
 	var rcaRun models.RCARun
 	if err := s.db.Preload("Alert").First(&rcaRun, "id = ?", id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("RCA运行记录不存在")
 		}
 		return nil, fmt.Errorf("获取RCA运行记录失败: %w", err)
@@ -84,7 +85,7 @@ func (s *RCAService) TriggerRCAAnalysis(alert *models.Alert) (*models.RCARun, er
 
 	if result.Error == nil {
 		return nil, fmt.Errorf("该告警已有正在运行的RCA分析")
-	} else if result.Error != gorm.ErrRecordNotFound {
+	} else if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("检查现有RCA运行失败: %w", result.Error)
 	}
 
@@ -108,7 +109,7 @@ func (s *RCAService) TriggerRCAAnalysis(alert *models.Alert) (*models.RCARun, er
 // executeRCAAnalysis 执行RCA分析（异步）
 func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Alert) {
 	// 更新状态为运行中
-	s.UpdateRCARunStatus(rcaRun.ID, "running", "")
+	_ = s.UpdateRCARunStatus(rcaRun.ID, "running", "")
 
 	// 模拟RCA分析过程（实际应该调用HolmesGPT API）
 	time.Sleep(30 * time.Second) // 模拟分析时间
@@ -146,7 +147,7 @@ func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Ale
 
 	if err := s.db.Model(&models.RCARun{}).Where("id = ?", rcaRun.ID).Updates(updates).Error; err != nil {
 		// 如果更新失败，标记为失败状态
-		s.UpdateRCARunStatus(rcaRun.ID, "failed", fmt.Sprintf("更新RCA结果失败: %v", err))
+		_ = s.UpdateRCARunStatus(rcaRun.ID, "failed", fmt.Sprintf("更新RCA结果失败: %v", err))
 	}
 }
 
@@ -218,7 +219,7 @@ func (s *RCAService) GetRCAStats(clusterID string) (map[string]interface{}, erro
 			SELECT AVG(EXTRACT(EPOCH FROM (rca_runs.completed_at - rca_runs.started_at))) as avg_duration
 			FROM rca_runs
 			JOIN alerts ON rca_runs.alert_id = alerts.id
-			WHERE rca_runs.status = 'completed' 
+			WHERE rca_runs.status = 'completed'
 				AND rca_runs.completed_at IS NOT NULL
 				AND alerts.cluster_id = ?
 		`

@@ -1,248 +1,325 @@
-# Robusta Web
+# Spydon - Intelligent Alert Management Platform
 
-Robusta Web 是一个用于展示和分析 Robusta 平台告警的 Web 应用界面。它提供了告警详情、AI 分析 (HolmesGPT)、集群监控等功能。
+![Spydon Logo](https://img.shields.io/badge/Spydon-Alert%20Management-blue?style=for-the-badge&logo=kubernetes)
 
-## 目录
+A modern, intelligent alert management and root cause analysis platform for Kubernetes environments. Spydon provides real-time alert monitoring, AI-powered analysis, and comprehensive incident management capabilities.
 
-- [技术栈](#技术栈)
-- [先决条件](#先决条件)
-- [快速启动 (推荐)](#快速启动-推荐)
-- [开发模式](#开发模式)
-  - [启动后端 (Go)](#启动后端-go)
-  - [启动前端 (Next.js)](#启动前端-nextjs)
-- [Robusta 集成与部署](#robusta-集成与部署)
-- [主要依赖](#主要依赖)
+## ✨ Features
 
-## 技术栈
+### 🚨 **Alert Management**
+- Real-time alert aggregation and visualization
+- Multi-cluster alert correlation
+- Severity-based alert prioritization
+- Historical alert tracking and trend analysis
+- Custom alert enrichment and tagging
 
-- **后端**: Go (Gin 框架)
-- **前端**: TypeScript, React (Next.js 框架)
-- **数据库**: PostgreSQL
-- **对象存储**: MinIO
-- **缓存**: Redis
-- **容器化**: Docker & Docker Compose
-- **部署**: Kubernetes
+### 🤖 **AI-Powered Root Cause Analysis**
+- **HolmesGPT Integration**: Intelligent root cause analysis powered by AI
+- Multi-source data analysis (Kubernetes API, Prometheus, Elasticsearch)
+- Automated incident investigation and diagnosis
+- Interactive chat interface for alert analysis
+- Structured RCA reporting with actionable insights
 
-## 系统架构
+### 📊 **Advanced Analytics & Visualization**
+- Interactive dashboards with real-time metrics
+- 30-day alert trend analysis
+- Cluster health monitoring
+- Custom reporting and alerting patterns
+- Export capabilities for compliance and audit
 
-下面是系统的基本架构和数据流图。
+### 🔐 **Enterprise Security**
+- **CAS Single Sign-On**: Centralized authentication
+- Role-based access control (RBAC)
+- API key management for integrations
+- Secure audit logging and compliance tracking
 
-### 告警流程
-Prometheus 发现问题并触发告警，经由 AlertManager 发送给在 Kubernetes 集群中运行的 Robusta Agent。Agent 对告警进行丰富和处理，并通过 Webhook 将其发送到 Robusta Web 后端，最终展示在前端界面上。
+### 🏗️ **Infrastructure Management**
+- Multi-cluster Kubernetes support
+- MinIO object storage integration
+- PostgreSQL database for persistent data
+- Redis caching for performance optimization
+- Docker and Kubernetes deployment ready
 
-### 根因分析 (RCA) 流程
-当用户在界面上针对某个告警点击“根因分析”时，前端会调用 HolmesGPT 服务。HolmesGPT 会根据上下文，主动查询来自 Kubernetes API、Prometheus、Elasticsearch 等多种数据源的信息，进行智能分析，并将分析结果返回给前端展示给用户。
+## 🛠️ Tech Stack
 
-> **开发注意**: 在本地开发模式下，前端应用 (运行在 `localhost:3000`) 需要能够访问到集群内部的 HolmesGPT 服务。您需要使用 `kubectl` 将 HolmesGPT 服务的端口转发到本地。假设 HolmesGPT 服务部署在 `robusta` 命名空间中，请运行以下命令：
-> ```bash
-> kubectl port-forward svc/holmesgpt -n robusta 8081:80
-> ```
-> 这样，前端就可以通过 `http://localhost:8081` 访问到 HolmesGPT 服务了。
+### Backend
+- **Go 1.23+** with Gin framework
+- **PostgreSQL** for data persistence
+- **Redis** for caching and session management
+- **MinIO** for object storage
+- **Docker** & **Kubernetes** deployment
 
-```mermaid
-graph TD
-    subgraph "告警流程"
-        A[Prometheus] -- "触发告警" --> B[AlertManager];
-        B -- "发送告警" --> C[Robusta Agent];
-        C -- "Webhook" --> D[Robusta Hub / Backend];
-        D -- "展示给用户" --> E[Web UI];
-    end
+### Frontend
+- **Next.js 16** with React 19
+- **TypeScript** for type safety
+- **Tailwind CSS** for responsive design
+- **Radix UI** component library
+- **Recharts** for data visualization
+- **TanStack Query** for state management
 
-    subgraph "根因分析 (RCA) 流程"
-        E -- "1. 用户点击分析" --> F[HolmesGPT];
-        F -- "2. 查询数据源" --> G[Kubernetes API];
-        F -- "2. 查询数据源" --> H[Prometheus];
-        F -- "2. 查询数据源" --> I[Elasticsearch, etc.];
-        F -- "3. 返回分析结果" --> E;
-    end
-```
+### AI & Analytics
+- **HolmesGPT** for intelligent analysis
+- **Prometheus** integration for metrics
+- **Elasticsearch** connectivity for log analysis
 
-## 先决条件
+## 🚀 Quick Start
 
-在开始之前，请确保您的开发环境中安装了以下工具：
+### Prerequisites
 
-- [Docker](https://www.docker.com/get-started) 和 Docker Compose
-- [Go](https://golang.org/doc/install) (版本 1.23+)
-- [Node.js](https://nodejs.org/en/download/) (版本 18+) 和 npm
-- [make](https://www.gnu.org/software/make/) (可选，用于简化命令)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/) (用于集群部署)
-- [Helm](https://helm.sh/docs/intro/install/) (用于集群部署)
+- [Docker](https://www.docker.com/get-started) and Docker Compose
+- [Go](https://golang.org/doc/install) (version 1.23+)
+- [Node.js](https://nodejs.org/en/download/) (version 18+) and npm
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) (for cluster deployment)
+- [Helm](https://helm.sh/docs/intro/install/) (for cluster deployment)
 
-## 项目结构
+### One-Click Docker Setup
 
-```
-robusta-web/
-├─ apps/                    # 主要应用
-│  ├─ backend/              # Go 后端（API、迁移、配置）
-│  └─ frontend/             # Next.js 前端（含 src/prototypes 原型区）
-├─ infrastructure/          # Docker、K8s、CAS 配置与脚本
-├─ packages/                # 可复用的扩展/插件
-├─ docs/                    # 架构与使用文档
-└─ var/                     # 运行期产物（日志等，本地忽略）
-```
+The fastest way to get Spydon running is with Docker Compose:
 
-## 快速启动 (推荐)
 
-使用 Docker Compose 是启动完整开发环境最简单的方式。此方法会一键启动所有依赖服务（数据库、缓存、对象存储）以及前后端应用。
+# Clone the repository
+git clone <repository-url>
+cd robusta-web
 
-1.  **配置环境变量**:
-    项目包含 `.env.example` 文件作为模板。您需要为后端创建一个 `.env` 文件。
+# Configure environment
+cp apps/backend/.env.example apps/backend/.env
 
-    ```bash
-    # 从后端模板复制环境变量文件
-    cp apps/backend/.env.example apps/backend/.env
-    ```
-    > 注意: `infrastructure/docker/docker-compose.yml` 中已为开发环境预设了大部分变量，对于本地开发，您通常无需修改 `apps/backend/.env` 文件。
+# Start all services
+make docker-run
 
-2.  **启动服务**:
-    使用 `make` 命令（推荐）或直接使用 `docker compose`。
+# Or using docker compose directly
+docker compose -f infrastructure/docker/docker-compose.yml up -d
 
-    ```bash
-    # 使用 make (推荐)
-    make docker-run
 
-    # 或者直接使用 docker compose
-    docker compose -f infrastructure/docker/docker-compose.yml up -d
-    ```
-    该命令将在后台启动所有服务。数据库初始化脚本位于 `apps/backend/migrations`，会在首次启动时自动执行。
+Access your Spydon instance:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8080
+- **MinIO Console**: http://localhost:9001
 
-3.  **访问应用**:
-    - **前端界面**: [http://localhost:3000](http://localhost:3000)
-    - **后端 API**: [http://localhost:8080](http://localhost:8080)
-    - **MinIO 控制台**: [http://localhost:9001](http://localhost:9001)
+### Development Mode
 
-4.  **停止服务**:
-    ```bash
-    # 使用 make
-    make docker-stop
+For local development with hot reload:
 
-    # 或者直接使用 docker compose
-    docker compose -f infrastructure/docker/docker-compose.yml down
-    ```
 
-## 开发模式
-
-如果您希望独立运行前端和后端服务，以便进行更灵活的开发和调试，请遵循以下步骤。
-
-**首先，启动依赖服务：**
-
-```bash
+# Start dependencies
 docker compose -f infrastructure/docker/docker-compose.yml up -d postgres minio redis
-```
 
-### 启动后端 (Go)
+# Start backend
+cd apps/backend
+cp .env.example .env
+go mod tidy
+make run
 
-1.  **目录**: 进入后端目录。
-    ```bash
-    cd apps/backend
-    ```
+# Start frontend (new terminal)
+cd apps/frontend
+npm install
+npm run dev
 
-2.  **配置**: 复制并根据需要修改环境变量文件。
-    ```bash
-    cp .env.example .env
-    ```
-    > 请确保 `.env` 文件中的数据库、MinIO 和 Redis 连接信息与 `infrastructure/docker/docker-compose.yml` 中定义的一致。
 
-3.  **安装依赖**:
-    ```bash
-    go mod tidy
-    ```
+## 📁 Project Structure
 
-4.  **运行服务**:
-    ```bash
-    # 使用 make
-    make run
 
-    # 或者直接使用 go
-    go run ./cmd/server/main.go
-    ```
-    后端服务将在 `http://localhost:8080` 上运行。
+robusta-web/
+├── apps/
+│   ├── backend/           # Go backend API server
+│   │   ├── cmd/          # Application entry points
+│   │   ├── internal/     # Core application logic
+│   │   │   ├── api/      # HTTP handlers and routes
+│   │   │   ├── config/   # Configuration management
+│   │   │   ├── db/       # Database operations
+│   │   │   ├── models/   # Data models
+│   │   │   └── services/ # Business logic
+│   │   └── migrations/   # Database migrations
+│   └── frontend/         # Next.js frontend application
+│       ├── src/
+│       │   ├── app/      # Next.js app router pages
+│       │   ├── components/ # React components
+│       │   └── lib/      # Utilities and configurations
+│       └── public/       # Static assets
+├── infrastructure/
+│   ├── cas/             # CAS SSO configuration
+│   ├── docker/          # Docker compose files
+│   ├── k8s/             # Kubernetes manifests
+│   └── scripts/         # Deployment scripts
+└── packages/            # Shared packages and extensions
 
-### 启动前端 (Next.js)
 
-1.  **目录**: 进入前端目录。
-    ```bash
-    cd apps/frontend
-    ```
+## 🔧 Configuration
 
-2.  **安装依赖**:
-    ```bash
-    npm install
-    ```
+Spydon uses environment variables for configuration. Key configuration options:
 
-3.  **运行服务**:
-    ```bash
-    # 使用 make
-    make frontend-dev
+### Backend Configuration (apps/backend/.env)
 
-    # 或者直接使用 npm
-    npm run dev
-    ```
-    前端开发服务器将在 `http://localhost:3000` 上运行。
 
-## Robusta 集成与部署
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=robusta
+DB_USER=robusta
+DB_PASSWORD=password
 
-本项目被设计为与 Robusta Kubernetes 监控平台集成。推荐使用 Helm 进行安装和配置。
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
 
-### 使用 Helm 安装 Robusta
+# MinIO
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
 
-1.  **添加 Robusta 的 Helm 仓库**:
-    ```bash
-    helm repo add robusta https://robusta-charts.storage.googleapis.com
-    helm repo update
-    ```
+# HolmesGPT
+HOLMES_GPT_URL=http://localhost:8081
+HOLMES_GPT_API_KEY=your-api-key
+HOLMES_GPT_ENABLED=true
 
-2.  **创建命名空间**:
-    ```bash
-    kubectl create namespace robusta
-    ```
+# CAS SSO
+CAS_ENABLED=true
+CAS_SERVER_URL=https://cas.example.com
 
-3.  **安装 Robusta Chart**:
-    使用项目提供的 `infrastructure/scripts/robusta-holmesgpt-values-clean.yaml` 文件进行安装。这个配置文件启用了 HolmesGPT 并配置了 `webhook_sink`，用于将告警数据转发到本应用的后端。
 
-    ```bash
-    helm install robusta robusta/robusta -n robusta -f infrastructure/scripts/robusta-holmesgpt-values-clean.yaml
-    ```
+### Frontend Configuration
 
-4.  **验证安装**:
-    检查 Robusta 的 pod 是否在 `robusta` 命名空间中正常运行。
-    ```bash
-    kubectl get pods -n robusta
-    ```
+The frontend configuration is managed through runtime JSON files in `apps/frontend/config/`.
 
-### 应用部署
+## 🔗 Integrations
 
-安装完 Robusta Agent 后，您需要将本应用（前后端）部署到集群中，以便接收 Agent 发送的数据。
+### Robusta Kubernetes Platform
 
-1.  **配置文件**:
-    部署配置位于 `infrastructure/k8s/` 目录。您可能需要根据您的集群环境修改 `infrastructure/k8s/configmap.yaml` 和相关的部署脚本。确保 `webhook_sink` 的 `url` (`http://hub-proxy.robusta.svc.cluster.local:8080/api/v1/ingest/robusta-webhook`) 可以正确路由到本应用的后端服务。
+Spydon is designed to integrate seamlessly with the Robusta Kubernetes monitoring platform:
 
-2.  **部署脚本**:
-    项目提供了多个部署脚本，例如 `infrastructure/scripts/deploy.sh`。
-    ```bash
-    # 确保您的 kubectl 上下文正确指向目标集群
-    kubectl config use-context <your-cluster-context>
 
-    # 运行部署脚本
-    ./infrastructure/scripts/deploy.sh
-    ```
-    > 在运行任何部署脚本之前，请务必仔细阅读其内容，了解它将对您的集群执行哪些操作。
+# Add Robusta Helm repository
+helm repo add robusta https://robusta-charts.storage.googleapis.com
+helm repo update
 
-## 主要依赖
+# Create namespace
+kubectl create namespace robusta
 
-### 后端
+# Install Robusta with HolmesGPT
+helm install robusta robusta/robusta -n robusta \
+  -f infrastructure/scripts/robusta-holmesgpt-values-clean.yaml
 
-- `github.com/gin-gonic/gin`: Web 框架
-- `gorm.io/gorm`: ORM 库
-- `gorm.io/driver/postgres`: PostgreSQL 驱动
-- `github.com/minio/minio-go/v7`: MinIO Go SDK
-- `github.com/golang-jwt/jwt/v5`: JWT 认证
 
-### 前端
+### Alert Flow Integration
 
-- `next`: React 框架
-- `react`: UI 库
-- `axios`: HTTP 客户端
-- `@tanstack/react-query`: 异步状态管理
-- `tailwindcss`: CSS 框架
-- `echarts`: 图表库
+
+graph TD
+    A[Prometheus] --> B[AlertManager]
+    B --> C[Robusta Agent]
+    C --> D[Spydon Backend]
+    D --> E[Spydon Frontend]
+    E --> F[HolmesGPT Analysis]
+    F --> E
+
+
+## 📊 Usage Examples
+
+### Alert Management
+
+1. **View Active Alerts**: Navigate to the dashboard for real-time alert overview
+2. **Analyze Specific Alert**: Click on any alert to view detailed information
+3. **Root Cause Analysis**: Use the HolmesGPT chat interface for AI-powered analysis
+4. **Historical Trends**: Access the reports section for trend analysis
+
+### HolmesGPT Integration
+
+
+# Forward HolmesGPT service for local development
+kubectl port-forward svc/holmesgpt -n robusta 8081:80
+
+
+### API Usage
+
+
+# Get all alerts
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/v1/alerts
+
+# Get cluster summary
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/v1/clusters/summary
+
+# Trigger RCA analysis
+curl -X POST -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"alert_id": "alert-123"}' \
+  http://localhost:8080/api/v1/rca/analyze
+
+
+## 🚀 Deployment
+
+### Kubernetes Deployment
+
+
+# Apply configurations
+kubectl apply -f infrastructure/k8s/
+
+# Deploy application
+./infrastructure/scripts/deploy.sh
+
+
+### Production Considerations
+
+- **High Availability**: Deploy multiple replicas for frontend and backend
+- **Database**: Use managed PostgreSQL service for production
+- **Storage**: Configure persistent MinIO storage
+- **Monitoring**: Enable Prometheus metrics collection
+- **Security**: Configure proper SSL/TLS certificates
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these guidelines:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Development Guidelines
+
+- Follow Go conventions for backend code
+- Use TypeScript strictly for frontend development
+- Write unit tests for new features
+- Update documentation for API changes
+- Ensure code passes linting and type checking
+
+### Code Quality
+
+
+# Backend
+go mod tidy
+go fmt ./...
+go test ./...
+
+# Frontend
+npm run lint
+npm run type-check
+npm run test
+
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+- **Documentation**: Check our comprehensive documentation
+- **Issues**: Report bugs and request features via GitHub Issues
+- **Discussions**: Join our community discussions
+- **Email**: Contact our support team for enterprise inquiries
+
+## 🎯 Roadmap
+
+- [ ] **Mobile Application**: Native mobile apps for iOS and Android
+- [ ] **Enhanced AI Models**: Advanced machine learning capabilities
+- [ ] **Multi-Cloud Support**: Integration with AWS, GCP, Azure
+- [ ] **Advanced Analytics**: Predictive alert analysis
+- [ ] **Slack/Teams Integration**: Native chat platform integration
+- [ ] **Custom Dashboards**: Drag-and-drop dashboard builder
+
+---
+
+**Built with ❤️ for the Kubernetes community**
+
+*Spydon transforms alert management from reactive to proactive with intelligent analysis and automation.*

@@ -1,0 +1,92 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: spydon
+  namespace: argocd
+  labels:
+    app: spydon
+spec:
+  description: Spydon Alert Management Platform Project
+  sourceRepos:
+    - 'https://github.com/your-org/spydon.git'
+    - 'https://github.com/your-org/spydon-gitops.git'
+  destinations:
+    - namespace: spydon-*
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: Secret
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: Pod
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: apps
+      kind: DaemonSet
+    - group: apps
+      kind: ReplicaSet
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: batch
+      kind: Job
+    - group: batch
+      kind: CronJob
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: policy
+      kind: PodDisruptionBudget
+  orphanedResources:
+    warn: true
+  roles:
+    - name: admin
+      description: Full access to the Spydon project
+      policies:
+        - p, proj:spydon:admin, applications, *, spydon/*, allow
+        - p, proj:spydon:admin, applications, sync, spydon/*, allow
+        - p, proj:spydon:admin, applications, override, spydon/*, allow
+        - p, proj:spydon:admin, clusters, *, *, allow
+      groups:
+        - github:devops
+        - github:admin
+    - name: developer
+      description: Limited access for development teams
+      policies:
+        - p, proj:spydon:developer, applications, *, spydon-development/*, allow
+        - p, proj:spydon:developer, applications, *, spydon-staging/*, allow
+        - p, proj:spydon:developer, applications, get, spydon/*, allow
+        - p, proj:spydon:developer, applications, sync, spydon-development/*, allow
+      groups:
+        - github:developers
+    - name: readonly
+      description: Read-only access
+      policies:
+        - p, proj:spydon:readonly, applications, get, spydon/*, allow
+        - p, proj:spydon:readonly, applications, list, spydon/*, allow
+      groups:
+        - github:everyone
+  syncWindows:
+    - kind: allow
+      schedule: '0 2 * * *'  # Daily at 2 AM UTC
+      duration: 2h
+      applications:
+        - spydon-staging
+        - spydon-development
+      manualSync: true

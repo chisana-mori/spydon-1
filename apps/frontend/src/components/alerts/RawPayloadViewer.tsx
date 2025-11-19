@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { appConfig } from '@/config';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +22,8 @@ import {
   ChevronDown,
   ChevronRight
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 // Enrichment 结构化渲染相关
 import { parseFinding } from '@prototypes/alerts/lib/enrichment-parser';
 import { EnrichmentRenderer } from '@prototypes/alerts/components/enrichment/EnrichmentRenderer';
@@ -42,7 +44,7 @@ interface RawPayloadViewerProps {
 
 type DataFormat = 'markdown' | 'json' | 'yaml' | 'xml' | 'text';
 
-export function RawPayloadViewer({
+function RawPayloadViewerComponent({
   rawPayloadKey,
   alertId,
   alertTitle,
@@ -78,7 +80,7 @@ export function RawPayloadViewer({
     }
 
     // 检测 YAML（在 Markdown 之前检测，因为 YAML 更结构化）
-    if (trimmed.includes('---\n') || 
+    if (trimmed.includes('---\n') ||
         (trimmed.match(/^[a-zA-Z_][a-zA-Z0-9_]*:\s+/m) && !trimmed.includes('# '))) {
       return 'yaml';
     }
@@ -194,7 +196,7 @@ export function RawPayloadViewer({
   // 全部展开/折叠
   const toggleAllEnrichments = () => {
     if (!finding?.enrichments) return;
-    
+
     if (collapsedEnrichments.size === finding.enrichments.length) {
       setCollapsedEnrichments(new Set());
     } else {
@@ -210,48 +212,6 @@ export function RawPayloadViewer({
     } catch {
       return content;
     }
-  };
-
-  // 渲染 Markdown 内容（简单版本）
-  const renderMarkdown = (content: string): React.ReactNode => {
-    // 简单的 Markdown 渲染，可以后续集成专业的 Markdown 库
-    const lines = content.split('\n');
-    return (
-      <div className="prose prose-sm max-w-none">
-        {lines.map((line, index) => {
-          // 标题
-          if (line.startsWith('### ')) {
-            return <h3 key={index} className="text-lg font-semibold mt-4 mb-2">{line.slice(4)}</h3>;
-          }
-          if (line.startsWith('## ')) {
-            return <h2 key={index} className="text-xl font-semibold mt-4 mb-2">{line.slice(3)}</h2>;
-          }
-          if (line.startsWith('# ')) {
-            return <h1 key={index} className="text-2xl font-bold mt-4 mb-2">{line.slice(2)}</h1>;
-          }
-
-          // 代码块
-          if (line.startsWith('```')) {
-            return <div key={index} className="bg-gray-100 p-2 rounded font-mono text-sm my-2">{line}</div>;
-          }
-
-          // 列表
-          if (line.startsWith('- ')) {
-            return <li key={index} className="ml-4">{line.slice(2)}</li>;
-          }
-
-          // 粗体文本
-          const boldText = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-          // 普通段落
-          if (line.trim()) {
-            return <p key={index} className="mb-2" dangerouslySetInnerHTML={{ __html: boldText }} />;
-          }
-
-          return <br key={index} />;
-        })}
-      </div>
-    );
   };
 
   // 解析 JSON 数据
@@ -272,14 +232,43 @@ export function RawPayloadViewer({
     );
   };
 
+  const renderMarkdownContent = (content: string): React.ReactNode => {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        className="prose prose-sm max-w-none break-words"
+        components={{
+          code: ({ inline, children, ...props }) =>
+            inline ? (
+              <code
+                {...props}
+                className="rounded bg-muted px-1 text-sm font-mono text-foreground"
+              >
+                {children}
+              </code>
+            ) : (
+              <pre
+                {...props}
+                className="bg-slate-900 text-white rounded-md p-3 text-sm font-mono overflow-x-auto whitespace-pre-wrap"
+              >
+                {children}
+              </pre>
+            )
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  };
+
   // 获取格式化的数据
   const getFormattedData = (format: DataFormat, content: string): React.ReactNode => {
     switch (format) {
       case 'markdown':
-        return renderMarkdown(content);
+        return renderMarkdownContent(content);
       case 'json':
         const jsonData = parseJSON(content);
-        
+
         if (jsonData) {
           // 使用 JsonView 组件
           return (
@@ -306,6 +295,13 @@ export function RawPayloadViewer({
         return <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{content}</pre>;
     }
   };
+
+  const formattedContent = useMemo(() => {
+    if (!data) {
+      return null;
+    }
+    return getFormattedData(data.format, data.data);
+  }, [data]);
 
   // 如果没有原始数据键且没有告警ID，不显示组件
   if (!rawPayloadKey && !alertId) {
@@ -343,7 +339,7 @@ export function RawPayloadViewer({
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent>
         {loading && (
           <div className="flex items-center justify-center py-8">
@@ -357,9 +353,9 @@ export function RawPayloadViewer({
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               {error}
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={loadRawData}
                 className="ml-2"
               >
@@ -380,8 +376,8 @@ export function RawPayloadViewer({
                   size="sm"
                   onClick={copyToClipboard}
                   className={`flex items-center gap-2 transition-all ${
-                    copied 
-                      ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-950 dark:border-green-800 dark:text-green-300' 
+                    copied
+                      ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-950 dark:border-green-800 dark:text-green-300'
                       : 'hover:bg-blue-50 hover:border-blue-200 dark:hover:bg-blue-950 dark:hover:border-blue-800'
                   }`}
                 >
@@ -397,7 +393,7 @@ export function RawPayloadViewer({
                     </>
                   )}
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -407,7 +403,7 @@ export function RawPayloadViewer({
                   <Download className="h-4 w-4" />
                   下载
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   size="sm"
@@ -426,8 +422,8 @@ export function RawPayloadViewer({
                   size="sm"
                   onClick={() => setShowRawData(!showRawData)}
                   className={`flex items-center gap-2 ${
-                    showRawData 
-                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700' 
+                    showRawData
+                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'
                       : 'hover:bg-slate-50 hover:border-slate-300 dark:hover:bg-slate-900 dark:hover:border-slate-700'
                   }`}
                 >
@@ -505,64 +501,64 @@ export function RawPayloadViewer({
                         {/* Enrichment 列表 */}
                         {finding.enrichments.map((enrichment, idx) => {
                           const isCollapsed = collapsedEnrichments.has(idx);
-                          
+
                           // 根据 enrichment_type 设置颜色主题
                           const getTypeColor = (type?: string) => {
                             const typeMap: Record<string, { bg: string; border: string; text: string; badge: string }> = {
-                              'graph': { 
-                                bg: 'bg-blue-50/50 dark:bg-blue-950/20', 
+                              'graph': {
+                                bg: 'bg-blue-50/50 dark:bg-blue-950/20',
                                 border: 'border-blue-200 dark:border-blue-800',
                                 text: 'text-blue-700 dark:text-blue-300',
                                 badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
                               },
-                              'ai_analysis': { 
-                                bg: 'bg-purple-50/50 dark:bg-purple-950/20', 
+                              'ai_analysis': {
+                                bg: 'bg-purple-50/50 dark:bg-purple-950/20',
                                 border: 'border-purple-200 dark:border-purple-800',
                                 text: 'text-purple-700 dark:text-purple-300',
                                 badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
                               },
-                              'k8s_events': { 
-                                bg: 'bg-green-50/50 dark:bg-green-950/20', 
+                              'k8s_events': {
+                                bg: 'bg-green-50/50 dark:bg-green-950/20',
                                 border: 'border-green-200 dark:border-green-800',
                                 text: 'text-green-700 dark:text-green-300',
                                 badge: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
                               },
-                              'node_info': { 
-                                bg: 'bg-amber-50/50 dark:bg-amber-950/20', 
+                              'node_info': {
+                                bg: 'bg-amber-50/50 dark:bg-amber-950/20',
                                 border: 'border-amber-200 dark:border-amber-800',
                                 text: 'text-amber-700 dark:text-amber-300',
                                 badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
                               },
-                              'container_info': { 
-                                bg: 'bg-cyan-50/50 dark:bg-cyan-950/20', 
+                              'container_info': {
+                                bg: 'bg-cyan-50/50 dark:bg-cyan-950/20',
                                 border: 'border-cyan-200 dark:border-cyan-800',
                                 text: 'text-cyan-700 dark:text-cyan-300',
                                 badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300'
                               },
-                              'text_file': { 
-                                bg: 'bg-slate-50/50 dark:bg-slate-950/20', 
+                              'text_file': {
+                                bg: 'bg-slate-50/50 dark:bg-slate-950/20',
                                 border: 'border-slate-200 dark:border-slate-800',
                                 text: 'text-slate-700 dark:text-slate-300',
                                 badge: 'bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300'
                               },
-                              'diff': { 
-                                bg: 'bg-orange-50/50 dark:bg-orange-950/20', 
+                              'diff': {
+                                bg: 'bg-orange-50/50 dark:bg-orange-950/20',
                                 border: 'border-orange-200 dark:border-orange-800',
                                 text: 'text-orange-700 dark:text-orange-300',
                                 badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'
                               },
                             };
-                            
-                            return typeMap[type || ''] || { 
-                              bg: 'bg-card', 
+
+                            return typeMap[type || ''] || {
+                              bg: 'bg-card',
                               border: 'border-border',
                               text: 'text-foreground',
                               badge: 'bg-secondary text-secondary-foreground'
                             };
                           };
-                          
+
                           const colors = getTypeColor(enrichment.enrichment_type);
-                          
+
                           return (
                             <div key={idx}>
                               {/* 分隔线 - 除了第一个 */}
@@ -578,7 +574,7 @@ export function RawPayloadViewer({
                                   </div>
                                 </div>
                               )}
-                              
+
                               {/* Enrichment 卡片 */}
                               <div className={`${colors.bg} rounded-lg border-2 ${colors.border} shadow-sm hover:shadow-md transition-all duration-200`}>
                                 {/* 可折叠的标题栏 */}
@@ -627,7 +623,7 @@ export function RawPayloadViewer({
                       </>
                     ) : (
                       // 如果没有 enrichments，显示格式化数据
-                      getFormattedData(data.format, data.data)
+                      formattedContent
                     )}
                   </div>
                 )}
@@ -639,3 +635,6 @@ export function RawPayloadViewer({
     </Card>
   );
 }
+
+export const RawPayloadViewer = React.memo(RawPayloadViewerComponent);
+RawPayloadViewer.displayName = 'RawPayloadViewer';

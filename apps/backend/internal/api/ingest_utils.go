@@ -291,6 +291,10 @@ func (c *AlertmanagerAlertConverter) determineStatus() {
 // buildFingerprint 构建指纹
 // Alertmanager 告警总是生成自己的指纹，不使用 Alertmanager 提供的
 func (c *AlertmanagerAlertConverter) buildFingerprint() {
+	if fp := strings.TrimSpace(c.alert.Fingerprint); fp != "" {
+		c.fingerprint = fp
+		return
+	}
 	c.fingerprint = generateAlertmanagerFingerprint(c.clusterID, c.alert.Labels, c.alert.Annotations)
 }
 

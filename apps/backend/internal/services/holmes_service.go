@@ -110,7 +110,7 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID string, dep
 		Attachments:     datatypes.JSON([]byte(`{}`)),
 	}
 
-	if err := s.db.DB.Create(rcaRun).Error; err != nil {
+	if err := s.db.Create(rcaRun).Error; err != nil {
 		return nil, fmt.Errorf("创建RCA运行记录失败: %w", err)
 	}
 
@@ -124,7 +124,7 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID string, dep
 func (s *HolmesService) executeAnalysis(ctx context.Context, rcaRun *models.RCARun, alert *models.Alert, depth string) {
 	// 更新状态为运行中
 	rcaRun.Status = "running"
-	s.db.DB.Save(rcaRun)
+	s.db.Save(rcaRun)
 
 	// 准备分析请求
 	request := HolmesAnalysisRequest{
@@ -179,7 +179,7 @@ func (s *HolmesService) sendAnalysisRequest(ctx context.Context, request HolmesA
 	if err != nil {
 		return nil, fmt.Errorf("发送HTTP请求失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 读取响应
 	responseBody, err := io.ReadAll(resp.Body)
@@ -224,7 +224,7 @@ func (s *HolmesService) updateAnalysisResult(ctx context.Context, rcaRun *models
 
 	s.persistAnalysisResult(ctx, rcaRun, response, depth, now)
 
-	if err := s.db.DB.Save(rcaRun).Error; err != nil {
+	if err := s.db.Save(rcaRun).Error; err != nil {
 		logger.L().Error("更新RCA运行结果失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
 	}
 
@@ -280,7 +280,7 @@ func (s *HolmesService) StartStreamRun(alertID string) (*models.RCARun, error) {
 		Attachments:     datatypes.JSON([]byte(`{}`)),
 	}
 
-	if err := s.db.DB.Create(run).Error; err != nil {
+	if err := s.db.Create(run).Error; err != nil {
 		return nil, fmt.Errorf("创建流式RCA记录失败: %w", err)
 	}
 
@@ -309,7 +309,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 		run.CompletedAt = &now
 		run.ErrorMessage = &errorMessage
 
-		if err := s.db.DB.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
+		if err := s.db.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
 			logger.L().Error("更新流式RCA失败状态时出错", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
 		}
 		return
@@ -373,7 +373,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 	run.Status = "completed"
 	run.CompletedAt = &now
 
-	if err := s.db.DB.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
+	if err := s.db.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
 		logger.L().Error("更新流式RCA运行记录失败", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
 	}
 }
@@ -421,7 +421,7 @@ func (s *HolmesService) handleAnalysisError(rcaRun *models.RCARun, err error) {
 	rcaRun.ErrorMessage = &errorMsg
 	rcaRun.CompletedAt = &now
 
-	if dbErr := s.db.DB.Save(rcaRun).Error; dbErr != nil {
+	if dbErr := s.db.Save(rcaRun).Error; dbErr != nil {
 		logger.L().Error("保存RCA错误状态失败", zap.Error(dbErr), zap.String("rca_run_id", rcaRun.ID.String()))
 	}
 
@@ -432,7 +432,7 @@ func (s *HolmesService) handleAnalysisError(rcaRun *models.RCARun, err error) {
 func (s *HolmesService) GetAnalysisByAlertID(alertID string) ([]*models.RCARun, error) {
 	var rcaRuns []*models.RCARun
 
-	err := s.db.DB.Where("alert_id = ?", alertID).
+	err := s.db.Where("alert_id = ?", alertID).
 		Order("created_at DESC").
 		Find(&rcaRuns).Error
 	if err != nil {
@@ -445,7 +445,7 @@ func (s *HolmesService) GetAnalysisByAlertID(alertID string) ([]*models.RCARun, 
 // GetAnalysisStats 获取分析统计信息
 func (s *HolmesService) GetAnalysisStats(clusterID string) (*models.RCAStats, error) {
 	buildQuery := func() *gorm.DB {
-		q := s.db.DB.Model(&models.RCARun{})
+		q := s.db.Model(&models.RCARun{})
 		if clusterID != "" {
 			q = q.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
 				Where("alerts.cluster_id = ?", clusterID)
@@ -596,7 +596,7 @@ func (s *HolmesService) GetCachedResultByRunID(ctx context.Context, runID string
 	}
 
 	var run models.RCARun
-	if err := s.db.DB.Where("id = ?", parsedID).First(&run).Error; err != nil {
+	if err := s.db.Where("id = ?", parsedID).First(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, gorm.ErrRecordNotFound
 		}
@@ -610,7 +610,7 @@ func (s *HolmesService) GetCachedResultByRunID(ctx context.Context, runID string
 
 func (s *HolmesService) getAlertByID(alertID string) (*models.Alert, error) {
 	var alert models.Alert
-	err := s.db.DB.Where("id = ?", alertID).First(&alert).Error
+	err := s.db.Where("id = ?", alertID).First(&alert).Error
 	if err != nil {
 		return nil, err
 	}
@@ -619,7 +619,7 @@ func (s *HolmesService) getAlertByID(alertID string) (*models.Alert, error) {
 
 func (s *HolmesService) getRunningAnalysis(alertID string) (*models.RCARun, error) {
 	var rcaRun models.RCARun
-	err := s.db.DB.Where("alert_id = ? AND status IN (?)", alertID, []string{"pending", "running"}).
+	err := s.db.Where("alert_id = ? AND status IN (?)", alertID, []string{"pending", "running"}).
 		First(&rcaRun).Error
 	if err != nil {
 		if err.Error() == "record not found" {

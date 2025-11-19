@@ -19,6 +19,46 @@ import { zhCN } from 'date-fns/locale'
 import { toast } from 'sonner'
 import { RawPayloadViewer } from '@/components/alerts/RawPayloadViewer'
 import { AlertAnalysisIntegration } from '@/components/alerts/AlertAnalysisIntegration'
+import { ExternalLink } from 'lucide-react'
+
+// 检测文本是否为URL
+const isURL = (text: string): boolean => {
+  try {
+    const url = new URL(text.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+// 渲染注释内容，如果是URL则显示为按钮
+const renderAnnotationValue = (value: string) => {
+  const trimmedValue = String(value).trim()
+
+  if (isURL(trimmedValue)) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full justify-start text-left font-normal hover:bg-blue-50 hover:border-blue-300 transition-colors"
+        asChild
+      >
+        <a href={trimmedValue} target="_blank" rel="noopener noreferrer">
+          <ExternalLink className="h-4 w-4 mr-2 flex-shrink-0" />
+          <span className="truncate">{trimmedValue}</span>
+        </a>
+      </Button>
+    )
+  }
+
+  return (
+    <div className="bg-gray-50 p-3 rounded-lg">
+      <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap break-words">
+        {trimmedValue}
+      </p>
+    </div>
+  )
+}
 
 interface AlertDetailPageProps {
   params: Promise<{
@@ -161,51 +201,58 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
       <div className="bg-gradient-to-br from-white to-gray-50/50 border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         {/* 顶部状态栏 */}
         <div className="bg-white border-b border-gray-100 px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                alert.status === 'firing'
-                  ? 'bg-red-100 text-red-600'
-                  : alert.status === 'resolved'
-                  ? 'bg-green-100 text-green-600'
-                  : 'bg-gray-100 text-gray-600'
-              }`}>
-                <AlertTriangle className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="flex items-center space-x-3 mb-1">
-                  <h1 className="text-2xl font-bold text-gray-900">{alert.title}</h1>
-                  <Badge
-                    variant={severityConfig.variant}
-                    className={`px-3 py-1 text-sm font-medium ${
-                      alert.severity === 'critical'
-                        ? 'bg-red-100 text-red-800 border-red-200'
-                        : alert.severity === 'high'
-                        ? 'bg-orange-100 text-orange-800 border-orange-200'
-                        : alert.severity === 'medium'
-                        ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                        : 'bg-blue-100 text-blue-800 border-blue-200'
-                    }`}
+          <div className="flex items-start space-x-4">
+            <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center ${
+              alert.status === 'firing'
+                ? 'bg-red-100 text-red-600'
+                : alert.status === 'resolved'
+                ? 'bg-green-100 text-green-600'
+                : 'bg-gray-100 text-gray-600'
+            }`}>
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="mb-2">
+                <div className="flex items-start gap-3 mb-2">
+                  <h1
+                    className="text-2xl font-bold text-gray-900 break-words flex-1 min-w-0"
+                    title={alert.title}
                   >
-                    {severityConfig.label}
-                  </Badge>
-                  <Badge
-                    variant={statusConfig.variant}
-                    className={`px-3 py-1 text-sm font-medium ${
-                      alert.status === 'firing'
-                        ? 'bg-red-100 text-red-800 border-red-200'
-                        : alert.status === 'resolved'
-                        ? 'bg-green-100 text-green-800 border-green-200'
-                        : 'bg-gray-100 text-gray-800 border-gray-200'
-                    }`}
-                  >
-                    {statusConfig.label}
-                  </Badge>
+                    {alert.title}
+                  </h1>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Badge
+                      variant={severityConfig.variant}
+                      className={`px-3 py-1 text-sm font-medium whitespace-nowrap ${
+                        alert.severity === 'critical'
+                          ? 'bg-red-100 text-red-800 border-red-200'
+                          : alert.severity === 'high'
+                          ? 'bg-orange-100 text-orange-800 border-orange-200'
+                          : alert.severity === 'medium'
+                          ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                          : 'bg-blue-100 text-blue-800 border-blue-200'
+                      }`}
+                    >
+                      {severityConfig.label}
+                    </Badge>
+                    <Badge
+                      variant={statusConfig.variant}
+                      className={`px-3 py-1 text-sm font-medium whitespace-nowrap ${
+                        alert.status === 'firing'
+                          ? 'bg-red-100 text-red-800 border-red-200'
+                          : alert.status === 'resolved'
+                          ? 'bg-green-100 text-green-800 border-green-200'
+                          : 'bg-gray-100 text-gray-800 border-gray-200'
+                      }`}
+                    >
+                      {statusConfig.label}
+                    </Badge>
+                  </div>
                 </div>
-                <p className="text-gray-600 font-mono text-sm">
-                  告警指纹: {alert.fingerprint}
-                </p>
               </div>
+              <p className="text-gray-600 font-mono text-sm break-all" title={alert.fingerprint}>
+                告警指纹: {alert.fingerprint}
+              </p>
             </div>
           </div>
         </div>
@@ -338,11 +385,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
                   .map(([key, value]) => (
                     <div key={key} className="space-y-2">
                       <span className="font-medium text-gray-900 text-sm">{key}:</span>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-700 text-sm leading-relaxed">
-                          {String(value)}
-                        </p>
-                      </div>
+                      {renderAnnotationValue(String(value))}
                     </div>
                   ))}
               </div>
@@ -352,9 +395,9 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
       </div>
 
       {/* HolmesGPT 智能分析 */}
-      <AlertAnalysisIntegration 
-        alert={alert} 
-        defaultTab="enhanced" 
+      <AlertAnalysisIntegration
+        alert={alert}
+        defaultTab="enhanced"
       />
 
     </div>

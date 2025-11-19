@@ -125,7 +125,7 @@ func (s *ObjectStorageService) Get(ctx context.Context, key string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("从MinIO获取对象失败: %w", err)
 	}
-	defer object.Close()
+	defer func() { _ = object.Close() }()
 
 	// 读取对象内容
 	var buffer bytes.Buffer

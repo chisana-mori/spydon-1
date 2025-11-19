@@ -194,7 +194,7 @@ func AbortWithDomainError(c *gin.Context, err apperrors.DomainError) {
 	if err == nil {
 		return
 	}
-	c.Error(err)
+	_ = c.Error(err)
 	c.Abort()
 }
 

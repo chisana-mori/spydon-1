@@ -1,0 +1,588 @@
+# Spydon GitLab CI Pipeline
+# 职责：代码验证、测试、构建镜像
+# 部署由 ArgoCD 负责（GitOps 模式）
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH =~ /^(main|develop)$/'
+    - when: never
+
+stages:
+  - validate      # 代码质量检查
+  - test          # 单元测试
+  - security      # 安全扫描
+  - build         # 构建 Docker 镜像
+  - publish       # 发布镜像和更新 GitOps 仓库
+
+# 全局变量
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  REGISTRY: $CI_REGISTRY
+  BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
+  FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
+  DOCKER_HOST: tcp://docker:2376
+
+# 缓存配置
+cache:
+  key:
+    files:
+      - apps/backend/go.sum
+      - apps/frontend/package-lock.json
+  paths:
+    - apps/backend/vendor/
+    - apps/frontend/node_modules/
+    - .cache/
+
+# 默认配置
+default:
+  # 默认使用 docker 标签的 Runner
+  # Runner 只需要安装 Docker，不需要其他环境
+  tags:
+    - docker
+
+  # 每个 Job 可以指定自己的镜像
+  image: docker:24.0.6
+  services:
+    - docker:24.0.6-dind
+
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+
+# 1. 代码质量检查
+pre-commit:
+  stage: validate
+  image: python:3.11-alpine
+  tags:
+    - docker
+  before_script:
+    - apk add --no-cache git
+    - pip install --no-cache-dir pre-commit
+  script:
+    - pre-commit run --all-files
+  cache:
+    key: pre-commit-cache
+    paths:
+      - .cache/pre-commit
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+backend-lint:
+  stage: validate
+  image: golangci/golangci-lint:v1.54.2-alpine
+  script:
+    - echo "🔍 Running backend linting..."
+    - cd apps/backend
+    - golangci-lint run --timeout=5m
+  needs: []
+  tags:
+    - docker
+
+frontend-lint:
+  stage: validate
+  image: node:20-alpine
+  before_script:
+    - cd apps/frontend
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - echo "🔍 Running frontend linting..."
+    - npm run lint
+    - npm run type-check
+  needs: []
+  artifacts:
+    paths:
+      - apps/frontend/coverage/
+    expire_in: 1 week
+  tags:
+    - docker
+
+# 2. 安全扫描
+security-scan:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - echo "🔒 Running security scans..."
+
+    # 扫描代码仓库
+    - trivy fs --exit-code 0 --format sarif --output trivy-repo.sarif .
+
+    # 如果有前端依赖，扫描漏洞
+    - cd apps/frontend && npm audit --audit-level moderate || true
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+      dependency_scanning: gl-dependency-scanning-report.json
+      container_scanning: gl-container-scanning-report.json
+      secret_detection: gl-secret-detection-report.json
+    paths:
+      - trivy-repo.sarif
+    expire_in: 1 week
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs:
+    - job: backend-lint
+    - job: frontend-lint
+  tags:
+    - docker
+
+# 3. 后端单元测试
+backend-test:
+  stage: test
+  image: golang:1.23-alpine  # Runner 会自动拉取这个镜像
+
+  services:
+    - postgres:15-alpine  # 测试依赖的服务
+    - redis:7-alpine
+  variables:
+    POSTGRES_DB: test_db
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    DATABASE_URL: postgres://postgres:postgres@postgres:5432/test_db?sslmode=disable
+    REDIS_URL: redis://redis:6379
+  before_script:
+    - apk add --no-cache git make
+    - cd apps/backend
+    - go mod download
+  script:
+    - echo "🧪 Running backend tests..."
+    - |
+      # 运行单元测试并生成覆盖率报告
+      go test -v -race -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test.log
+
+      # 转换覆盖率格式
+      go tool cover -html=coverage.out -o coverage.html
+
+      # 生成 JUnit 格式报告
+      if command -v gotest &> /dev/null; then
+        gotest -junitreport -v ./... > junit-report.xml
+      else
+        echo "gotest not found, installing..."
+        go install github.com/haveyoudebuggedit/gotest@latest
+        gotest -junitreport -v ./... > junit-report.xml
+      fi
+
+      # 生成 Cobertura 格式覆盖率报告
+      go tool cover -xml=coverage.out > coverage-cobertura.xml
+
+      # 显示覆盖率
+      echo "Coverage:"
+      go tool cover -func=coverage.out
+  coverage: '/total:.*?(\d+\.\d+)%/'
+  artifacts:
+    reports:
+      junit: apps/backend/junit-report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: apps/backend/coverage-cobertura.xml
+    paths:
+      - apps/backend/coverage.out
+      - apps/backend/coverage.html
+      - apps/backend/test.log
+    expire_in: 1 week
+  needs:
+    - job: backend-lint
+
+# 4. 前端单元测试
+frontend-test:
+  stage: test
+  image: node:20-alpine  # Runner 会自动拉取 Node.js 镜像
+
+  before_script:
+    - cd apps/frontend
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - echo "🧪 Running frontend tests..."
+    - npm run test:coverage
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      junit: apps/frontend/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: apps/frontend/coverage/cobertura-coverage.xml
+    paths:
+      - apps/frontend/coverage/
+    expire_in: 1 week
+  needs:
+    - job: frontend-lint
+  tags:
+    - docker
+
+# 5. 构建 Docker 镜像
+build-backend-image:
+  stage: build
+  needs:
+    - job: backend-test
+    - job: frontend-test
+    - job: security-scan
+  script:
+    - echo "🐳 Building Docker images..."
+
+    # 构建后端镜像
+    - echo "Building backend image..."
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --file apps/backend/Dockerfile.optimized \
+        --tag $BACKEND_IMAGE:$CI_COMMIT_SHA \
+        --tag $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG \
+        --build-arg VERSION=$CI_COMMIT_REF_SLUG \
+        --build-arg COMMIT_SHA=$CI_COMMIT_SHA \
+        --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+        --cache-from type=inline \
+        --push \
+        apps/backend/
+    - echo "Scanning backend image for vulnerabilities..."
+    - trivy image --exit-code 0 --format json --output backend-trivy.json $BACKEND_IMAGE:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      container_scanning: backend-trivy.json
+    paths:
+      - backend-trivy.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker
+
+build-frontend-image:
+  stage: build
+  needs:
+    - job: frontend-test
+    - job: security-scan
+  script:
+    - echo "🐳 Building frontend Docker image..."
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --file apps/frontend/Dockerfile.optimized \
+        --tag $FRONTEND_IMAGE:$CI_COMMIT_SHA \
+        --tag $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG \
+        --build-arg VERSION=$CI_COMMIT_REF_SLUG \
+        --build-arg COMMIT_SHA=$CI_COMMIT_SHA \
+        --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+        --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+        --cache-from type=inline \
+        --push \
+        apps/frontend/
+    - echo "Scanning frontend image for vulnerabilities..."
+    - trivy image --exit-code 0 --format json --output frontend-trivy.json $FRONTEND_IMAGE:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      container_scanning: frontend-trivy.json
+    paths:
+      - frontend-trivy.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  tags:
+    - docker
+
+# 6. 打包 Helm Chart
+package-chart:
+  stage: publish
+  needs:
+    - job: build-backend-image
+    - job: build-frontend-image
+  image: alpine/helm:3.13.0
+  before_script:
+    - apk add --no-cache git yq
+  script:
+    - echo "📦 Packaging Helm Chart..."
+
+    # 设置版本号
+    - export CHART_VERSION="${CI_COMMIT_TAG:-0.1.0-${CI_COMMIT_SHORT_SHA}}"
+    - export APP_VERSION="${CI_COMMIT_SHA}"
+
+    # 创建 Chart 目录
+    - mkdir -p helm-package
+    - cp -r infrastructure/k8s/helm/spydon helm-package/
+
+    # 更新 Chart.yaml
+    - |
+      cd helm-package/spydon
+      yq eval ".version = \"$CHART_VERSION\"" -i Chart.yaml
+      yq eval ".appVersion = \"$APP_VERSION\"" -i Chart.yaml
+
+    # 创建默认配置文件模板
+    - |
+      # 后端配置模板
+      cat > templates/backend-config.yaml <<'EOF'
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: {{ include "spydon.fullname" . }}-backend-config
+        labels:
+          {{- include "spydon.labels" . | nindent 4 }}
+      data:
+        config.yaml: |
+          environment: {{ .Values.backend.config.environment }}
+          port: "{{ .Values.backend.config.port }}"
+          database_url: {{ .Values.backend.config.databaseUrl }}
+          jwt_secret: {{ .Values.backend.config.jwtSecret }}
+          hmac_secret: {{ .Values.backend.config.hmacSecret }}
+          ingest_api_key: {{ .Values.backend.config.ingestApiKey }}
+
+          oidc_issuer: {{ .Values.backend.config.oidc.issuer }}
+          oidc_client_id: {{ .Values.backend.config.oidc.clientId }}
+          oidc_client_secret: {{ .Values.backend.config.oidc.clientSecret }}
+          oidc_redirect_url: {{ .Values.backend.config.oidc.redirectUrl }}
+
+          holmes_gpt:
+            url: {{ .Values.backend.config.holmesGpt.url }}
+            api_key: {{ .Values.backend.config.holmesGpt.apiKey }}
+            timeout_seconds: {{ .Values.backend.config.holmesGpt.timeoutSeconds }}
+            enabled: {{ .Values.backend.config.holmesGpt.enabled }}
+            default_depth: {{ .Values.backend.config.holmesGpt.defaultDepth }}
+            model: {{ .Values.backend.config.holmesGpt.model }}
+            proxy_auth_token: {{ .Values.backend.config.holmesGpt.proxyAuthToken }}
+
+          cas:
+            enabled: {{ .Values.backend.config.cas.enabled }}
+            server_url: {{ .Values.backend.config.cas.serverUrl }}
+            callback_path: {{ .Values.backend.config.cas.callbackPath }}
+            redirect_url: {{ .Values.backend.config.cas.redirectUrl }}
+            default_email_domain: {{ .Values.backend.config.cas.defaultEmailDomain }}
+            email_attribute: {{ .Values.backend.config.cas.emailAttribute }}
+            name_attribute: {{ .Values.backend.config.cas.nameAttribute }}
+            roles_attribute: {{ .Values.backend.config.cas.rolesAttribute }}
+
+          minio:
+            endpoint: {{ .Values.backend.config.minio.endpoint }}
+            access_key: {{ .Values.backend.config.minio.accessKey }}
+            secret_key: {{ .Values.backend.config.minio.secretKey }}
+            bucket_name: {{ .Values.backend.config.minio.bucketName }}
+            use_ssl: {{ .Values.backend.config.minio.useSsl }}
+
+          rate_limit_rps: {{ .Values.backend.config.rateLimitRps }}
+          log_level: {{ .Values.backend.config.logLevel }}
+          log_file: {{ .Values.backend.config.logFile }}
+
+          email:
+            smtp_host: {{ .Values.backend.config.email.smtpHost }}
+            smtp_port: {{ .Values.backend.config.email.smtpPort }}
+            smtp_user: {{ .Values.backend.config.email.smtpUser }}
+            smtp_pass: {{ .Values.backend.config.email.smtpPass }}
+            from: {{ .Values.backend.config.email.from }}
+            rca_to: {{ .Values.backend.config.email.rcaTo }}
+            enabled: {{ .Values.backend.config.email.enabled }}
+      EOF
+
+      # 前端配置模板
+      cat > templates/frontend-config.yaml <<'EOF'
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: {{ include "spydon.fullname" . }}-frontend-config
+        labels:
+          {{- include "spydon.labels" . | nindent 4 }}
+      data:
+        runtime.json: |
+          {
+            "NEXT_PUBLIC_API_URL": "{{ .Values.frontend.config.apiUrl }}",
+            "NEXT_PUBLIC_WS_URL": "{{ .Values.frontend.config.wsUrl }}",
+            "NEXT_PUBLIC_MINIO_ENDPOINT": "{{ .Values.frontend.config.minioEndpoint }}",
+            "NEXT_PUBLIC_MINIO_PORT": "{{ .Values.frontend.config.minioPort }}",
+            "NEXT_PUBLIC_MINIO_USE_SSL": "{{ .Values.frontend.config.minioUseSsl }}",
+            "NEXT_PUBLIC_ENVIRONMENT": "{{ .Values.frontend.config.environment }}"
+          }
+      EOF
+
+    # 更新 values.yaml 添加配置默认值
+    - |
+      cat >> values.yaml <<'EOF'
+
+      # 后端配置
+      backend:
+        config:
+          environment: production
+          port: "8080"
+          databaseUrl: ""  # 必须在部署时提供
+          jwtSecret: ""    # 必须在部署时提供
+          hmacSecret: ""   # 必须在部署时提供
+          ingestApiKey: ""
+
+          oidc:
+            issuer: ""
+            clientId: ""
+            clientSecret: ""
+            redirectUrl: ""
+
+          holmesGpt:
+            url: "http://holmes-gpt:8081"
+            apiKey: ""
+            timeoutSeconds: 300
+            enabled: true
+            defaultDepth: "standard"
+            model: "deepseek-reasoner"
+            proxyAuthToken: ""
+
+          cas:
+            enabled: false
+            serverUrl: ""
+            callbackPath: "/auth/cas/callback"
+            redirectUrl: ""
+            defaultEmailDomain: "cas.local"
+            emailAttribute: "mail"
+            nameAttribute: "displayName"
+            rolesAttribute: "roles"
+
+          minio:
+            endpoint: "minio:9000"
+            accessKey: ""
+            secretKey: ""
+            bucketName: "robusta-artifacts"
+            useSsl: false
+
+          rateLimitRps: 100
+          logLevel: "info"
+          logFile: "server.log"
+
+          email:
+            smtpHost: ""
+            smtpPort: 587
+            smtpUser: ""
+            smtpPass: ""
+            from: ""
+            rcaTo: ""
+            enabled: false
+
+      # 前端配置
+      frontend:
+        config:
+          apiUrl: "http://backend:8080"
+          wsUrl: "ws://backend:8080"
+          minioEndpoint: "minio"
+          minioPort: "9000"
+          minioUseSsl: "false"
+          environment: "production"
+      EOF
+
+    # 更新镜像标签
+    - |
+      yq eval ".backend.image.tag = \"$CI_COMMIT_SHA\"" -i values.yaml
+      yq eval ".frontend.image.tag = \"$CI_COMMIT_SHA\"" -i values.yaml
+      yq eval ".backend.image.repository = \"$BACKEND_IMAGE\"" -i values.yaml
+      yq eval ".frontend.image.repository = \"$FRONTEND_IMAGE\"" -i values.yaml
+
+    # 打包 Chart
+    - cd ..
+    - helm package spydon
+    - helm repo index . --url "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/helm/stable"
+
+    # 显示 Chart 信息
+    - |
+      echo "✅ Helm Chart packaged successfully"
+      echo "Chart Version: $CHART_VERSION"
+      echo "App Version: $APP_VERSION"
+      ls -lh *.tgz
+
+  artifacts:
+    name: "helm-chart-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - helm-package/*.tgz
+      - helm-package/index.yaml
+    expire_in: 30 days
+
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_TAG
+  tags:
+    - docker
+
+# 7. 发布 Helm Chart 到 GitLab Package Registry
+publish-chart:
+  stage: publish
+  needs:
+    - job: package-chart
+  image: curlimages/curl:latest
+  script:
+    - echo "📤 Publishing Helm Chart to GitLab Package Registry..."
+
+    - export CHART_VERSION="${CI_COMMIT_TAG:-0.1.0-${CI_COMMIT_SHORT_SHA}}"
+    - export CHART_FILE="helm-package/spydon-${CHART_VERSION}.tgz"
+
+    # 上传到 GitLab Package Registry
+    - |
+      curl --request POST \
+        --form "chart=@${CHART_FILE}" \
+        --user "gitlab-ci-token:${CI_JOB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/helm/api/stable/charts"
+
+    - echo "✅ Helm Chart published successfully"
+    - echo "Install with: helm repo add spydon ${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/helm/stable"
+    - echo "              helm install spydon spydon/spydon --version ${CHART_VERSION}"
+
+    # 发送通知
+    - |
+      if [ -n "$SLACK_WEBHOOK_URL" ]; then
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{
+            \"text\": \"📦 New Helm Chart published\",
+            \"attachments\": [
+              {
+                \"color\": \"good\",
+                \"fields\": [
+                  {\"title\": \"Chart Version\", \"value\": \"${CHART_VERSION}\", \"short\": true},
+                  {\"title\": \"App Version\", \"value\": \"${CI_COMMIT_SHA}\", \"short\": true},
+                  {\"title\": \"Branch\", \"value\": \"${CI_COMMIT_BRANCH}\", \"short\": true},
+                  {\"title\": \"Pipeline\", \"value\": \"${CI_PIPELINE_URL}\", \"short\": false}
+                ]
+              }
+            ]
+          }" \
+          "$SLACK_WEBHOOK_URL"
+      fi
+
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_TAG
+  tags:
+    - docker
+
+# 7. 清理旧的 Docker 镜像
+cleanup-images:
+  stage: .post
+  image: alpine:3.18
+  before_script:
+    - apk add --no-cache curl jq docker-cli
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - echo "🧹 Cleaning up old Docker images..."
+    - |
+      # 获取并删除旧的镜像标签，保留最近 10 个
+      BACKEND_TAGS=$(curl --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories/backend/tags?per_page=100" | jq -r '.[].name | select(startswith("main-") or startswith("develop-"))' | tail -n +11)
+      FRONTEND_TAGS=$(curl --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories/frontend/tags?per_page=100" | jq -r '.[].name | select(startswith("main-") or startswith("develop-"))' | tail -n +11)
+
+      for tag in $BACKEND_TAGS; do
+        if [ -n "$tag" ]; then
+          echo "Deleting backend tag: $tag"
+          curl --request DELETE --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories/backend/tags/$tag"
+        fi
+      done
+
+      for tag in $FRONTEND_TAGS; do
+        if [ -n "$tag" ]; then
+          echo "Deleting frontend tag: $tag"
+          curl --request DELETE --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories/frontend/tags/$tag"
+        fi
+      done
+  when: always
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  tags:
+    - docker

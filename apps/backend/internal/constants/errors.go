@@ -2,13 +2,13 @@ package constants
 
 // Error Codes
 const (
-	ErrorCodeInternal          = "INTERNAL_ERROR"
-	ErrorCodeBadRequest        = "BAD_REQUEST"
-	ErrorCodeValidationFailed  = "VALIDATION_FAILED"
-	ErrorCodeUnauthorized      = "UNAUTHORIZED"
-	ErrorCodeForbidden         = "FORBIDDEN"
-	ErrorCodeNotFound          = "NOT_FOUND"
-	ErrorCodeConflict          = "CONFLICT"
+	ErrorCodeInternal         = "INTERNAL_ERROR"
+	ErrorCodeBadRequest       = "BAD_REQUEST"
+	ErrorCodeValidationFailed = "VALIDATION_FAILED"
+	ErrorCodeUnauthorized     = "UNAUTHORIZED"
+	ErrorCodeForbidden        = "FORBIDDEN"
+	ErrorCodeNotFound         = "NOT_FOUND"
+	ErrorCodeConflict         = "CONFLICT"
 	// CRUD operation errors
 	ErrorCodeCreateFailed = "CREATE_FAILED"
 	ErrorCodeUpdateFailed = "UPDATE_FAILED"
