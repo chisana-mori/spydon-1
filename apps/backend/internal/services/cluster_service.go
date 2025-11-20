@@ -86,7 +86,7 @@ func (s *ClusterService) GetClustersSummary() (*ClusterSummary, error) {
 	// 获取活跃集群数（最近5分钟有心跳）
 	fiveMinutesAgo := time.Now().Add(-5 * time.Minute)
 	if err := s.db.Model(&models.Cluster{}).
-		Where("last_heartbeat > ? AND status = ?", fiveMinutesAgo, "active").
+		Where("last_heartbeat > ? AND status = ?", fiveMinutesAgo, models.ClusterStatusActive).
 		Count(&summary.ActiveClusters).Error; err != nil {
 		return nil, fmt.Errorf("获取活跃集群数失败: %w", err)
 	}
@@ -98,7 +98,7 @@ func (s *ClusterService) GetClustersSummary() (*ClusterSummary, error) {
 
 	// 获取严重告警数
 	if err := s.db.Model(&models.Alert{}).
-		Where("severity = ? AND status = ?", "critical", "firing").
+		Where("severity = ? AND status = ?", models.AlertSeverityCritical, models.AlertStatusFiring).
 		Count(&summary.CriticalAlerts).Error; err != nil {
 		return nil, fmt.Errorf("获取严重告警数失败: %w", err)
 	}
@@ -158,19 +158,22 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 func (s *ClusterService) getAlertTrends(days int) ([]AlertTrendData, error) {
 	var trends []AlertTrendData
 
+	// Calculate cutoff date in Go
+	cutoff := time.Now().AddDate(0, 0, -days)
+
 	// 使用原生SQL查询获取每日告警数量
 	query := `
 		SELECT
 			DATE(created_at) as date,
 			COUNT(*) as count
 		FROM alerts
-		WHERE created_at >= CURRENT_DATE - INTERVAL '%d days'
+		WHERE created_at >= ?
 			AND deleted_at IS NULL
 		GROUP BY DATE(created_at)
 		ORDER BY date
 	`
 
-	if err := s.db.Raw(fmt.Sprintf(query, days)).Scan(&trends).Error; err != nil {
+	if err := s.db.Raw(query, cutoff).Scan(&trends).Error; err != nil {
 		return nil, err
 	}
 

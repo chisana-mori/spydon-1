@@ -13,8 +13,8 @@ type IngestAlertRequest struct {
 	ClusterID   string                 `json:"cluster_id" binding:"required"`
 	Title       string                 `json:"title" binding:"required"`
 	Description string                 `json:"description"`
-	Severity    string                 `json:"severity" binding:"required"`
-	Status      string                 `json:"status"`
+	Severity    string                 `json:"severity" binding:"required,oneof=low medium high critical"`
+	Status      string                 `json:"status" binding:"omitempty,oneof=firing resolved silenced"`
 	Labels      map[string]interface{} `json:"labels"`
 	Annotations map[string]interface{} `json:"annotations"`
 	StartsAt    *time.Time             `json:"starts_at"`
@@ -25,7 +25,7 @@ type IngestAlertRequest struct {
 type AlertmanagerWebhookRequest struct {
 	Receiver          string                       `json:"receiver"`
 	Status            string                       `json:"status"`
-	Alerts            []AlertmanagerAlert          `json:"alerts"`
+	Alerts            []AlertmanagerAlert          `json:"alerts" binding:"required,dive"`
 	GroupLabels       map[string]string            `json:"groupLabels"`
 	CommonLabels      map[string]string            `json:"commonLabels"`
 	CommonAnnotations map[string]string            `json:"commonAnnotations"`
@@ -38,7 +38,7 @@ type AlertmanagerWebhookRequest struct {
 
 // AlertmanagerAlert 单条 Alertmanager 告警
 type AlertmanagerAlert struct {
-	Status       string            `json:"status"`
+	Status       string            `json:"status" binding:"required"`
 	Labels       map[string]string `json:"labels"`
 	Annotations  map[string]string `json:"annotations"`
 	StartsAt     time.Time         `json:"startsAt"`
@@ -49,8 +49,8 @@ type AlertmanagerAlert struct {
 
 // IngestRCARequest 接收RCA请求结构
 type IngestRCARequest struct {
-	AlertID         string                 `json:"alert_id" binding:"required"`
-	Status          string                 `json:"status" binding:"required"`
+	AlertID         string                 `json:"alert_id" binding:"required,uuid"`
+	Status          string                 `json:"status" binding:"required,oneof=pending running completed failed timeout"`
 	Summary         string                 `json:"summary"`
 	Suspects        map[string]interface{} `json:"suspects"`
 	Recommendations map[string]interface{} `json:"recommendations"`

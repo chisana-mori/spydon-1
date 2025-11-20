@@ -1,26 +1,134 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 // RCAService RCA服务
 type RCAService struct {
-	db *db.Database
+	db             *db.Database
+	auditService   *AuditService
+	payloadStorage PayloadStorage
 }
 
 // NewRCAService 创建新的RCA服务
-func NewRCAService(database *db.Database) *RCAService {
+func NewRCAService(
+	database *db.Database,
+	auditService *AuditService,
+	payloadStorage PayloadStorage,
+) *RCAService {
 	return &RCAService{
-		db: database,
+		db:             database,
+		auditService:   auditService,
+		payloadStorage: payloadStorage,
+	}
+}
+
+// ProcessRCARequest 处理RCA请求参数
+type ProcessRCARequest struct {
+	AlertID         string
+	Status          string
+	Summary         string
+	Suspects        map[string]interface{}
+	Recommendations map[string]interface{}
+	Attachments     map[string]interface{}
+	ErrorMessage    string
+	RawBody         []byte
+	ClientIP        string
+	UserAgent       string
+}
+
+// ProcessRCA 处理RCA接收逻辑
+func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uuid.UUID, error) {
+	// 解析AlertID
+	alertID, err := uuid.Parse(req.AlertID)
+	if err != nil {
+		return nil, fmt.Errorf("无效的告警ID: %w", err)
+	}
+
+	// 验证RCA状态
+	if !isValidRCAStatus(req.Status) {
+		return nil, fmt.Errorf("无效的RCA状态: %s", req.Status)
+	}
+
+	// 保存原始payload（可选）
+	var payloadKey string
+	if s.payloadStorage != nil && len(req.RawBody) > 0 {
+		key, err := s.savePayload(ctx, fmt.Sprintf("rca/%s", alertID.String()), req.RawBody, "application/json")
+		if err != nil {
+			// 记录错误但不中断流程
+			logger.L().Warn("保存RCA原始数据失败", zap.Error(err), zap.String("alert_id", req.AlertID))
+		} else {
+			payloadKey = key
+		}
+	}
+
+	// 创建RCA运行记录
+	rcaRun := &models.RCARun{
+		AlertID:         alertID,
+		Status:          req.Status,
+		Summary:         &req.Summary,
+		Suspects:        toJSON(req.Suspects),
+		Recommendations: toJSON(req.Recommendations),
+		Attachments:     toJSON(req.Attachments),
+		ErrorMessage:    &req.ErrorMessage,
+		RawPayloadKey:   payloadKey,
+	}
+
+	// 如果状态是completed或failed/timeout，设置完成时间
+	if req.Status == string(models.RCAStatusCompleted) || req.Status == string(models.RCAStatusFailed) || req.Status == string(models.RCAStatusTimeout) {
+		now := time.Now()
+		rcaRun.CompletedAt = &now
+	}
+
+	// 保存RCA记录
+	if err := s.CreateRCARun(rcaRun); err != nil {
+		return nil, fmt.Errorf("保存RCA记录失败: %w", err)
+	}
+
+	// 记录审计日志
+	if s.auditService != nil {
+		_ = s.auditService.LogAction("system", "rca_ingested", "rca_run", rcaRun.ID.String(), map[string]interface{}{
+			"alert_id": req.AlertID,
+			"status":   req.Status,
+		}, req.ClientIP, req.UserAgent)
+	}
+
+	return &rcaRun.ID, nil
+}
+
+// savePayload 保存原始数据
+func (s *RCAService) savePayload(ctx context.Context, keyPrefix string, data []byte, contentType string) (string, error) {
+	if s.payloadStorage == nil {
+		return "", nil
+	}
+
+	key, err := s.payloadStorage.Save(ctx, keyPrefix, data, contentType)
+	if err != nil {
+		return "", err
+	}
+
+	return key, nil
+}
+
+// isValidRCAStatus 验证RCA状态
+func isValidRCAStatus(status string) bool {
+	switch models.RCAStatus(status) {
+	case models.RCAStatusPending, models.RCAStatusRunning, models.RCAStatusCompleted, models.RCAStatusFailed, models.RCAStatusTimeout:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -63,7 +171,7 @@ func (s *RCAService) UpdateRCARunStatus(id uuid.UUID, status string, errorMessag
 	}
 
 	// 如果状态是完成或失败，设置完成时间
-	if status == "completed" || status == "failed" || status == "timeout" {
+	if status == string(models.RCAStatusCompleted) || status == string(models.RCAStatusFailed) || status == string(models.RCAStatusTimeout) {
 		updates["completed_at"] = time.Now()
 	}
 
@@ -81,7 +189,7 @@ func (s *RCAService) UpdateRCARunStatus(id uuid.UUID, status string, errorMessag
 func (s *RCAService) TriggerRCAAnalysis(alert *models.Alert) (*models.RCARun, error) {
 	// 检查是否已有正在运行的RCA
 	var existingRun models.RCARun
-	result := s.db.Where("alert_id = ? AND status IN (?)", alert.ID, []string{"pending", "running"}).First(&existingRun)
+	result := s.db.Where("alert_id = ? AND status IN (?)", alert.ID, []string{string(models.RCAStatusPending), string(models.RCAStatusRunning)}).First(&existingRun)
 
 	if result.Error == nil {
 		return nil, fmt.Errorf("该告警已有正在运行的RCA分析")
@@ -92,7 +200,7 @@ func (s *RCAService) TriggerRCAAnalysis(alert *models.Alert) (*models.RCARun, er
 	// 创建新的RCA运行记录
 	rcaRun := &models.RCARun{
 		AlertID:   alert.ID,
-		Status:    "pending",
+		Status:    string(models.RCAStatusPending),
 		StartedAt: time.Now(),
 	}
 
@@ -109,7 +217,7 @@ func (s *RCAService) TriggerRCAAnalysis(alert *models.Alert) (*models.RCARun, er
 // executeRCAAnalysis 执行RCA分析（异步）
 func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Alert) {
 	// 更新状态为运行中
-	_ = s.UpdateRCARunStatus(rcaRun.ID, "running", "")
+	_ = s.UpdateRCARunStatus(rcaRun.ID, string(models.RCAStatusRunning), "")
 
 	// 模拟RCA分析过程（实际应该调用HolmesGPT API）
 	time.Sleep(30 * time.Second) // 模拟分析时间
@@ -138,7 +246,7 @@ func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Ale
 
 	// 更新RCA结果
 	updates := map[string]interface{}{
-		"status":          "completed",
+		"status":          string(models.RCAStatusCompleted),
 		"summary":         "分析完成：发现CPU使用率过高导致的性能问题",
 		"suspects":        suspects,
 		"recommendations": recommendations,
@@ -147,7 +255,7 @@ func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Ale
 
 	if err := s.db.Model(&models.RCARun{}).Where("id = ?", rcaRun.ID).Updates(updates).Error; err != nil {
 		// 如果更新失败，标记为失败状态
-		_ = s.UpdateRCARunStatus(rcaRun.ID, "failed", fmt.Sprintf("更新RCA结果失败: %v", err))
+		_ = s.UpdateRCARunStatus(rcaRun.ID, string(models.RCAStatusFailed), fmt.Sprintf("更新RCA结果失败: %v", err))
 	}
 }
 
@@ -196,7 +304,7 @@ func (s *RCAService) GetRCAStats(clusterID string) (map[string]interface{}, erro
 	// 成功率统计
 	var successCount int64
 	successQuery := baseQuery
-	if err := successQuery.Where("status = ?", "completed").Count(&successCount).Error; err != nil {
+	if err := successQuery.Where("status = ?", models.RCAStatusCompleted).Count(&successCount).Error; err != nil {
 		return nil, fmt.Errorf("获取RCA成功数失败: %w", err)
 	}
 
@@ -251,7 +359,7 @@ func (s *RCAService) CleanupOldRCARuns(olderThan time.Duration) error {
 func (s *RCAService) GetPendingRCARuns() ([]models.RCARun, error) {
 	var rcaRuns []models.RCARun
 	if err := s.db.Preload("Alert").
-		Where("status = ?", "pending").
+		Where("status = ?", models.RCAStatusPending).
 		Order("created_at ASC").
 		Find(&rcaRuns).Error; err != nil {
 		return nil, fmt.Errorf("获取待处理RCA记录失败: %w", err)

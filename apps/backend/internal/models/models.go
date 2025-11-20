@@ -92,6 +92,9 @@ const (
 type AlertSeverity string
 
 const (
+	AlertSeverityInfo     AlertSeverity = "info"
+	AlertSeverityWarning  AlertSeverity = "warning"
+	AlertSeverityError    AlertSeverity = "error"
 	AlertSeverityLow      AlertSeverity = "low"
 	AlertSeverityMedium   AlertSeverity = "medium"
 	AlertSeverityHigh     AlertSeverity = "high"

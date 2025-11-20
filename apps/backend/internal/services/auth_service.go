@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/config"
+	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
 
@@ -260,8 +261,9 @@ func (s *AuthService) getRedirectURI() string {
 }
 
 func (s *AuthService) validateState(state string) bool {
-	// 这里应该验证state参数，防止CSRF攻击
-	// 简化实现，实际应该存储和验证state
+	// TODO: Implement proper state validation to prevent CSRF
+	// Ideally, we should store the state in Redis/Cache with a short expiration
+	// and verify it here.
 	return len(state) > 0
 }
 
@@ -327,11 +329,15 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 	// 尝试根据email查找现有用户
 	err := s.db.DB.Where("email = ?", oidcUser.Email).First(&user).Error
 	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
 		// 用户不存在，创建新用户
-		// 检查是否是第一个用户，如果是则设置为管理员
-		var userCount int64
-		s.db.DB.Model(&models.User{}).Count(&userCount)
-		isFirstUser := userCount == 0
+		isFirst, firstErr := s.isFirstUser()
+		if firstErr != nil {
+			return nil, firstErr
+		}
 
 		user = models.User{
 			BaseModel: models.BaseModel{
@@ -341,9 +347,9 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 			Email:         oidcUser.Email,
 			Name:          oidcUser.Name,
 			Picture:       oidcUser.Picture,
-			IsAdmin:       isFirstUser, // 第一个用户自动成为管理员
+			IsAdmin:       isFirst, // 第一个用户自动成为管理员
 			EmailVerified: oidcUser.EmailVerified,
-			Provider:      "oidc",
+			Provider:      constants.AuthProviderOIDC,
 			ProviderID:    oidcUser.Sub,
 		}
 
@@ -380,12 +386,13 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 	isAdmin := s.checkCASAdminRole(attributes)
 
 	var user models.User
-	err := s.db.DB.Where("username = ? OR email = ?", username, email).First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	queryErr := s.db.DB.Where("username = ? OR email = ?", username, email).First(&user).Error
+	if errors.Is(queryErr, gorm.ErrRecordNotFound) {
 		// 检查是否是第一个用户，如果是则设置为管理员
-		var userCount int64
-		s.db.DB.Model(&models.User{}).Count(&userCount)
-		isFirstUser := userCount == 0
+		isFirst, firstErr := s.isFirstUser()
+		if firstErr != nil {
+			return nil, firstErr
+		}
 
 		user = models.User{
 			BaseModel: models.BaseModel{
@@ -395,9 +402,9 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 			Email:         email,
 			Name:          nameAttr,
 			Picture:       picture,
-			IsAdmin:       isFirstUser || isAdmin, // 第一个用户或CAS标识的管理员
+			IsAdmin:       isFirst || isAdmin, // 第一个用户或CAS标识的管理员
 			EmailVerified: true,
-			Provider:      "cas",
+			Provider:      constants.AuthProviderCAS,
 			ProviderID:    username,
 			LastLoginAt:   &now,
 		}
@@ -405,8 +412,8 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 		if createErr := s.db.DB.Create(&user).Error; createErr != nil {
 			return nil, createErr
 		}
-	} else if err != nil {
-		return nil, err
+	} else if queryErr != nil {
+		return nil, queryErr
 	} else {
 		user.Email = email
 		user.Name = nameAttr
@@ -425,6 +432,14 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 	}
 
 	return &user, nil
+}
+
+func (s *AuthService) isFirstUser() (bool, error) {
+	var userCount int64
+	if err := s.db.DB.Model(&models.User{}).Count(&userCount).Error; err != nil {
+		return false, err
+	}
+	return userCount == 0, nil
 }
 
 func (s *AuthService) generateUsername(email string) string {

@@ -103,7 +103,7 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID string, dep
 			ID: uuid.New(),
 		},
 		AlertID:         uuid.MustParse(alertID),
-		Status:          "pending",
+		Status:          string(models.RCAStatusPending),
 		StartedAt:       time.Now(),
 		Suspects:        datatypes.JSON([]byte(`{}`)),
 		Recommendations: datatypes.JSON([]byte(`{}`)),
@@ -123,7 +123,7 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID string, dep
 // executeAnalysis 执行HolmesGPT分析
 func (s *HolmesService) executeAnalysis(ctx context.Context, rcaRun *models.RCARun, alert *models.Alert, depth string) {
 	// 更新状态为运行中
-	rcaRun.Status = "running"
+	rcaRun.Status = string(models.RCAStatusRunning)
 	s.db.Save(rcaRun)
 
 	// 准备分析请求
@@ -218,7 +218,7 @@ func (s *HolmesService) updateAnalysisResult(ctx context.Context, rcaRun *models
 	}
 	rcaRun.CompletedAt = &now
 
-	if response.Status == "failed" && response.ErrorMessage != "" {
+	if response.Status == string(models.RCAStatusFailed) && response.ErrorMessage != "" {
 		rcaRun.ErrorMessage = &response.ErrorMessage
 	}
 
@@ -273,7 +273,7 @@ func (s *HolmesService) StartStreamRun(alertID string) (*models.RCARun, error) {
 			ID: uuid.New(),
 		},
 		AlertID:         alert.ID,
-		Status:          "running",
+		Status:          string(models.RCAStatusRunning),
 		StartedAt:       time.Now(),
 		Suspects:        datatypes.JSON([]byte(`{}`)),
 		Recommendations: datatypes.JSON([]byte(`{}`)),
@@ -301,11 +301,11 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 
 	if streamErr != nil {
 		errorMessage := streamErr.Error()
-		updates["status"] = "failed"
+		updates["status"] = string(models.RCAStatusFailed)
 		updates["error_message"] = errorMessage
 		updates["completed_at"] = now
 
-		run.Status = "failed"
+		run.Status = string(models.RCAStatusFailed)
 		run.CompletedAt = &now
 		run.ErrorMessage = &errorMessage
 
@@ -315,7 +315,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 		return
 	}
 
-	updates["status"] = "completed"
+	updates["status"] = string(models.RCAStatusCompleted)
 	updates["completed_at"] = now
 
 	// 提取summary和完整文本内容
@@ -370,7 +370,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 		}
 	}
 
-	run.Status = "completed"
+	run.Status = string(models.RCAStatusCompleted)
 	run.CompletedAt = &now
 
 	if err := s.db.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
@@ -417,7 +417,7 @@ func (s *HolmesService) handleAnalysisError(rcaRun *models.RCARun, err error) {
 	now := time.Now()
 	errorMsg := err.Error()
 
-	rcaRun.Status = "failed"
+	rcaRun.Status = string(models.RCAStatusFailed)
 	rcaRun.ErrorMessage = &errorMsg
 	rcaRun.CompletedAt = &now
 
@@ -444,83 +444,98 @@ func (s *HolmesService) GetAnalysisByAlertID(alertID string) ([]*models.RCARun, 
 
 // GetAnalysisStats 获取分析统计信息
 func (s *HolmesService) GetAnalysisStats(clusterID string) (*models.RCAStats, error) {
-	buildQuery := func() *gorm.DB {
-		q := s.db.Model(&models.RCARun{})
-		if clusterID != "" {
-			q = q.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-				Where("alerts.cluster_id = ?", clusterID)
-		}
-		return q
-	}
-
 	var stats models.RCAStats
 
-	// 总数
-	if err := buildQuery().Count(&stats.Total).Error; err != nil {
+	// 基础查询
+	query := s.db.Model(&models.RCARun{})
+	if clusterID != "" {
+		query = query.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
+			Where("alerts.cluster_id = ?", clusterID)
+	}
+
+	// 1. 获取总数
+	if err := query.Count(&stats.Total).Error; err != nil {
 		return nil, fmt.Errorf("查询总数失败: %w", err)
 	}
 
-	// 按状态统计
-	var statusStats []struct {
+	if stats.Total == 0 {
+		return &stats, nil
+	}
+
+	// 2. 按状态分组统计
+	// SELECT status, COUNT(*) as count FROM rca_runs ... GROUP BY status
+	var statusCounts []struct {
 		Status string `json:"status"`
 		Count  int64  `json:"count"`
 	}
 
-	err := buildQuery().
-		Select("rca_runs.status, COUNT(*) as count").
+	// 注意：这里需要重新构建查询，因为 Count() 可能会修改 query 对象或者我们想复用 query
+	// 最好是重新构建或者 clone
+	statusQuery := s.db.Model(&models.RCARun{})
+	if clusterID != "" {
+		statusQuery = statusQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
+			Where("alerts.cluster_id = ?", clusterID)
+	}
+
+	if err := statusQuery.Select("rca_runs.status, COUNT(*) as count").
 		Group("rca_runs.status").
-		Scan(&statusStats).Error
-	if err != nil {
+		Scan(&statusCounts).Error; err != nil {
 		return nil, fmt.Errorf("查询状态统计失败: %w", err)
 	}
 
-	// 转换为map格式
-	byStatus := make([]map[string]interface{}, len(statusStats))
-	for i, stat := range statusStats {
-		byStatus[i] = map[string]interface{}{
-			"status": stat.Status,
-			"count":  stat.Count,
+	stats.ByStatus = make([]map[string]interface{}, len(statusCounts))
+	var successCount int64
+	for i, item := range statusCounts {
+		stats.ByStatus[i] = map[string]interface{}{
+			"status": item.Status,
+			"count":  item.Count,
+		}
+		if item.Status == string(models.RCAStatusCompleted) {
+			successCount = item.Count
 		}
 	}
-	stats.ByStatus = byStatus
 
-	// 成功率
-	var successCount int64
-	err = buildQuery().
-		Where("rca_runs.status = ?", "completed").
-		Count(&successCount).Error
-	if err != nil {
-		return nil, fmt.Errorf("查询成功数量失败: %w", err)
-	}
-
+	// 3. 计算成功率
 	if stats.Total > 0 {
 		stats.SuccessRate = float64(successCount) / float64(stats.Total)
 	}
 
-	// 平均持续时间
-	type durationRecord struct {
+	// 4. 计算平均耗时 (只计算已完成的任务)
+	// SELECT AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) FROM rca_runs WHERE status = 'completed'
+	// 注意：不同数据库的日期计算函数不同，这里使用 Go 层计算以保持兼容性，或者使用通用 SQL
+	// 为了简单和兼容性，我们查询 completed 的记录的起止时间
+
+	durationQuery := s.db.Model(&models.RCARun{})
+	if clusterID != "" {
+		durationQuery = durationQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
+			Where("alerts.cluster_id = ?", clusterID)
+	}
+
+	var avgDuration float64
+	// Postgres/MySQL 兼容的写法可能比较复杂，这里先用 Go 计算，如果数据量大建议改为 SQL
+	// 考虑到性能，只取最近的 1000 条记录来计算平均值作为估算
+	var times []struct {
 		StartedAt   time.Time
 		CompletedAt *time.Time
 	}
 
-	var durationRecords []durationRecord
-	err = buildQuery().
-		Where("rca_runs.completed_at IS NOT NULL").
+	if err := durationQuery.Where("rca_runs.status = ? AND rca_runs.completed_at IS NOT NULL", models.RCAStatusCompleted).
 		Select("rca_runs.started_at, rca_runs.completed_at").
-		Find(&durationRecords).Error
-	if err != nil {
-		return nil, fmt.Errorf("查询平均持续时间失败: %w", err)
+		Limit(1000).
+		Find(&times).Error; err != nil {
+		return nil, fmt.Errorf("查询耗时统计失败: %w", err)
 	}
 
-	if len(durationRecords) > 0 {
-		var total float64
-		for _, record := range durationRecords {
-			if record.CompletedAt != nil {
-				total += record.CompletedAt.Sub(record.StartedAt).Seconds()
+	if len(times) > 0 {
+		var totalDuration float64
+		for _, t := range times {
+			if t.CompletedAt != nil {
+				totalDuration += t.CompletedAt.Sub(t.StartedAt).Seconds()
 			}
 		}
-		stats.AvgDurationSeconds = total / float64(len(durationRecords))
+		avgDuration = totalDuration / float64(len(times))
 	}
+	stats.AvgDurationSeconds = avgDuration
 
 	return &stats, nil
 }
@@ -619,10 +634,10 @@ func (s *HolmesService) getAlertByID(alertID string) (*models.Alert, error) {
 
 func (s *HolmesService) getRunningAnalysis(alertID string) (*models.RCARun, error) {
 	var rcaRun models.RCARun
-	err := s.db.Where("alert_id = ? AND status IN (?)", alertID, []string{"pending", "running"}).
+	err := s.db.Where("alert_id = ? AND status IN (?)", alertID, []string{string(models.RCAStatusPending), string(models.RCAStatusRunning)}).
 		First(&rcaRun).Error
 	if err != nil {
-		if err.Error() == "record not found" {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, err

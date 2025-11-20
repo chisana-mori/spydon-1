@@ -31,14 +31,15 @@ type handlerSet struct {
 
 func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, error) {
 	clusterService := services.NewClusterService(database)
-	alertService := services.NewAlertService(database)
-	rcaService := services.NewRCAService(database)
 	auditService := services.NewAuditService(database)
 
 	objectStorage, err := services.NewObjectStorageService(cfg)
 	if err != nil {
 		return nil, err
 	}
+
+	alertService := services.NewAlertService(database, clusterService, auditService, objectStorage)
+	rcaService := services.NewRCAService(database, auditService, objectStorage)
 
 	holmesService := services.NewHolmesService(database, cfg, objectStorage)
 	knowledgeService := services.NewKnowledgeService(database, objectStorage)

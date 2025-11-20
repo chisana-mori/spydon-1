@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -80,59 +78,35 @@ func (h *IngestHandler) IngestAlert(c *gin.Context) {
 		return
 	}
 
-	// 验证严重级别
-	if !isValidSeverity(req.Severity) {
-		BadRequest(c, "INVALID_SEVERITY", "无效的严重级别")
-		return
-	}
+	// 调用 Service 处理告警
+	alertID, err := h.alertService.ProcessAlert(c.Request.Context(), services.ProcessAlertRequest{
+		Fingerprint: req.Fingerprint,
+		ClusterID:   req.ClusterID,
+		Title:       req.Title,
+		Description: req.Description,
+		Severity:    req.Severity,
+		Status:      req.Status,
+		Labels:      req.Labels,
+		Annotations: req.Annotations,
+		StartsAt:    req.StartsAt,
+		EndsAt:      req.EndsAt,
+		RawBody:     rawBody,
+		ClientIP:    c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+	})
 
-	// 保存原始payload（可选）
-	payloadKey, err := savePayload(c.Request.Context(), h.storageService, fmt.Sprintf("alerts/%s", req.ClusterID), rawBody, "application/json")
 	if err != nil {
-		ErrorWithDetails(c, http.StatusInternalServerError, "SAVE_RAW_PAYLOAD_ERROR", "保存原始告警数据失败", err.Error())
-		return
-	}
-
-	// 设置默认状态
-	status := req.Status
-	if status == "" {
-		status = "firing"
-	}
-
-	// 确保集群存在
-	if h.clusterService != nil {
-		_ = h.clusterService.UpdateHeartbeat(c.Request.Context(), &models.Cluster{
-			ClusterID: req.ClusterID,
-			Name:      req.ClusterID,
-			Status:    "active",
-		})
-	}
-
-	alert := &models.Alert{
-		Fingerprint:   req.Fingerprint,
-		ClusterID:     req.ClusterID,
-		Title:         req.Title,
-		Description:   req.Description,
-		Severity:      req.Severity,
-		Status:        status,
-		Labels:        toJSON(req.Labels),
-		Annotations:   toJSON(req.Annotations),
-		StartsAt:      req.StartsAt,
-		EndsAt:        req.EndsAt,
-		RawPayloadKey: payloadKey,
-	}
-
-	// 保存告警
-	if err := h.alertService.CreateOrUpdateAlert(c.Request.Context(), alert); err != nil {
+		// 判断是否是验证错误
+		if err.Error() == "无效的严重级别" { // 简单判断，实际应使用自定义错误类型
+			BadRequest(c, "INVALID_SEVERITY", err.Error())
+			return
+		}
 		InternalError(c, "SAVE_ALERT_ERROR", "保存告警失败")
 		return
 	}
 
-	// 记录审计日志
-	h.logAlertAudit(c, alert.ID.String(), req.ClusterID, req.Fingerprint, req.Severity, "api")
-
 	SuccessWithMessage(c, "告警接收成功", gin.H{
-		"alert_id": alert.ID,
+		"alert_id": alertID,
 	})
 }
 
@@ -176,17 +150,9 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
 		return
 	}
 
-	// 确保集群存在
-	if h.clusterService != nil {
-		_ = h.clusterService.UpdateHeartbeat(c.Request.Context(), &models.Cluster{
-			ClusterID: alert.ClusterID,
-			Name:      alert.ClusterID,
-			Status:    "active",
-		})
-	}
-
-	// 保存告警
-	if err := h.alertService.CreateOrUpdateAlert(c.Request.Context(), alert); err != nil {
+	// 使用 Service 处理告警（心跳、保存、审计）
+	// 注意：这里使用 Request Context，与之前的行为保持一致（虽然转换使用了 bgCtx）
+	if err := h.alertService.IngestConvertedAlert(c.Request.Context(), alert, c.ClientIP(), c.Request.UserAgent()); err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "SAVE_ALERT_ERROR", "保存告警失败", err.Error())
 		return
 	}
@@ -216,9 +182,6 @@ func (h *IngestHandler) IngestAlertmanagerWebhook(c *gin.Context) {
 		converter := NewAlertmanagerAlertConverter(amAlert, webhook.Status, idx)
 		alertData := converter.Convert()
 
-		// 更新集群心跳（确保集群存在）
-		h.updateClusterHeartbeat(c.Request.Context(), alertData.ClusterID)
-
 		// 创建Alert模型
 		alert := &models.Alert{
 			Fingerprint: alertData.Fingerprint,
@@ -233,14 +196,11 @@ func (h *IngestHandler) IngestAlertmanagerWebhook(c *gin.Context) {
 			EndsAt:      alertData.EndsAt,
 		}
 
-		// 保存告警
-		if err := h.alertService.CreateOrUpdateAlert(c.Request.Context(), alert); err != nil {
+		// 使用 Service 处理告警（心跳、保存、审计）
+		if err := h.alertService.IngestConvertedAlert(c.Request.Context(), alert, c.ClientIP(), c.Request.UserAgent()); err != nil {
 			InternalError(c, "SAVE_ALERT_ERROR", "保存告警失败")
 			return
 		}
-
-		// 记录审计日志
-		h.logAlertAudit(c, alert.ID.String(), alertData.ClusterID, alertData.Fingerprint, alertData.Severity, "alertmanager")
 
 		// 添加到响应列表
 		ingested = append(ingested, map[string]interface{}{
@@ -270,91 +230,31 @@ func (h *IngestHandler) IngestRCA(c *gin.Context) {
 		return
 	}
 
-	// 解析AlertID
-	alertID, err := uuid.Parse(req.AlertID)
-	if err != nil {
-		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
-		return
-	}
-
-	// 保存原始payload（可选）
-	payloadKey, err := savePayload(c.Request.Context(), h.storageService, fmt.Sprintf("rca/%s", alertID.String()), rawBody, "application/json")
-	if err != nil {
-		ErrorWithDetails(c, http.StatusInternalServerError, "SAVE_RAW_PAYLOAD_ERROR", "保存RCA原始数据失败", err.Error())
-		return
-	}
-
-	// 验证RCA状态
-	if !isValidRCAStatus(req.Status) {
-		BadRequest(c, "INVALID_RCA_STATUS", "无效的RCA状态")
-		return
-	}
-
-	// 创建RCA运行记录
-	rcaRun := &models.RCARun{
-		AlertID:         alertID,
+	// 调用 Service 处理RCA
+	rcaID, err := h.rcaService.ProcessRCA(c.Request.Context(), services.ProcessRCARequest{
+		AlertID:         req.AlertID,
 		Status:          req.Status,
-		Summary:         &req.Summary,
-		Suspects:        toJSON(req.Suspects),
-		Recommendations: toJSON(req.Recommendations),
-		Attachments:     toJSON(req.Attachments),
-		ErrorMessage:    &req.ErrorMessage,
-		RawPayloadKey:   payloadKey,
-	}
+		Summary:         req.Summary,
+		Suspects:        req.Suspects,
+		Recommendations: req.Recommendations,
+		Attachments:     req.Attachments,
+		ErrorMessage:    req.ErrorMessage,
+		RawBody:         rawBody,
+		ClientIP:        c.ClientIP(),
+		UserAgent:       c.Request.UserAgent(),
+	})
 
-	// 如果状态是completed或failed/timeout，设置完成时间
-	if req.Status == "completed" || req.Status == "failed" || req.Status == "timeout" {
-		now := time.Now()
-		rcaRun.CompletedAt = &now
-	}
-
-	// 保存RCA记录
-	if err := h.rcaService.CreateRCARun(rcaRun); err != nil {
+	if err != nil {
+		// 简单判断错误类型
+		if err.Error() == "无效的告警ID" || err.Error() == "无效的RCA状态" {
+			BadRequest(c, "INVALID_REQUEST", err.Error())
+			return
+		}
 		InternalError(c, "SAVE_RCA_ERROR", "保存RCA记录失败")
 		return
 	}
 
-	// 记录审计日志
-	h.logRCAAudit(c, rcaRun.ID.String(), req.AlertID, req.Status)
-
 	SuccessWithMessage(c, "RCA结果接收成功", gin.H{
-		"rca_id": rcaRun.ID,
+		"rca_id": rcaID,
 	})
-}
-
-// updateClusterHeartbeat 更新集群心跳
-func (h *IngestHandler) updateClusterHeartbeat(ctx context.Context, clusterID string) {
-	if h.clusterService != nil {
-		_ = h.clusterService.UpdateHeartbeat(ctx, &models.Cluster{
-			ClusterID: clusterID,
-			Name:      clusterID,
-			Status:    "active",
-		})
-	}
-}
-
-// logAlertAudit 记录告警审计日志
-func (h *IngestHandler) logAlertAudit(c *gin.Context, alertID, clusterID, fingerprint, severity, source string) {
-	if h.auditService != nil {
-		if err := h.auditService.LogAction("system", "alert_ingested", "alert", alertID, map[string]interface{}{
-			"cluster_id":  clusterID,
-			"fingerprint": fingerprint,
-			"severity":    severity,
-			"source":      source,
-		}, c.ClientIP(), c.Request.UserAgent()); err != nil {
-			logger.L().Warn("记录审计日志失败", zap.Error(err), zap.String("source", source))
-		}
-	}
-}
-
-// logRCAAudit 记录RCA审计日志
-func (h *IngestHandler) logRCAAudit(c *gin.Context, rcaID, alertID, status string) {
-	if h.auditService != nil {
-		if err := h.auditService.LogAction("system", "rca_ingested", "rca_run", rcaID, map[string]interface{}{
-			"alert_id": alertID,
-			"status":   status,
-		}, c.ClientIP(), c.Request.UserAgent()); err != nil {
-			logger.L().Warn("记录RCA审计日志失败", zap.Error(err))
-		}
-	}
 }

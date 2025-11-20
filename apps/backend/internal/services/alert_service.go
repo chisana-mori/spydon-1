@@ -2,27 +2,166 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 // AlertService 告警服务
 type AlertService struct {
-	db *db.Database
+	db             *db.Database
+	clusterService *ClusterService
+	auditService   *AuditService
+	payloadStorage PayloadStorage
 }
 
 // NewAlertService 创建新的告警服务
-func NewAlertService(database *db.Database) *AlertService {
+func NewAlertService(
+	database *db.Database,
+	clusterService *ClusterService,
+	auditService *AuditService,
+	payloadStorage PayloadStorage,
+) *AlertService {
 	return &AlertService{
-		db: database,
+		db:             database,
+		clusterService: clusterService,
+		auditService:   auditService,
+		payloadStorage: payloadStorage,
 	}
+}
+
+// ProcessAlertRequest 处理告警请求参数
+type ProcessAlertRequest struct {
+	Fingerprint string
+	ClusterID   string
+	Title       string
+	Description string
+	Severity    string
+	Status      string
+	Labels      map[string]interface{}
+	Annotations map[string]interface{}
+	StartsAt    *time.Time
+	EndsAt      *time.Time
+	RawBody     []byte
+	ClientIP    string
+	UserAgent   string
+}
+
+// ProcessAlert 处理告警接收逻辑
+func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest) (*uuid.UUID, error) {
+	// 验证严重级别
+	if !isValidSeverity(req.Severity) {
+		return nil, fmt.Errorf("无效的严重级别: %s", req.Severity)
+	}
+
+	// 保存原始payload（可选）
+	var payloadKey string
+	if s.payloadStorage != nil && len(req.RawBody) > 0 {
+		key, err := s.savePayload(ctx, fmt.Sprintf("alerts/%s", req.ClusterID), req.RawBody, "application/json")
+		if err != nil {
+			// 记录错误但不中断流程
+			logger.L().Warn("保存原始告警数据失败", zap.Error(err), zap.String("cluster_id", req.ClusterID))
+		} else {
+			payloadKey = key
+		}
+	}
+
+	alert := &models.Alert{
+		Fingerprint:   req.Fingerprint,
+		ClusterID:     req.ClusterID,
+		Title:         req.Title,
+		Description:   req.Description,
+		Severity:      req.Severity,
+		Status:        req.Status,
+		Labels:        toJSON(req.Labels),
+		Annotations:   toJSON(req.Annotations),
+		StartsAt:      req.StartsAt,
+		EndsAt:        req.EndsAt,
+		RawPayloadKey: payloadKey,
+	}
+
+	// 使用 IngestConvertedAlert 处理后续逻辑
+	if err := s.IngestConvertedAlert(ctx, alert, req.ClientIP, req.UserAgent); err != nil {
+		return nil, err
+	}
+
+	return &alert.ID, nil
+}
+
+// IngestConvertedAlert 处理已转换的告警（保存、心跳、审计）
+func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.Alert, clientIP, userAgent string) error {
+	// 确保集群存在
+	if s.clusterService != nil {
+		_ = s.clusterService.UpdateHeartbeat(ctx, &models.Cluster{
+			ClusterID: alert.ClusterID,
+			Name:      alert.ClusterID,
+			Status:    string(models.ClusterStatusActive),
+		})
+	}
+
+	// 保存告警
+	if err := s.CreateOrUpdateAlert(ctx, alert); err != nil {
+		return fmt.Errorf("保存告警失败: %w", err)
+	}
+
+	// 记录审计日志
+	if s.auditService != nil {
+		_ = s.auditService.LogAction("system", "alert_ingested", "alert", alert.ID.String(), map[string]interface{}{
+			"cluster_id":  alert.ClusterID,
+			"fingerprint": alert.Fingerprint,
+			"severity":    alert.Severity,
+			"source":      "api",
+		}, clientIP, userAgent)
+	}
+
+	return nil
+}
+
+// savePayload 保存原始数据
+func (s *AlertService) savePayload(ctx context.Context, keyPrefix string, data []byte, contentType string) (string, error) {
+	if s.payloadStorage == nil {
+		return "", nil
+	}
+
+	// 使用 Save 方法，它会自动生成 ID
+	key, err := s.payloadStorage.Save(ctx, keyPrefix, data, contentType)
+	if err != nil {
+		return "", err
+	}
+
+	return key, nil
+}
+
+// isValidSeverity 验证严重级别
+func isValidSeverity(severity string) bool {
+	switch models.AlertSeverity(severity) {
+	case models.AlertSeverityInfo, models.AlertSeverityWarning, models.AlertSeverityError, models.AlertSeverityCritical:
+		return true
+	default:
+		return false
+	}
+}
+
+// toJSON 转换为JSON
+func toJSON(v interface{}) []byte {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		logger.L().Error("JSON序列化失败", zap.Error(err))
+		return nil
+	}
+	return b
 }
 
 // AlertFilters 告警过滤条件
@@ -261,7 +400,7 @@ func (s *AlertService) DeleteAlert(id uuid.UUID) error {
 // CleanupOldAlerts 清理旧告警（定期任务）
 func (s *AlertService) CleanupOldAlerts(olderThan time.Duration) error {
 	cutoff := time.Now().Add(-olderThan)
-	result := s.db.Where("created_at < ? AND status = ?", cutoff, "resolved").Delete(&models.Alert{})
+	result := s.db.Where("created_at < ? AND status = ?", cutoff, models.AlertStatusResolved).Delete(&models.Alert{})
 	if result.Error != nil {
 		return fmt.Errorf("清理旧告警失败: %w", result.Error)
 	}

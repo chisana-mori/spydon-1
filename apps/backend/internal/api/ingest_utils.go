@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,8 +10,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/datatypes"
@@ -93,26 +90,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// isValidSeverity 验证严重级别是否有效
-func isValidSeverity(s string) bool {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case SeverityLow, SeverityMedium, SeverityHigh, SeverityCritical:
-		return true
-	default:
-		return false
-	}
-}
-
-// isValidRCAStatus 验证RCA状态是否有效
-func isValidRCAStatus(s string) bool {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case RCAStatusPending, RCAStatusRunning, RCAStatusCompleted, RCAStatusFailed, RCAStatusTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
 // normalizeSeverity 标准化严重级别（通用版本）
 func normalizeSeverityGeneric(severity string) string {
 	sev := strings.ToLower(strings.TrimSpace(severity))
@@ -189,14 +166,6 @@ func generateAlertmanagerFingerprint(clusterID string, labels map[string]string,
 	}
 
 	return generateFingerprint(parts...)
-}
-
-// savePayload 保存原始payload到存储
-func savePayload(ctx context.Context, storage services.PayloadStorage, path string, data []byte, contentType string) (string, error) {
-	if storage == nil || len(data) == 0 {
-		return "", nil
-	}
-	return storage.Save(ctx, path, data, contentType)
 }
 
 // AlertmanagerAlertConverter Alertmanager告警转换器
