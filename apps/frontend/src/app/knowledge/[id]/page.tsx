@@ -83,44 +83,35 @@ export default function KnowledgeViewPage() {
           {/* 状态标签 */}
           <div className="flex items-center gap-2">
             <span
-              className={`px-3 py-1 rounded-full text-xs font-medium ${
-                article.status === 'published'
-                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                  : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-              }`}
+              className={`px-3 py-1 rounded-full text-xs font-medium ${article.status === 'published'
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                }`}
             >
               {article.status === 'published' ? '已发布' : '草稿'}
             </span>
             <span className="text-xs text-muted-foreground">版本 v{article.version}</span>
           </div>
 
-          {/* 标题 */}
-          <CardTitle className="text-3xl font-bold">{article.title}</CardTitle>
+          {/* 告警规则名作为标题 */}
+          <CardTitle className="text-3xl font-bold font-mono">{article.alert_rule_name}</CardTitle>
 
           {/* 元信息 */}
           <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-blue-500" />
-              <span className="text-muted-foreground">告警规则：</span>
-              <span className="px-3 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md font-mono text-xs font-semibold">
-                {article.alert_rule_name}
-              </span>
-            </div>
 
             {article.severity && (
               <div className="flex items-center gap-2">
                 <Tag className="h-4 w-4 text-purple-500" />
                 <span className="text-muted-foreground">严重级别：</span>
                 <span
-                  className={`px-3 py-1 rounded-md text-xs font-semibold ${
-                    article.severity === 'critical'
-                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                      : article.severity === 'high'
+                  className={`px-3 py-1 rounded-md text-xs font-semibold ${article.severity === 'critical'
+                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    : article.severity === 'high'
                       ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
                       : article.severity === 'medium'
-                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                  }`}
+                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                    }`}
                 >
                   {article.severity}
                 </span>

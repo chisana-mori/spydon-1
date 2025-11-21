@@ -248,47 +248,13 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
     }
   }
 
-  // 构建 HolmesGPT 调查请求
+  // 构建 HolmesGPT 调查请求（仅包含必要参数，其余由后端组装）
   const buildInvestigateRequest = () => {
-    const alertPayload = {
-      id: alert.id,
-      fingerprint: alert.fingerprint,
-      cluster_id: alert.cluster_id,
-      title: alert.title,
-      description: alert.description || '',
-      severity: alert.severity,
-      status: alert.status,
-      labels: alert.labels || {},
-      annotations: alert.annotations || {},
-      created_at: alert.created_at,
-      starts_at: alert.starts_at,
-      ends_at: alert.ends_at
-    }
-
     return {
-      source: 'robusta',
-      title: alert.title,
-      description: `${alert.description || ''}${alert.description ? '\n\n' : ''}请用中文回答全部内容。`,
-      subject: {
-        alert_id: alert.id,
-        fingerprint: alert.fingerprint,
-        cluster_id: alert.cluster_id,
-        severity: alert.severity,
-        status: alert.status,
-        labels: alert.labels || {},
-        annotations: alert.annotations || {},
-        created_at: alert.created_at,
-        starts_at: alert.starts_at,
-        ends_at: alert.ends_at
-      },
-      context: {
-        alert: alertPayload,
-        response_language: settings.language || 'zh-CN'
-      },
-      source_instance_id: 'WebUI-Chinese-Enhanced',
+      alert_id: alert.id,
+      depth: 'standard',
+      language: settings.language || 'zh-CN',
       include_tool_calls: settings.showToolCalls,
-      include_tool_call_results: settings.showToolCalls,
-      prompt_template: 'builtin://generic_investigation.jinja2'
     }
   }
 
@@ -1164,7 +1130,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
   // 根据showCard决定返回结构
   if (!showCard) {
     return (
-      <div className="w-full h-full flex flex-col bg-white border rounded-lg overflow-hidden">
+      <div className="w-full h-full flex flex-col overflow-hidden">
         <ControlBar
           statusIcon={getStatusIcon()}
           statusText={getStatusText()}

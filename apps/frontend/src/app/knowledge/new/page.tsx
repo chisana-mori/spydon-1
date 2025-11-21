@@ -13,7 +13,7 @@ export default function KnowledgeCreatePage() {
   const searchParams = useSearchParams()
   const editorRef = React.useRef<any>(null)
   const [submitting, setSubmitting] = useState(false)
-  
+
   // 从 URL 参数获取规则名
   const ruleFromUrl = searchParams.get('rule') || ''
 
@@ -23,7 +23,6 @@ export default function KnowledgeCreatePage() {
       // 1) 创建条目
       const created = await RobustaAPI.createKnowledge({
         alert_rule_name: value.alertRuleName,
-        title: value.title,
         tags: value.tags,
       })
       const id = created.data?.id
@@ -34,20 +33,20 @@ export default function KnowledgeCreatePage() {
         schema: 'kb-manifest@v1',
         articleId: '',
         alertRuleName: value.alertRuleName,
-        title: value.title,
         status: 'draft',
         version: 1,
-        content: { 
+        content: {
           tiptap: value.tiptap
         },
+        markdown: value.markdown,
         tags: value.tags,
       })
 
       // 3) 直接发布
       await RobustaAPI.publishKnowledge(id, '发布')
-      
+
       toast.success('已发布')
-      
+
       // 跳转到列表页并添加时间戳强制刷新
       router.push(`/knowledge?t=${Date.now()}`)
     } catch (e: any) {
@@ -65,8 +64,8 @@ export default function KnowledgeCreatePage() {
           className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 px-3"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
-            <path d="m12 19-7-7 7-7"/>
-            <path d="M19 12H5"/>
+            <path d="m12 19-7-7 7-7" />
+            <path d="M19 12H5" />
           </svg>
           返回
         </button>
@@ -80,9 +79,9 @@ export default function KnowledgeCreatePage() {
           <CardDescription>填写元信息与正文内容，点击发布即可创建</CardDescription>
         </CardHeader>
         <CardContent>
-          <KnowledgeEditor 
-            ref={editorRef} 
-            submitting={submitting} 
+          <KnowledgeEditor
+            ref={editorRef}
+            submitting={submitting}
             onSubmit={handleSubmit}
             value={{
               alertRuleName: ruleFromUrl,

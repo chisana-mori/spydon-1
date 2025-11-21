@@ -226,7 +226,7 @@ func (h *QueryHandler) TriggerRCA(c *gin.Context) {
 	}
 
 	// 触发RCA分析（这里应该调用HolmesGPT服务）
-	rcaRun, err := h.rcaService.TriggerRCAAnalysis(alert)
+	rcaRun, err := h.rcaService.TriggerRCAManual(alert)
 	if err != nil {
 		InternalError(c, "TRIGGER_RCA_ERROR", "触发RCA分析失败")
 		return

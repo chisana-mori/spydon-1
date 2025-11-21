@@ -166,7 +166,6 @@ export interface KnowledgeArticle {
   id: string
   alert_rule_name: string
   alert_rule_name_normalized: string
-  title: string
   severity?: 'low' | 'medium' | 'high' | 'critical'
   tags?: string[] | Record<string, any>
   status: 'draft' | 'published' | 'archived'
@@ -182,13 +181,13 @@ export interface KnowledgeManifest {
   schema: string
   articleId: string
   alertRuleName: string
-  title: string
   severity?: string
   tags?: string[]
   status: string
   version: number
   excerpt?: string
-  content: { tiptap?: any; markdown?: string }
+  content: { tiptap?: any }
+  markdown?: string
   assets?: Array<{ name?: string; key: string; mime?: string; size?: number }>
   scopes?: Record<string, any>
   audit?: Record<string, any>

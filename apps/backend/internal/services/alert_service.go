@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -21,6 +20,7 @@ type AlertService struct {
 	db             *db.Database
 	clusterService *ClusterService
 	auditService   *AuditService
+	rcaService     *RCAService
 	payloadStorage PayloadStorage
 }
 
@@ -29,12 +29,14 @@ func NewAlertService(
 	database *db.Database,
 	clusterService *ClusterService,
 	auditService *AuditService,
+	rcaService *RCAService,
 	payloadStorage PayloadStorage,
 ) *AlertService {
 	return &AlertService{
 		db:             database,
 		clusterService: clusterService,
 		auditService:   auditService,
+		rcaService:     rcaService,
 		payloadStorage: payloadStorage,
 	}
 }
@@ -123,6 +125,25 @@ func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.A
 		}, clientIP, userAgent)
 	}
 
+	// 触发Auto-RCA（仅在开启时）
+	if s.rcaService != nil && alert.Status == string(models.AlertStatusFiring) {
+		go func() {
+			rcaRun, err := s.rcaService.TriggerRCAAnalysis(alert)
+			if err != nil {
+				logger.L().Debug("Auto-RCA未触发",
+					zap.String("alert_id", alert.ID.String()),
+					zap.String("reason", err.Error()),
+				)
+			} else if rcaRun != nil {
+				logger.L().Info("Auto-RCA已触发",
+					zap.String("alert_id", alert.ID.String()),
+					zap.String("run_id", rcaRun.ID.String()),
+					zap.String("status", rcaRun.Status),
+				)
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -144,24 +165,17 @@ func (s *AlertService) savePayload(ctx context.Context, keyPrefix string, data [
 // isValidSeverity 验证严重级别
 func isValidSeverity(severity string) bool {
 	switch models.AlertSeverity(severity) {
-	case models.AlertSeverityInfo, models.AlertSeverityWarning, models.AlertSeverityError, models.AlertSeverityCritical:
+	case models.AlertSeverityInfo,
+		models.AlertSeverityWarning,
+		models.AlertSeverityError,
+		models.AlertSeverityLow,
+		models.AlertSeverityMedium,
+		models.AlertSeverityHigh,
+		models.AlertSeverityCritical:
 		return true
 	default:
 		return false
 	}
-}
-
-// toJSON 转换为JSON
-func toJSON(v interface{}) []byte {
-	if v == nil {
-		return nil
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		logger.L().Error("JSON序列化失败", zap.Error(err))
-		return nil
-	}
-	return b
 }
 
 // AlertFilters 告警过滤条件

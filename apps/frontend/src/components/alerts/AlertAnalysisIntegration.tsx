@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -36,51 +36,94 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
   const [cachedResult, setCachedResult] = useState<any>(null)
   const [loadingCache, setLoadingCache] = useState(true)
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
+  const streamRef = useRef<EventSource | null>(null)
+  const activeRun = analysisHistory.find(
+    (run) => run?.status === 'running' || run?.status === 'pending' || run?.status === 'queued'
+  )
+  const completedHistory = analysisHistory.filter(
+    (run) => run?.status !== 'running' && run?.status !== 'pending' && run?.status !== 'queued'
+  )
+
+  const fetchHistoryAndCache = useCallback(async () => {
+    setLoadingCache(true)
+    try {
+      const basePath = appConfig.basePath || ''
+
+      const historyResponse = await fetch(`${basePath}/api/v1/rca/${alert.id}`, {
+        credentials: 'include',
+      })
+
+      if (historyResponse.ok) {
+        const historyData = await historyResponse.json()
+        if (historyData.data && Array.isArray(historyData.data)) {
+          setAnalysisHistory(historyData.data)
+        }
+      }
+
+      const cacheResponse = await fetch(`${basePath}/api/v1/rca/${alert.id}/cache`, {
+        credentials: 'include',
+      })
+
+      if (cacheResponse.ok) {
+        const cacheData = await cacheResponse.json()
+        if (cacheData.cache_hit && cacheData.data) {
+          setCachedResult(cacheData.data)
+        } else {
+          setCachedResult(null)
+        }
+      } else if (cacheResponse.status === 404) {
+        setCachedResult(null)
+      }
+    } catch (error) {
+      // Fetch failures are non-fatal; keep existing state
+    } finally {
+      setLoadingCache(false)
+    }
+  }, [alert.id])
 
   // 获取分析历史记录和缓存
   useEffect(() => {
-    const fetchHistoryAndCache = async () => {
-      setLoadingCache(true)
+    fetchHistoryAndCache()
+  }, [alert.id, fetchHistoryAndCache])
+
+  // 基于 RCA SSE 状态更新自动刷新分析历史，避免长时间显示过期的 queued 状态
+  useEffect(() => {
+    if (streamRef.current) {
+      streamRef.current.close()
+      streamRef.current = null
+    }
+
+    if (!alert.id) return
+
+    const apiBase = appConfig.apiBaseUrl || `${appConfig.backendBaseUrl.replace(/\/+$/, '')}/api/v1`
+    const streamUrl = `${apiBase.replace(/\/+$/, '')}/rca/${alert.id}/stream`
+
+    const source = new EventSource(streamUrl, { withCredentials: true })
+    streamRef.current = source
+
+    const handleEvent = (event: MessageEvent) => {
       try {
-        // 构建 API 路径，包含 basePath（如果配置了）
-        const basePath = appConfig.basePath || ''
-
-        // 1. 先获取分析历史列表
-        const historyResponse = await fetch(`${basePath}/api/v1/rca/${alert.id}`, {
-          credentials: 'include',
-        })
-
-        if (historyResponse.ok) {
-          const historyData = await historyResponse.json()
-          if (historyData.data && Array.isArray(historyData.data)) {
-            setAnalysisHistory(historyData.data)
-          }
-        }
-
-        // 2. 尝试获取缓存的RCA结果（用于自动回放）
-        const cacheResponse = await fetch(`${basePath}/api/v1/rca/${alert.id}/cache`, {
-          credentials: 'include',
-        })
-
-        if (cacheResponse.ok) {
-          const cacheData = await cacheResponse.json()
-          if (cacheData.cache_hit && cacheData.data) {
-            setCachedResult(cacheData.data)
-          } else {
-            setCachedResult(null)
-          }
-        } else if (cacheResponse.status === 404) {
-          setCachedResult(null)
+        const payload = JSON.parse(event.data)
+        if (payload?.status) {
+          void fetchHistoryAndCache()
         }
       } catch (error) {
-        // Failed to fetch analysis history or cache
-      } finally {
-        setLoadingCache(false)
+        // 忽略解析错误
       }
     }
 
-    fetchHistoryAndCache()
-  }, [alert.id])
+    source.addEventListener('status', handleEvent as EventListener)
+    source.onmessage = handleEvent
+    source.onerror = () => {
+      source.close()
+      streamRef.current = null
+    }
+
+    return () => {
+      source.close()
+      streamRef.current = null
+    }
+  }, [alert.id, fetchHistoryAndCache])
 
   // 查看历史分析结果
   const handleViewHistory = async (historyId: string) => {
@@ -161,6 +204,34 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
     }
   }
 
+  const renderActiveRunBanner = () => {
+    if (!activeRun) return null
+
+    const statusLabel =
+      activeRun.status === 'queued' || activeRun.status === 'pending'
+        ? 'RCA 排队中'
+        : 'RCA 分析运行中'
+
+    return (
+      <div className="mb-4 overflow-hidden rounded-lg border border-blue-200 bg-gradient-to-r from-blue-50 via-sky-50 to-blue-50 shadow-sm">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="rounded-full bg-white/80 p-2 text-blue-600 shadow-inner">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+          <div className="flex-1 space-y-1">
+            <p className="text-sm font-semibold text-blue-900">{statusLabel}</p>
+            <p className="text-xs text-blue-700">
+              我们正在为该告警启动智能根因分析，请稍候，完成后会自动刷新结果。
+            </p>
+            <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/60">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-gradient-to-r from-blue-400 via-sky-400 to-blue-500" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
 
   return (
     <div className="space-y-6">
@@ -180,7 +251,7 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
       )}
 
       {/* 分析历史 */}
-      {analysisHistory.length > 0 && (
+      {completedHistory.length > 0 && (
         <Card className="border-2 shadow-sm">
           <CardHeader className="bg-gradient-to-r from-gray-50 to-white">
             <CardTitle className="flex items-center justify-between">
@@ -188,14 +259,14 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
                 <History className="h-5 w-5 text-blue-600" />
                 <span className="text-lg">分析历史</span>
                 <Badge variant="secondary" className="ml-2">
-                  {analysisHistory.length} 条记录
+                  {completedHistory.length} 条记录
                 </Badge>
               </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-3">
-              {analysisHistory.slice(0, 3).map((history, index) => {
+              {completedHistory.slice(0, 3).map((history, index) => {
                 // 使用 completed_at 或 started_at 或 created_at 作为时间戳
                 const timestamp = history.completed_at || history.started_at || history.created_at
                 const statusInfo = getStatusInfo(history.status)
@@ -221,7 +292,7 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2 mb-1">
                           <span className="font-semibold text-gray-900">
-                            分析 #{analysisHistory.length - index}
+                            分析 #{completedHistory.length - index}
                           </span>
                           <Badge variant={statusInfo.badgeVariant} className="text-xs">
                             {statusInfo.label}
@@ -318,6 +389,7 @@ export const AlertAnalysisIntegration: React.FC<AlertAnalysisIntegrationProps> =
             <CardContent className="p-6">
               {activeTab === 'enhanced' && (
                 <div className="animate-in fade-in-50 duration-300">
+                  {renderActiveRunBanner()}
                   <EnhancedHolmesGPTChat
                     alert={alert}
                     showCard={false}

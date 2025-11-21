@@ -43,12 +43,12 @@ type Manifest struct {
 	Schema    string                   `json:"schema"`
 	ArticleID string                   `json:"articleId"`
 	AlertRule string                   `json:"alertRuleName"`
-	Title     string                   `json:"title"`
 	Tags      []string                 `json:"tags,omitempty"`
 	Status    string                   `json:"status"`
 	Version   int                      `json:"version"`
 	Excerpt   string                   `json:"excerpt,omitempty"`
 	Content   map[string]interface{}   `json:"content"`
+	Markdown  string                   `json:"markdown,omitempty"`
 	Assets    []map[string]interface{} `json:"assets,omitempty"`
 	Scopes    map[string]interface{}   `json:"scopes,omitempty"`
 	Audit     map[string]interface{}   `json:"audit,omitempty"`
@@ -63,7 +63,7 @@ func (s *KnowledgeService) versionKey(articleID string, version int) string {
 }
 
 // Create 创建知识条目，初始化manifest
-func (s *KnowledgeService) Create(ctx context.Context, alertRuleName, title string, tags []string, user string) (*models.KnowledgeArticle, error) {
+func (s *KnowledgeService) Create(ctx context.Context, alertRuleName string, tags []string, user string) (*models.KnowledgeArticle, error) {
 	articleID := uuid.NewString()
 	objectKey := s.manifestKey(articleID)
 
@@ -74,7 +74,6 @@ func (s *KnowledgeService) Create(ctx context.Context, alertRuleName, title stri
 		BaseModel:               models.BaseModel{ID: uuid.New()},
 		AlertRuleName:           alertRuleName,
 		AlertRuleNameNormalized: norm,
-		Title:                   title,
 		Tags:                    datatypes.JSON(tagsJSON),
 		Status:                  "draft",
 		ObjectKey:               objectKey,
@@ -92,11 +91,11 @@ func (s *KnowledgeService) Create(ctx context.Context, alertRuleName, title stri
 		Schema:    "kb-manifest@v1",
 		ArticleID: articleID,
 		AlertRule: alertRuleName,
-		Title:     title,
 		Tags:      tags,
 		Status:    art.Status,
 		Version:   art.Version,
-		Content:   map[string]interface{}{"tiptap": map[string]interface{}{"type": "doc", "content": []interface{}{}}, "markdown": ""},
+		Content:   map[string]interface{}{"tiptap": map[string]interface{}{"type": "doc", "content": []interface{}{}}},
+		Markdown:  "",
 		Audit: map[string]interface{}{
 			"createdBy": user,
 			"createdAt": time.Now().UTC().Format(time.RFC3339),
@@ -120,7 +119,6 @@ func (s *KnowledgeService) Update(ctx context.Context, id string, payload Manife
 	}
 
 	// 合并关键信息
-	art.Title = payload.Title
 	if len(payload.Tags) > 0 {
 		if b, err := json.Marshal(payload.Tags); err == nil {
 			art.Tags = datatypes.JSON(b)
@@ -270,4 +268,185 @@ func (s *KnowledgeService) Delete(ctx context.Context, id string) error {
 
 	// 软删除
 	return s.db.DB.Delete(&art).Error
+}
+
+// BuildKnowledgeBaseForRule 获取指定规则名的知识库内容（优先markdown，其次转换tiptap JSON为markdown）
+func (s *KnowledgeService) BuildKnowledgeBaseForRule(ctx context.Context, rule string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("knowledge service is nil")
+	}
+
+	articles, err := s.GetByRule(rule, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(articles) == 0 {
+		return "", nil
+	}
+
+	manifestBytes, err := s.GetManifest(ctx, articles[0].ObjectKey)
+	if err != nil {
+		return "", err
+	}
+
+	var manifest map[string]interface{}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return "", err
+	}
+
+	// 优先使用已存储的 markdown
+	if md, ok := manifest["markdown"].(string); ok && strings.TrimSpace(md) != "" {
+		return md, nil
+	}
+
+	// 如果没有 markdown，尝试将 tiptap JSON 转换为 markdown
+	if content, ok := manifest["content"].(map[string]interface{}); ok {
+		if tiptap, ok := content["tiptap"]; ok {
+			if tiptapMap, ok := tiptap.(map[string]interface{}); ok {
+				md := tiptapToMarkdown(tiptapMap)
+				if strings.TrimSpace(md) != "" {
+					return md, nil
+				}
+			}
+		}
+	}
+
+	return "", nil
+}
+
+// tiptapToMarkdown 将 Tiptap JSON 转换为 Markdown 格式
+func tiptapToMarkdown(node map[string]interface{}) string {
+	nodeType, _ := node["type"].(string)
+
+	switch nodeType {
+	case "doc":
+		return processContent(node)
+
+	case "paragraph":
+		content := processContent(node)
+		if content == "" {
+			return "\n"
+		}
+		return content + "\n\n"
+
+	case "heading":
+		level := 1
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if l, ok := attrs["level"].(float64); ok {
+				level = int(l)
+			}
+		}
+		prefix := strings.Repeat("#", level)
+		return prefix + " " + processContent(node) + "\n\n"
+
+	case "bulletList":
+		return processListItems(node, "- ")
+
+	case "orderedList":
+		return processListItems(node, "1. ")
+
+	case "listItem":
+		return processContent(node)
+
+	case "codeBlock":
+		language := ""
+		if attrs, ok := node["attrs"].(map[string]interface{}); ok {
+			if lang, ok := attrs["language"].(string); ok {
+				language = lang
+			}
+		}
+		code := processContent(node)
+		return "```" + language + "\n" + code + "\n```\n\n"
+
+	case "blockquote":
+		lines := strings.Split(strings.TrimSpace(processContent(node)), "\n")
+		for i, line := range lines {
+			lines[i] = "> " + line
+		}
+		return strings.Join(lines, "\n") + "\n\n"
+
+	case "horizontalRule":
+		return "---\n\n"
+
+	case "hardBreak":
+		return "\n"
+
+	case "text":
+		text, _ := node["text"].(string)
+
+		// 处理文本标记（加粗、斜体等）
+		if marks, ok := node["marks"].([]interface{}); ok {
+			for _, mark := range marks {
+				if markMap, ok := mark.(map[string]interface{}); ok {
+					markType, _ := markMap["type"].(string)
+					switch markType {
+					case "bold":
+						text = "**" + text + "**"
+					case "italic":
+						text = "*" + text + "*"
+					case "code":
+						text = "`" + text + "`"
+					case "strike":
+						text = "~~" + text + "~~"
+					case "link":
+						if attrs, ok := markMap["attrs"].(map[string]interface{}); ok {
+							if href, ok := attrs["href"].(string); ok {
+								text = "[" + text + "](" + href + ")"
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return text
+
+	default:
+		// 对于未知类型，尝试处理其内容
+		return processContent(node)
+	}
+}
+
+// processContent 处理节点的 content 数组
+func processContent(node map[string]interface{}) string {
+	content, ok := node["content"].([]interface{})
+	if !ok {
+		return ""
+	}
+
+	var result strings.Builder
+	for _, item := range content {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			result.WriteString(tiptapToMarkdown(itemMap))
+		}
+	}
+
+	return result.String()
+}
+
+// processListItems 处理列表项
+func processListItems(node map[string]interface{}, prefix string) string {
+	content, ok := node["content"].([]interface{})
+	if !ok {
+		return ""
+	}
+
+	var result strings.Builder
+	for _, item := range content {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			itemContent := processContent(itemMap)
+			// 为每一行添加列表前缀
+			lines := strings.Split(strings.TrimSpace(itemContent), "\n")
+			for i, line := range lines {
+				if i == 0 {
+					result.WriteString(prefix + line + "\n")
+				} else {
+					result.WriteString("  " + line + "\n")
+				}
+			}
+		}
+	}
+	result.WriteString("\n")
+
+	return result.String()
 }

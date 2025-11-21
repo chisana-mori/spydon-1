@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	cas "gopkg.in/cas.v2"
@@ -29,7 +29,7 @@ import (
 type AuthService struct {
 	db     *db.Database
 	config *config.Config
-	client *http.Client
+	client *resty.Client
 }
 
 // OIDCUserInfo OIDC用户信息
@@ -77,11 +77,11 @@ type UserInfo struct {
 
 // NewAuthService 创建认证服务
 func NewAuthService(database *db.Database, cfg *config.Config) *AuthService {
-	return &AuthService{
-		db:     database,
-		config: cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
+	c := resty.New().SetTimeout(30 * time.Second)
+	if cfg.OIDCIssuer != "" {
+		c.SetBaseURL(strings.TrimRight(cfg.OIDCIssuer, "/"))
 	}
+	return &AuthService{db: database, config: cfg, client: c}
 }
 
 // GetAuthURL 获取OIDC认证URL
@@ -268,59 +268,43 @@ func (s *AuthService) validateState(state string) bool {
 }
 
 func (s *AuthService) exchangeCodeForToken(code string) (*TokenResponse, error) {
-	data := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {code},
-		"redirect_uri":  {s.getRedirectURI()},
-		"client_id":     {s.config.OIDCClientID},
-		"client_secret": {s.config.OIDCClientSecret},
-	}
-
-	tokenURL := fmt.Sprintf("%s/token", s.config.OIDCIssuer)
-	resp, err := s.client.PostForm(tokenURL, data)
+	resp, err := s.client.R().
+		SetHeader("Content-Type", "application/x-www-form-urlencoded").
+		SetFormData(map[string]string{
+			"grant_type":    "authorization_code",
+			"code":          code,
+			"redirect_uri":  s.getRedirectURI(),
+			"client_id":     s.config.OIDCClientID,
+			"client_secret": s.config.OIDCClientSecret,
+		}).
+		SetResult(&TokenResponse{}).
+		Post("/token")
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token请求失败: %d", resp.StatusCode)
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("token请求失败: %d", resp.StatusCode())
 	}
-
-	var tokenResp TokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return nil, err
+	result, ok := resp.Result().(*TokenResponse)
+	if !ok || result == nil {
+		return nil, fmt.Errorf("token响应解析失败")
 	}
-
-	return &tokenResp, nil
+	return result, nil
 }
 
 func (s *AuthService) getUserInfo(accessToken string) (*OIDCUserInfo, error) {
-	userInfoURL := fmt.Sprintf("%s/userinfo", s.config.OIDCIssuer)
-
-	req, err := http.NewRequest("GET", userInfoURL, nil)
+	resp, err := s.client.R().SetAuthToken(accessToken).SetResult(&OIDCUserInfo{}).Get("/userinfo")
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("获取用户信息失败: %d", resp.StatusCode())
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("获取用户信息失败: %d", resp.StatusCode)
+	info, ok := resp.Result().(*OIDCUserInfo)
+	if !ok || info == nil {
+		return nil, fmt.Errorf("用户信息解析失败")
 	}
-
-	var userInfo OIDCUserInfo
-	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
-		return nil, err
-	}
-
-	return &userInfo, nil
+	return info, nil
 }
 
 func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, error) {

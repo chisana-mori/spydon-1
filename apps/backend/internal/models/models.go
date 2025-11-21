@@ -10,10 +10,18 @@ import (
 
 // BaseModel 基础模型，包含通用字段
 type BaseModel struct {
-	ID        uuid.UUID      `json:"id" gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	ID        uuid.UUID      `json:"id" gorm:"type:uuid;primary_key"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+}
+
+// BeforeCreate 在创建前生成UUID
+func (base *BaseModel) BeforeCreate(tx *gorm.DB) error {
+	if base.ID == uuid.Nil {
+		base.ID = uuid.New()
+	}
+	return nil
 }
 
 // Cluster 集群模型
@@ -38,8 +46,8 @@ type Alert struct {
 	Description   string         `json:"description"`
 	Severity      string         `json:"severity" gorm:"not null"`
 	Status        string         `json:"status" gorm:"default:firing"`
-	Labels        datatypes.JSON `json:"labels" gorm:"type:jsonb"`
-	Annotations   datatypes.JSON `json:"annotations" gorm:"type:jsonb"`
+	Labels        datatypes.JSON `json:"labels"`
+	Annotations   datatypes.JSON `json:"annotations"`
 	StartsAt      *time.Time     `json:"starts_at"`
 	EndsAt        *time.Time     `json:"ends_at"`
 	RawPayloadKey string         `json:"raw_payload_key" gorm:"type:text"`
@@ -55,10 +63,10 @@ type RCARun struct {
 	AlertID         uuid.UUID      `json:"alert_id" gorm:"not null"`
 	Status          string         `json:"status" gorm:"not null"`
 	Summary         *string        `json:"summary"`
-	Suspects        datatypes.JSON `json:"suspects" gorm:"type:jsonb"`
-	Recommendations datatypes.JSON `json:"recommendations" gorm:"type:jsonb"`
-	Attachments     datatypes.JSON `json:"attachments" gorm:"type:jsonb"`
-	StartedAt       time.Time      `json:"started_at" gorm:"default:now()"`
+	Suspects        datatypes.JSON `json:"suspects"`
+	Recommendations datatypes.JSON `json:"recommendations"`
+	Attachments     datatypes.JSON `json:"attachments"`
+	StartedAt       time.Time      `json:"started_at"`
 	CompletedAt     *time.Time     `json:"completed_at"`
 	ErrorMessage    *string        `json:"error_message"`
 	RawPayloadKey   string         `json:"raw_payload_key" gorm:"type:text"`
@@ -74,7 +82,7 @@ type AuditLog struct {
 	Action       string         `json:"action" gorm:"not null"`
 	ResourceType string         `json:"resource_type"`
 	ResourceID   string         `json:"resource_id"`
-	Details      datatypes.JSON `json:"details" gorm:"type:jsonb"`
+	Details      datatypes.JSON `json:"details"`
 	IPAddress    string         `json:"ip_address"`
 	UserAgent    string         `json:"user_agent"`
 }
@@ -110,6 +118,7 @@ const (
 	RCAStatusCompleted RCAStatus = "completed"
 	RCAStatusFailed    RCAStatus = "failed"
 	RCAStatusTimeout   RCAStatus = "timeout"
+	RCAStatusQueued    RCAStatus = "queued"
 )
 
 // ClusterStatus 集群状态枚举

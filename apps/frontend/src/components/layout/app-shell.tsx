@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { SystemSettingsDialog } from '@/components/settings/SystemSettingsDialog'
 import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard,
@@ -34,7 +35,7 @@ const resolveBackendUrl = (path: string) => {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path
   }
-  
+
   // 否则拼接 backendBaseUrl + path
   const backendBase = appConfig.backendBaseUrl.replace(/\/+$/, '')
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -438,6 +439,9 @@ export function AppShell({ children }: AppShellProps) {
               >
                 {getThemeIcon()}
               </Button>
+
+              {/* System Settings */}
+              <SystemSettingsDialog />
 
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />

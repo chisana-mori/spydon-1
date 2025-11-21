@@ -27,6 +27,7 @@ type handlerSet struct {
 	apiKey        *APIKeyHandler
 	health        *HealthHandler
 	knowledge     *KnowledgeHandler
+	systemSetting *SystemSettingHandler
 }
 
 func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, error) {
@@ -38,11 +39,11 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 		return nil, err
 	}
 
-	alertService := services.NewAlertService(database, clusterService, auditService, objectStorage)
-	rcaService := services.NewRCAService(database, auditService, objectStorage)
-
-	holmesService := services.NewHolmesService(database, cfg, objectStorage)
 	knowledgeService := services.NewKnowledgeService(database, objectStorage)
+	systemSettingService := services.NewSystemSettingService(database)
+	holmesService := services.NewHolmesService(database, cfg, objectStorage, knowledgeService)
+	rcaService := services.NewRCAService(database, auditService, objectStorage, systemSettingService, holmesService, knowledgeService)
+	alertService := services.NewAlertService(database, clusterService, auditService, rcaService, objectStorage)
 	authService := services.NewAuthService(database, cfg)
 	userService := services.NewUserService(database)
 	apiKeyService := services.NewAPIKeyService(database)
@@ -62,14 +63,15 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 			AuditService:   auditService,
 			StorageService: objectStorage,
 		}),
-		query:       NewQueryHandler(alertService, rcaService, clusterService, objectStorage),
-		rca:         NewRCAHandler(holmesService),
-		holmesProxy: NewHolmesProxyHandler(cfg, holmesService),
-		auth:        NewAuthHandler(authService, casClient, cfg),
-		user:        NewUserHandler(userService),
-		apiKey:      NewAPIKeyHandler(apiKeyService),
-		health:      NewHealthHandler(database),
-		knowledge:   NewKnowledgeHandler(knowledgeService),
+		query:         NewQueryHandler(alertService, rcaService, clusterService, objectStorage),
+		rca:           NewRCAHandler(holmesService, rcaService),
+		holmesProxy:   NewHolmesProxyHandler(cfg, holmesService, alertService),
+		auth:          NewAuthHandler(authService, casClient, cfg),
+		user:          NewUserHandler(userService),
+		apiKey:        NewAPIKeyHandler(apiKeyService),
+		health:        NewHealthHandler(database),
+		knowledge:     NewKnowledgeHandler(knowledgeService),
+		systemSetting: NewSystemSettingHandler(systemSettingService, rcaService),
 	}
 
 	return handlers, nil
@@ -209,6 +211,7 @@ func (r *routeRegistrar) registerQueryRoutes(v1 *gin.RouterGroup) {
 func (r *routeRegistrar) registerRCARoutes(queryGroup *gin.RouterGroup) {
 	rcaGroup := queryGroup.Group("/rca")
 	rcaGroup.GET("/:alert_id", r.handlers.rca.GetRCAByAlertID)
+	rcaGroup.GET("/:alert_id/stream", r.handlers.rca.StreamRCA)
 	rcaGroup.GET("/:alert_id/cache", r.handlers.rca.GetRCACacheByAlertID)
 	rcaGroup.POST("/:alert_id/trigger", r.handlers.query.TriggerRCA)
 	rcaGroup.POST("/trigger", r.handlers.rca.TriggerRCA)
@@ -249,6 +252,11 @@ func (r *routeRegistrar) registerAdminRoutes(v1 *gin.RouterGroup) {
 	adminGroup.DELETE("/users/:id", r.handlers.user.DeleteUser)
 
 	adminGroup.GET("/apikeys", r.handlers.apiKey.ListAllAPIKeys)
+
+	adminGroup.GET("/settings", r.handlers.systemSetting.ListSettings)
+	adminGroup.PUT("/settings/:key", r.handlers.systemSetting.UpdateSetting)
+	adminGroup.GET("/settings/auto-rca", r.handlers.systemSetting.GetAutoRCAConfig)
+	adminGroup.POST("/settings/auto-rca/init", r.handlers.systemSetting.InitAutoRCAConfig)
 }
 
 func (r *routeRegistrar) registerKnowledgeRoutes(v1 *gin.RouterGroup) {

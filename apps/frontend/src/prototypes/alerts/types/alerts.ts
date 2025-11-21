@@ -7,15 +7,15 @@ export interface Alert {
   title: string;
   description?: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
-  status: 'active' | 'resolved' | 'acknowledged' | 'firing'; // 添加 firing 状态
+  status: 'active' | 'resolved' | 'acknowledged' | 'firing';
   source?: string;
   timestamp?: string;
-  created_at: string; // 实际返回的时间字段
+  created_at: string;
   updated_at: string;
-  labels: Record<string, string> | null; // 可能为 null
-  annotations: Record<string, string> | null; // 可能为 null
+  labels: Record<string, string> | null;
+  annotations: Record<string, string> | null;
 
-  // 新增的原始数据字段
+  // 原始数据字段
   raw_payload_key?: string;
 
   // 其他字段
@@ -36,6 +36,48 @@ export interface Alert {
     updated_at: string;
     last_heartbeat: string;
   };
+
+  // RCA 运行记录
+  rca_runs?: RCARun[];
+}
+
+// RCA 状态
+export type RCAStatus = 'none' | 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'timeout';
+
+// RCA 运行记录
+export interface RCARun {
+  id: string;
+  alert_id: string;
+  status: RCAStatus;
+  summary?: string | null;
+  suspects?: Record<string, any> | null;
+  recommendations?: Record<string, any> | null;
+  attachments?: Record<string, any> | null;
+  error_message?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// RCA SSE 消息类型
+export type RCAMessageType = 'status' | 'log' | 'progress' | 'error';
+
+// RCA SSE 消息
+export interface RCAMessage {
+  type: RCAMessageType;
+  status?: RCAStatus;
+  message?: string;
+  percentage?: number;
+  error?: string;
+  timestamp?: string;
+}
+
+// RCA 进度日志
+export interface RCAProgressLog {
+  timestamp: Date;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
 }
 
 export interface AlertsResponse {

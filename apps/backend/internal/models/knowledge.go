@@ -12,7 +12,6 @@ type KnowledgeArticle struct {
 	BaseModel
 	AlertRuleName           string         `json:"alert_rule_name" gorm:"type:varchar(255);not null"`
 	AlertRuleNameNormalized string         `json:"alert_rule_name_normalized" gorm:"type:varchar(255);index;not null"`
-	Title                   string         `json:"title" gorm:"type:varchar(255);not null"`
 	Tags                    datatypes.JSON `json:"tags" gorm:"type:jsonb"`
 	Status                  string         `json:"status" gorm:"type:varchar(16);default:'draft'"`
 	ObjectKey               string         `json:"object_key" gorm:"type:varchar(512);not null"`

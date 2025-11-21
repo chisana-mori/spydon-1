@@ -4,10 +4,10 @@ import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Clock, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  Clock,
+  AlertTriangle,
+  CheckCircle,
   Info,
   FileText,
   Eye,
@@ -72,7 +72,7 @@ function AlertItem({ alert, onClick }: AlertItemProps) {
   };
 
   return (
-    <Card 
+    <Card
       className="cursor-pointer hover:shadow-md transition-shadow"
       onClick={() => onClick?.(alert)}
     >
@@ -92,6 +92,29 @@ function AlertItem({ alert, onClick }: AlertItemProps) {
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
+                {/* RCA 状态指示器 */}
+                {alert.rca_runs && alert.rca_runs.length > 0 && (() => {
+                  const runningRCA = alert.rca_runs.find(run =>
+                    run.status === 'running' || run.status === 'pending' || run.status === 'queued'
+                  );
+                  const completedRCA = alert.rca_runs.find(run => run.status === 'completed');
+
+                  if (runningRCA) {
+                    return (
+                      <Badge variant="default" className="text-xs flex items-center gap-1 bg-blue-600">
+                        🔍 RCA 分析中
+                      </Badge>
+                    );
+                  } else if (completedRCA) {
+                    return (
+                      <Badge variant="default" className="text-xs flex items-center gap-1 bg-green-600">
+                        ✓ 已分析
+                      </Badge>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {/* 原始数据指示器 */}
                 {alert.raw_payload_key && (
                   <Badge variant="outline" className="text-xs flex items-center gap-1">

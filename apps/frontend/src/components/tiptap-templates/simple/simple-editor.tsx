@@ -74,7 +74,7 @@ import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.css"
 
-import content from "@/components/tiptap-templates/simple/data/content.json"
+import { sreSkillTemplate } from "@/components/tiptap-templates/simple/data/sre-skill-template"
 
 const MainToolbarContent = ({
   onHighlighterClick,
@@ -190,7 +190,7 @@ export type SimpleEditorProps = {
   className?: string
   style?: React.CSSProperties
   initialContent?: any
-  onUpdate?: (json: any, html: string) => void
+  onUpdate?: (json: any, html: string, markdown: string) => void
   readOnly?: boolean
 }
 
@@ -248,13 +248,14 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
         maxSize: MAX_FILE_SIZE,
         limit: 3,
         upload: handleImageUpload,
-        onError: () => {},
+        onError: () => { },
       }),
     ],
-    content: initialContent ?? content,
+    content: initialContent ?? sreSkillTemplate,
     onUpdate: ({ editor }) => {
       try {
-        onUpdate?.(editor.getJSON(), editor.getHTML())
+        const markdown = (editor.storage as any).markdown.getMarkdown()
+        onUpdate?.(editor.getJSON(), editor.getHTML(), markdown)
       } catch (e) {
         // Update error
       }
@@ -278,11 +279,11 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
       style={
         variant === "embed"
           ? {
-              width: "100%",
-              height: typeof embedHeight === "number" ? `${embedHeight}px` : embedHeight,
-              overflow: "auto",
-              ...style,
-            }
+            width: "100%",
+            height: typeof embedHeight === "number" ? `${embedHeight}px` : embedHeight,
+            overflow: "auto",
+            ...style,
+          }
           : style
       }
     >
@@ -293,8 +294,8 @@ export function SimpleEditor({ variant = "full", embedHeight = 500, className, s
             style={{
               ...(isMobile
                 ? {
-                    bottom: `calc(100% - ${height - rect.y}px)`,
-                  }
+                  bottom: `calc(100% - ${height - rect.y}px)`,
+                }
                 : {}),
             }}
           >

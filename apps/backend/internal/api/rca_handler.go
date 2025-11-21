@@ -4,7 +4,11 @@ import (
 	"errors"
 	"net/http"
 
+	"time"
+
 	"robusta-web/backend/internal/apperrors"
+	"robusta-web/backend/internal/constants"
+	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -15,12 +19,14 @@ import (
 // RCAHandler 处理RCA相关的API请求
 type RCAHandler struct {
 	holmesService *services.HolmesService
+	rcaService    *services.RCAService
 }
 
 // NewRCAHandler 创建RCAHandler实例
-func NewRCAHandler(holmesService *services.HolmesService) *RCAHandler {
+func NewRCAHandler(holmesService *services.HolmesService, rcaService *services.RCAService) *RCAHandler {
 	return &RCAHandler{
 		holmesService: holmesService,
+		rcaService:    rcaService,
 	}
 }
 
@@ -28,38 +34,8 @@ func NewRCAHandler(holmesService *services.HolmesService) *RCAHandler {
 type TriggerRCARequest struct {
 	AlertFingerprint string                 `json:"alert_fingerprint" binding:"required"`
 	ClusterID        string                 `json:"cluster_id" binding:"required"`
-	Depth            string                 `json:"depth,omitempty"`
 	TimeoutSeconds   int                    `json:"timeout_seconds,omitempty"`
 	Context          map[string]interface{} `json:"context,omitempty"`
-}
-
-var allowedRCADepths = map[string]struct{}{
-	"quick":    {},
-	"standard": {},
-	"deep":     {},
-}
-
-func normalizeRCADepth(depth string) string {
-	if depth == "" {
-		return "standard"
-	}
-	return depth
-}
-
-func validateRCADepth(depth string) apperrors.DomainError {
-	if depth == "" {
-		return nil
-	}
-	if _, ok := allowedRCADepths[depth]; ok {
-		return nil
-	}
-
-	return apperrors.Validation(
-		"无效的分析深度",
-		map[string]string{
-			"depth": "仅支持 quick、standard、deep",
-		},
-	)
 }
 
 // TriggerRCA 触发RCA分析
@@ -67,12 +43,6 @@ func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 	var req TriggerRCARequest
 	if err := bindJSON(c, &req); err != nil {
 		AbortWithDomainError(c, err)
-		return
-	}
-
-	req.Depth = normalizeRCADepth(req.Depth)
-	if derr := validateRCADepth(req.Depth); derr != nil {
-		AbortWithDomainError(c, derr)
 		return
 	}
 
@@ -90,7 +60,7 @@ func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 	}
 
 	// 触发分析
-	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alert.ID, req.Depth)
+	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alert.ID)
 	if err != nil {
 		domainErr := apperrors.New(
 			http.StatusInternalServerError,
@@ -206,7 +176,6 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 		"run_id":        cacheResult.RunID,
 		"alert_id":      cacheResult.AlertID,
 		"cached_at":     cacheResult.CachedAt,
-		"depth":         cacheResult.Depth,
 		"stream_chunks": cacheResult.StreamChunks,
 		"metadata":      cacheResult.Metadata,
 		"version":       cacheResult.Version,
@@ -236,14 +205,8 @@ func (h *RCAHandler) TriggerRCAByAlertID(c *gin.Context) {
 		return
 	}
 
-	depth := normalizeRCADepth(c.DefaultQuery("depth", "standard"))
-	if derr := validateRCADepth(depth); derr != nil {
-		AbortWithDomainError(c, derr)
-		return
-	}
-
 	// 触发分析
-	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alertID, depth)
+	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alertID)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "TRIGGER_RCA_FAILED", "触发RCA分析失败", err.Error())
 		return
@@ -342,4 +305,100 @@ func (h *RCAHandler) listRCARuns(page, limit int, clusterID, status string) ([]i
 	}
 
 	return runs, int64(len(runs)), nil
+}
+
+// StreamRCA 获取RCA分析流
+func (h *RCAHandler) StreamRCA(c *gin.Context) {
+	alertID := c.Param("alert_id")
+	if alertID == "" {
+		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
+		return
+	}
+
+	// 设置 SSE headers（必须在任何写入之前）
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	// CORS: 允许已知来源并与凭证配合使用（不能使用 *）
+	origin := c.Request.Header.Get("Origin")
+	allowedOrigins := map[string]struct{}{
+		constants.CORSPort3000HTTP:  {},
+		constants.CORSPort5173HTTP:  {},
+		constants.CORSPort3000HTTPS: {},
+		constants.CORSPort5173HTTPS: {},
+	}
+	if _, ok := allowedOrigins[origin]; ok {
+		c.Header(constants.HeaderAccessControlAllowOrigin, origin)
+		c.Header(constants.HeaderAccessControlAllowCredentials, "true")
+	}
+
+	// 1. 订阅广播（先订阅，避免错过状态更新）
+	ch, unsubscribe := h.rcaService.Subscribe(alertID)
+	defer unsubscribe()
+
+	// 2. 检查RCA状态（订阅后再查询，确保不会错过更新）
+	rcaRuns, err := h.rcaService.GetRCARunsByAlertID(uuid.MustParse(alertID))
+	if err != nil {
+		c.SSEvent("error", gin.H{"error": "获取RCA状态失败", "details": err.Error()})
+		return
+	}
+
+	var latestRun *models.RCARun
+	if len(rcaRuns) > 0 {
+		latestRun = &rcaRuns[0]
+	}
+
+	// 3. 发送当前状态
+	if latestRun != nil {
+		c.SSEvent("status", gin.H{
+			"status": latestRun.Status,
+			"run_id": latestRun.ID.String(),
+		})
+		c.Writer.Flush()
+
+		// 如果已完成或失败，继续监听一小段时间以防有延迟的消息
+		if latestRun.Status == string(models.RCAStatusCompleted) || latestRun.Status == string(models.RCAStatusFailed) {
+			// 不立即关闭，让客户端有机会接收到可能的后续消息
+			// 但设置一个短超时
+			timer := time.NewTimer(2 * time.Second)
+			defer timer.Stop()
+
+			select {
+			case msg, ok := <-ch:
+				if ok {
+					if _, writeErr := c.Writer.Write([]byte("data: " + msg + "\n\n")); writeErr != nil {
+						return
+					}
+					c.Writer.Flush()
+				}
+			case <-timer.C:
+				return
+			case <-c.Request.Context().Done():
+				return
+			}
+			return
+		}
+	} else {
+		c.SSEvent("status", gin.H{"status": "none", "message": "等待 RCA 分析开始"})
+		c.Writer.Flush()
+	}
+
+	// 5. 监听消息
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			// msg 是 JSON 字符串，直接写入 data
+			if _, writeErr := c.Writer.Write([]byte("data: " + msg + "\n\n")); writeErr != nil {
+				return
+			}
+			c.Writer.Flush()
+		case <-c.Request.Context().Done():
+			return
+		}
+	}
 }

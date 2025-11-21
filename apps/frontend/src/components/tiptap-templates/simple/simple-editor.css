@@ -1,8 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+
 body {
   --tt-toolbar-height: 44px;
   --tt-theme-text: var(--tt-gray-light-900);
 }
+
 .dark body {
   --tt-theme-text: var(--tt-gray-dark-900);
 }
@@ -50,6 +52,22 @@ body,
 
 .tiptap.ProseMirror {
   font-family: "DM Sans", sans-serif;
+  line-height: 1.75;
+}
+
+.tiptap.ProseMirror p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.tiptap.ProseMirror ul,
+.tiptap.ProseMirror ol {
+  padding: 0 1rem;
+  margin-bottom: 1em;
+}
+
+.tiptap.ProseMirror li {
+  margin-bottom: 0.5em;
 }
 
 .simple-editor-wrapper {

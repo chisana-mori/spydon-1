@@ -61,6 +61,7 @@ func (d *Database) AutoMigrate() error {
 		&models.APIKey{},
 		&models.KnowledgeArticle{},
 		&models.KnowledgeArticleVersion{},
+		&models.SystemSetting{},
 	)
 	if err != nil {
 		return err
@@ -144,7 +145,7 @@ func (d *Database) WithContext(ctx context.Context) *gorm.DB {
 func (d *Database) CreateIndexes() error {
 	// 为alerts表创建复合唯一索引
 	if err := d.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_fingerprint_cluster 
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_fingerprint_cluster
 		ON alerts(fingerprint, cluster_id)
 	`).Error; err != nil {
 		return fmt.Errorf("创建alerts复合索引失败: %w", err)
@@ -152,14 +153,14 @@ func (d *Database) CreateIndexes() error {
 
 	// 为alerts表创建查询索引
 	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_alerts_cluster_severity 
+		CREATE INDEX IF NOT EXISTS idx_alerts_cluster_severity
 		ON alerts(cluster_id, severity)
 	`).Error; err != nil {
 		return fmt.Errorf("创建alerts查询索引失败: %w", err)
 	}
 
 	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_alerts_status_created 
+		CREATE INDEX IF NOT EXISTS idx_alerts_status_created
 		ON alerts(status, created_at DESC)
 	`).Error; err != nil {
 		return fmt.Errorf("创建alerts状态索引失败: %w", err)
@@ -167,7 +168,7 @@ func (d *Database) CreateIndexes() error {
 
 	// 为rca_runs表创建索引
 	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_rca_runs_alert_status 
+		CREATE INDEX IF NOT EXISTS idx_rca_runs_alert_status
 		ON rca_runs(alert_id, status)
 	`).Error; err != nil {
 		return fmt.Errorf("创建rca_runs索引失败: %w", err)

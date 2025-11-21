@@ -30,7 +30,7 @@ export default function KnowledgeHomePage() {
   const [keyword, setKeyword] = useState('')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [itemToDelete, setItemToDelete] = useState<{ id: string; title: string } | null>(null)
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; rule: string } | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // 监听 URL 参数变化，强制刷新数据
@@ -43,8 +43,8 @@ export default function KnowledgeHomePage() {
 
   const { data, isFetching } = useQuery({
     queryKey: ['kb-list', page, pageSize, searchKeyword],
-    queryFn: () => RobustaAPI.listKnowledge({ 
-      page, 
+    queryFn: () => RobustaAPI.listKnowledge({
+      page,
       page_size: pageSize,
       alert_rule_name: searchKeyword || undefined
     }),
@@ -52,7 +52,7 @@ export default function KnowledgeHomePage() {
   })
 
   const items = data?.data || []
-  const total = data?.total || data?.pagination?.total || 0
+  const total = data?.pagination?.total || 0
   const totalPages = Math.ceil(total / pageSize)
 
   const handleSearch = () => {
@@ -79,8 +79,8 @@ export default function KnowledgeHomePage() {
     },
   })
 
-  const handleDeleteClick = (id: string, title: string) => {
-    setItemToDelete({ id, title })
+  const handleDeleteClick = (id: string, rule: string) => {
+    setItemToDelete({ id, rule })
     setDeleteError(null)
     setDeleteDialogOpen(true)
   }
@@ -107,9 +107,9 @@ export default function KnowledgeHomePage() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
-            <Input 
-              value={keyword} 
-              onChange={(e) => setKeyword(e.target.value)} 
+            <Input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
               placeholder="告警规则名（可选）"
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
@@ -148,40 +148,33 @@ export default function KnowledgeHomePage() {
           <>
             <div className="border rounded-lg overflow-hidden bg-white">
               {items.map((it, index) => (
-                <div 
-                  key={it.id} 
-                  className={`flex items-center px-6 py-3 hover:bg-gray-50 transition-colors ${
-                    index !== items.length - 1 ? 'border-b border-gray-100' : ''
-                  }`}
+                <div
+                  key={it.id}
+                  className={`flex items-center px-6 py-3 hover:bg-gray-50 transition-colors ${index !== items.length - 1 ? 'border-b border-gray-100' : ''
+                    }`}
                 >
                   {/* 状态指示器 - 固定宽度 */}
                   <div className="w-16 flex-shrink-0">
                     <span
-                      className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${
-                        it.status === 'published'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}
+                      className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${it.status === 'published'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-yellow-100 text-yellow-700'
+                        }`}
                     >
                       {it.status === 'published' ? '已发布' : '草稿'}
                     </span>
                   </div>
 
-                  {/* 标题 - 弹性宽度 */}
+                  {/* 规则名 - 弹性宽度 */}
                   <div className="flex-1 min-w-0 px-4">
                     <Link
                       href={resolveAppPath(`/knowledge/${it.id}`)}
-                      className="text-base font-medium text-gray-900 hover:text-blue-600 transition-colors block truncate"
+                      className="block"
                     >
-                      {it.title}
+                      <code className="px-2.5 py-1 bg-orange-50 border border-orange-200 rounded text-orange-700 font-mono text-sm font-medium truncate hover:bg-orange-100 transition-colors">
+                        {it.alert_rule_name}
+                      </code>
                     </Link>
-                  </div>
-
-                  {/* 规则名 - 固定宽度 */}
-                  <div className="w-64 flex-shrink-0 px-4">
-                    <code className="block px-2.5 py-1 bg-orange-50 border border-orange-200 rounded text-orange-700 font-mono text-sm font-medium truncate">
-                      {it.alert_rule_name}
-                    </code>
                   </div>
 
                   {/* 版本 - 固定宽度 */}
@@ -208,10 +201,10 @@ export default function KnowledgeHomePage() {
                     <Button asChild size="sm" className="h-8">
                       <Link href={resolveAppPath(`/knowledge/${it.id}/edit`)}>编辑</Link>
                     </Button>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleDeleteClick(it.id, it.title)}
+                      onClick={() => handleDeleteClick(it.id, it.alert_rule_name)}
                       className="text-destructive hover:text-destructive h-8 w-8 p-0"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -288,7 +281,7 @@ export default function KnowledgeHomePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除知识库条目 <span className="font-semibold text-foreground">"{itemToDelete?.title}"</span> 吗？
+              确定要删除知识库条目 <span className="font-semibold text-foreground">"{itemToDelete?.rule}"</span> 吗？
               此操作无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -23,7 +23,6 @@ func NewKnowledgeHandler(svc *services.KnowledgeService) *KnowledgeHandler {
 
 type knowledgeCreateRequest struct {
 	AlertRuleName string   `json:"alert_rule_name" binding:"required"`
-	Title         string   `json:"title" binding:"required"`
 	Tags          []string `json:"tags"`
 }
 
@@ -131,7 +130,7 @@ func (h *KnowledgeHandler) Create(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
-	art, err := h.svc.Create(ctx, req.AlertRuleName, req.Title, req.Tags, user)
+	art, err := h.svc.Create(ctx, req.AlertRuleName, req.Tags, user)
 	if err != nil {
 		InternalError(c, "CREATE_FAILED", err.Error())
 		return

@@ -1,20 +1,25 @@
 "use client"
 
 import React from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RobustaAPI } from '@/lib/api'
 import KnowledgeViewer from '@/components/knowledge/KnowledgeViewer'
+import KnowledgeEditor, { type KnowledgeEditorRef, type KnowledgeEditorValue } from '@/components/knowledge/KnowledgeEditor'
 
 import { Button } from '@/components/ui/button'
 import { ExternalLink, Calendar, Tag, AlertCircle, BookOpen, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { resolveAppPath } from '@/config'
+import { toast } from 'sonner'
 
 interface Props {
   alertRuleName: string
 }
 
 export default function AlertKnowledgePanel({ alertRuleName }: Props) {
+  const [isCreating, setIsCreating] = React.useState(false)
+  const editorRef = React.useRef<KnowledgeEditorRef>(null)
+  const queryClient = useQueryClient()
   const { data: listData, isLoading: isLoadingList } = useQuery({
     queryKey: ['kb-by-rule', alertRuleName],
     queryFn: () => RobustaAPI.queryKnowledgeByRule(alertRuleName, 1),
@@ -37,6 +42,44 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
   const manifest = detailData?.data?.manifest
 
   const isLoading = isLoadingList || isLoadingDetail
+  const createGuide = useMutation({
+    mutationFn: async (value: KnowledgeEditorValue) => {
+      const created = await RobustaAPI.createKnowledge({
+        alert_rule_name: value.alertRuleName,
+        tags: value.tags,
+      })
+      const id = created.data?.id
+      if (!id) throw new Error('创建失败：缺少ID')
+
+      await RobustaAPI.updateKnowledge(id, {
+        schema: 'kb-manifest@v1',
+        articleId: '',
+        alertRuleName: value.alertRuleName,
+        status: 'draft',
+        version: 1,
+        content: {
+          tiptap: value.tiptap,
+        },
+        markdown: value.markdown,
+        tags: value.tags,
+      })
+
+      await RobustaAPI.publishKnowledge(id, '发布')
+      return id
+    },
+    onSuccess: async () => {
+      toast.success('经验指南已创建并发布')
+      setIsCreating(false)
+      await queryClient.invalidateQueries({ queryKey: ['kb-by-rule', alertRuleName] })
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || '创建失败')
+    },
+  })
+
+  const handleInlineSubmit = async (value: KnowledgeEditorValue) => {
+    await createGuide.mutateAsync(value)
+  }
 
   return (
     <div className="space-y-4">
@@ -137,6 +180,32 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
               )}
             </div>
           </div>
+        ) : isCreating ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-muted-foreground">
+                为规则 <code className="px-2 py-0.5 bg-muted rounded text-xs font-mono">{alertRuleName}</code> 创建新的经验指南
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setIsCreating(false)} disabled={createGuide.isPending}>
+                  取消
+                </Button>
+                <Button size="sm" onClick={() => editorRef.current?.submit()} disabled={createGuide.isPending}>
+                  {createGuide.isPending ? '保存中...' : '保存并发布'}
+                </Button>
+              </div>
+            </div>
+            <div className="border rounded-lg p-4">
+              <KnowledgeEditor
+                ref={editorRef}
+                submitting={createGuide.isPending}
+                onSubmit={handleInlineSubmit}
+                value={{
+                  alertRuleName,
+                }}
+              />
+            </div>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 space-y-6">
             {/* 图标 */}
@@ -159,11 +228,9 @@ export default function AlertKnowledgePanel({ alertRuleName }: Props) {
 
             {/* 操作按钮 */}
             <div className="flex items-center gap-3">
-              <Button variant="default" size="sm" asChild>
-                <Link href={resolveAppPath(`/knowledge/new?rule=${encodeURIComponent(alertRuleName)}`) as any}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  创建新指南
-                </Link>
+              <Button variant="default" size="sm" onClick={() => setIsCreating(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                创建新指南
               </Button>
               <Button variant="outline" size="sm" asChild>
                 <Link href={resolveAppPath('/knowledge') as any}>
