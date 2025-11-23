@@ -415,23 +415,33 @@ export function AlertDetail({ alert, className }: AlertDetailProps) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 标签 */}
         {alert.labels && Object.keys(alert.labels).length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Tag className="h-5 w-5" />
+          <Card className="h-full">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <Tag className="h-4 w-4" />
                 标签
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {Object.entries(alert.labels).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between py-1">
-                    <span className="text-sm font-medium">{key}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {value}
-                    </Badge>
-                  </div>
-                ))}
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(alert.labels).map(([key, value], index) => {
+                  // Generate a consistent color based on the key length to add some variety
+                  const colors = [
+                    "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200",
+                    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-green-200",
+                    "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 border-purple-200",
+                    "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 border-orange-200",
+                    "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300 border-pink-200",
+                  ];
+                  const colorClass = colors[key.length % colors.length];
+
+                  return (
+                    <div key={key} className={`inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${colorClass}`}>
+                      <span className="opacity-70 mr-1">{key}:</span>
+                      <span>{value}</span>
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -439,23 +449,21 @@ export function AlertDetail({ alert, className }: AlertDetailProps) {
 
         {/* 注释 */}
         {alert.annotations && Object.keys(alert.annotations).length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Info className="h-5 w-5" />
+          <Card className="h-full">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <Info className="h-4 w-4" />
                 注释
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
                 {Object.entries(alert.annotations)
                   .filter(([key]) => key !== 'enrichment_keys' && key !== 'investigate_uri')
                   .map(([key, value]) => (
-                    <div key={key} className="space-y-1">
-                      <div className="text-sm font-medium">{key}</div>
-                      <div className="text-sm text-muted-foreground bg-muted p-2 rounded">
-                        {value}
-                      </div>
+                    <div key={key} className="inline-flex items-center rounded-md border border-muted-foreground/20 bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70">
+                      <span className="font-semibold text-foreground mr-1">{key}:</span>
+                      <span className="truncate max-w-[300px]">{value}</span>
                     </div>
                   ))}
               </div>

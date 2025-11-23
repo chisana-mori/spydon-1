@@ -8,8 +8,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RobustaAPI } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +26,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Search,
+  Plus,
+  Trash2,
+  Edit,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  ShieldAlert,
+  ArrowRight,
+  BookOpen,
+  AlertTriangle
+} from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 export default function KnowledgeHomePage() {
   const router = useRouter()
@@ -48,7 +68,7 @@ export default function KnowledgeHomePage() {
       page_size: pageSize,
       alert_rule_name: searchKeyword || undefined
     }),
-    staleTime: 0, // 改为 0，每次都重新获取
+    staleTime: 0,
   })
 
   const items = data?.data || []
@@ -91,213 +111,297 @@ export default function KnowledgeHomePage() {
     }
   }
 
+  // Animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.05
+      }
+    }
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0 }
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">经验指南</h1>
-        <Button asChild>
-          <Link href={resolveAppPath('/knowledge/new')}>新建条目</Link>
+    <div className="min-h-screen bg-background p-4 md:p-6 space-y-6">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-4 md:px-6">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
+              <BookOpen className="w-5 h-5 text-primary" />
+            </div>
+            经验指南
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            管理和维护告警处理的最佳实践与知识库
+          </p>
+        </div>
+        <Button
+          asChild
+          className="h-10 shadow-sm px-4"
+        >
+          <Link href={resolveAppPath('/knowledge/new')}>
+            <Plus className="mr-2 h-4 w-4" />
+            新建
+          </Link>
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>搜索与筛选</CardTitle>
-          <CardDescription>按告警规则名搜索（例如 KubePodCrashLooping）</CardDescription>
+      {/* Search Section - Using Card Layout as per design rules */}
+      <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Search className="w-5 h-5 text-primary" />
+            搜索与筛选
+          </CardTitle>
+          <CardDescription>查找特定的告警规则或知识库条目</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-3">
-            <Input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="告警规则名（可选）"
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
-            <Button onClick={handleSearch} disabled={isFetching}>
-              {isFetching ? '搜索中...' : '搜索'}
-            </Button>
-            {searchKeyword && (
-              <Button variant="outline" onClick={handleClearSearch}>
-                清除
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
+              <Input
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="搜索告警规则名 (例如 KubePodCrashLooping)..."
+                className="pl-10 h-11"
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleSearch}
+                disabled={isFetching}
+                className="h-11 px-8"
+              >
+                {isFetching ? '搜索中...' : '搜索'}
               </Button>
-            )}
+              {searchKeyword && (
+                <Button
+                  variant="outline"
+                  onClick={handleClearSearch}
+                  className="h-11"
+                >
+                  清除
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            {searchKeyword ? `搜索结果` : `全部条目`}
-            <span className="ml-2 text-sm font-normal text-muted-foreground">共 {total} 条</span>
+      {/* Content Section */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            {searchKeyword ? '搜索结果' : '全部条目'}
+            <Badge variant="secondary" className="ml-2">
+              {total}
+            </Badge>
           </h2>
           {totalPages > 1 && (
-            <div className="text-sm text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               第 {page} / {totalPages} 页
-            </div>
+            </span>
           )}
         </div>
 
         {isFetching ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center text-muted-foreground">加载中...</div>
-            </CardContent>
-          </Card>
+          <div className="grid gap-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-24 rounded-xl bg-muted/50 animate-pulse" />
+            ))}
+          </div>
         ) : items.length > 0 ? (
-          <>
-            <div className="border rounded-lg overflow-hidden bg-white">
-              {items.map((it, index) => (
-                <div
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="grid gap-4"
+          >
+            <AnimatePresence mode='wait'>
+              {items.map((it) => (
+                <motion.div
                   key={it.id}
-                  className={`flex items-center px-6 py-3 hover:bg-gray-50 transition-colors ${index !== items.length - 1 ? 'border-b border-gray-100' : ''
-                    }`}
+                  variants={itemVariants}
+                  layout
                 >
-                  {/* 状态指示器 - 固定宽度 */}
-                  <div className="w-16 flex-shrink-0">
-                    <span
-                      className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${it.status === 'published'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-yellow-100 text-yellow-700'
-                        }`}
-                    >
-                      {it.status === 'published' ? '已发布' : '草稿'}
-                    </span>
-                  </div>
+                  <Card className="hover:border-primary/50 transition-all hover:shadow-sm">
+                    <CardContent className="p-4 md:p-6 flex flex-col md:flex-row md:items-center gap-6">
+                      {/* Icon & Title */}
+                      <div className="flex items-start md:items-center gap-4 flex-1 min-w-0">
+                        <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                          <ShieldAlert className="w-6 h-6 text-primary" />
+                        </div>
+                        <div className="space-y-1.5 min-w-0">
+                          <Link href={resolveAppPath(`/knowledge/${it.id}`)} className="block hover:text-primary transition-colors">
+                            <h3 className="font-bold text-lg truncate pr-4 font-mono">
+                              {it.alert_rule_name}
+                            </h3>
+                          </Link>
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                              <Badge variant="outline" className="text-xs font-normal">v{it.version}</Badge>
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <Clock className="h-3.5 w-3.5" />
+                              {it.updated_at ? new Date(it.updated_at).toLocaleDateString('zh-CN') : '-'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
 
-                  {/* 规则名 - 弹性宽度 */}
-                  <div className="flex-1 min-w-0 px-4">
-                    <Link
-                      href={resolveAppPath(`/knowledge/${it.id}`)}
-                      className="block"
-                    >
-                      <code className="px-2.5 py-1 bg-orange-50 border border-orange-200 rounded text-orange-700 font-mono text-sm font-medium truncate hover:bg-orange-100 transition-colors">
-                        {it.alert_rule_name}
-                      </code>
-                    </Link>
-                  </div>
+                      {/* Status & Actions */}
+                      <div className="flex items-center justify-between md:justify-end gap-6 mt-2 md:mt-0 pl-16 md:pl-0">
+                        <Badge
+                          variant={it.status === 'published' ? 'default' : 'secondary'}
+                          className="capitalize px-3 py-1"
+                        >
+                          {it.status === 'published' ? '已发布' : '草稿'}
+                        </Badge>
 
-                  {/* 版本 - 固定宽度 */}
-                  <div className="w-16 flex-shrink-0 text-center">
-                    <span className="text-sm text-gray-500">
-                      v{it.version}
-                    </span>
-                  </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="icon" asChild className="h-9 w-9 hover:bg-primary/10 hover:text-primary" title="查看">
+                            <Link href={resolveAppPath(`/knowledge/${it.id}`)}>
+                              <ArrowRight className="h-4 w-4" />
+                            </Link>
+                          </Button>
 
-                  {/* 更新时间 - 固定宽度 */}
-                  <div className="w-28 flex-shrink-0 text-center">
-                    {it.updated_at && (
-                      <span className="text-sm text-gray-500">
-                        {new Date(it.updated_at).toLocaleDateString('zh-CN')}
-                      </span>
-                    )}
-                  </div>
+                          <Button variant="ghost" size="icon" asChild className="h-9 w-9 hover:bg-primary/10 hover:text-primary" title="编辑">
+                            <Link href={resolveAppPath(`/knowledge/${it.id}/edit`)}>
+                              <Edit className="h-4 w-4" />
+                            </Link>
+                          </Button>
 
-                  {/* 操作按钮 - 固定宽度 */}
-                  <div className="w-44 flex-shrink-0 flex items-center justify-end gap-2">
-                    <Button variant="outline" asChild size="sm" className="h-8">
-                      <Link href={resolveAppPath(`/knowledge/${it.id}`)}>查看</Link>
-                    </Button>
-                    <Button asChild size="sm" className="h-8">
-                      <Link href={resolveAppPath(`/knowledge/${it.id}/edit`)}>编辑</Link>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDeleteClick(it.id, it.alert_rule_name)}
-                      className="text-destructive hover:text-destructive h-8 w-8 p-0"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => handleDeleteClick(it.id, it.alert_rule_name)}
+                            title="删除"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
               ))}
-            </div>
-
-            {/* 分页控件 */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 pt-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1 || isFetching}
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" />
-                  上一页
-                </Button>
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum
-                    if (totalPages <= 5) {
-                      pageNum = i + 1
-                    } else if (page <= 3) {
-                      pageNum = i + 1
-                    } else if (page >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i
-                    } else {
-                      pageNum = page - 2 + i
-                    }
-                    return (
-                      <Button
-                        key={pageNum}
-                        variant={page === pageNum ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setPage(pageNum)}
-                        disabled={isFetching}
-                        className="w-9"
-                      >
-                        {pageNum}
-                      </Button>
-                    )
-                  })}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages || isFetching}
-                >
-                  下一页
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
-            )}
-          </>
+            </AnimatePresence>
+          </motion.div>
         ) : (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center text-muted-foreground">
-                {searchKeyword ? '未找到匹配的条目' : '暂无条目，点击右上角新建'}
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+                <Search className="w-8 h-8 text-muted-foreground" />
               </div>
+              <h3 className="text-lg font-medium">
+                {searchKeyword ? '未找到匹配的条目' : '暂无知识库条目'}
+              </h3>
+              <p className="text-muted-foreground mt-2 max-w-sm">
+                {searchKeyword
+                  ? '尝试更换关键词搜索，或者清除搜索条件'
+                  : '开始创建您的第一个告警处理经验指南。'}
+              </p>
+              {!searchKeyword && (
+                <Button asChild className="mt-6 h-11">
+                  <Link href={resolveAppPath('/knowledge/new')}>
+                    创建第一条指南
+                  </Link>
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 pt-6">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1 || isFetching}
+              className="h-9 w-9"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum
+                if (totalPages <= 5) {
+                  pageNum = i + 1
+                } else if (page <= 3) {
+                  pageNum = i + 1
+                } else if (page >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i
+                } else {
+                  pageNum = page - 2 + i
+                }
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={page === pageNum ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setPage(pageNum)}
+                    disabled={isFetching}
+                    className="w-9 h-9"
+                  >
+                    {pageNum}
+                  </Button>
+                )
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages || isFetching}
+              className="h-9 w-9"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* 删除确认对话框 */}
+      {/* Delete Dialog - Strictly following the design rules */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
-            <AlertDialogDescription>
+        <AlertDialogContent className="max-w-[500px]">
+          <AlertDialogHeader className="space-y-3 pb-6">
+            <AlertDialogTitle className="text-2xl font-bold flex items-center gap-3">
+              <div className="w-8 h-8 bg-destructive/10 rounded-lg flex items-center justify-center">
+                <AlertTriangle className="w-4 h-4 text-destructive" />
+              </div>
+              确认删除
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
               确定要删除知识库条目 <span className="font-semibold text-foreground">"{itemToDelete?.rule}"</span> 吗？
               此操作无法撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
+
           {deleteError && (
-            <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+            <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive mb-4">
               {deleteError}
             </div>
           )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>取消</AlertDialogCancel>
+
+          <AlertDialogFooter className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t">
+            <AlertDialogCancel disabled={deleteMutation.isPending} className="h-11 mt-0">取消</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
               disabled={deleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-11"
             >
-              {deleteMutation.isPending ? '删除中...' : '删除'}
+              {deleteMutation.isPending ? '删除中...' : '确认删除'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

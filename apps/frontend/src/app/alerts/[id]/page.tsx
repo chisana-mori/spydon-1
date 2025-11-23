@@ -11,7 +11,9 @@ import {
   ArrowLeft,
   Server,
   AlertTriangle,
-  Clock
+  Clock,
+  Tag,
+  Info
 } from 'lucide-react'
 import RobustaAPI from '@/lib/api'
 import { formatDistanceToNow, format } from 'date-fns'
@@ -202,13 +204,12 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
         {/* 顶部状态栏 */}
         <div className="bg-white border-b border-gray-100 px-8 py-6">
           <div className="flex items-start space-x-4">
-            <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center ${
-              alert.status === 'firing'
-                ? 'bg-red-100 text-red-600'
-                : alert.status === 'resolved'
+            <div className={`w-12 h-12 flex-shrink-0 rounded-xl flex items-center justify-center ${alert.status === 'firing'
+              ? 'bg-red-100 text-red-600'
+              : alert.status === 'resolved'
                 ? 'bg-green-100 text-green-600'
                 : 'bg-gray-100 text-gray-600'
-            }`}>
+              }`}>
               <AlertTriangle className="h-6 w-6" />
             </div>
             <div className="flex-1 min-w-0">
@@ -223,27 +224,25 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Badge
                       variant={severityConfig.variant}
-                      className={`px-3 py-1 text-sm font-medium whitespace-nowrap ${
-                        alert.severity === 'critical'
-                          ? 'bg-red-100 text-red-800 border-red-200'
-                          : alert.severity === 'high'
+                      className={`px-3 py-1 text-sm font-medium whitespace-nowrap ${alert.severity === 'critical'
+                        ? 'bg-red-100 text-red-800 border-red-200'
+                        : alert.severity === 'high'
                           ? 'bg-orange-100 text-orange-800 border-orange-200'
                           : alert.severity === 'medium'
-                          ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                          : 'bg-blue-100 text-blue-800 border-blue-200'
-                      }`}
+                            ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+                            : 'bg-blue-100 text-blue-800 border-blue-200'
+                        }`}
                     >
                       {severityConfig.label}
                     </Badge>
                     <Badge
                       variant={statusConfig.variant}
-                      className={`px-3 py-1 text-sm font-medium whitespace-nowrap ${
-                        alert.status === 'firing'
-                          ? 'bg-red-100 text-red-800 border-red-200'
-                          : alert.status === 'resolved'
+                      className={`px-3 py-1 text-sm font-medium whitespace-nowrap ${alert.status === 'firing'
+                        ? 'bg-red-100 text-red-800 border-red-200'
+                        : alert.status === 'resolved'
                           ? 'bg-green-100 text-green-800 border-green-200'
                           : 'bg-gray-100 text-gray-800 border-gray-200'
-                      }`}
+                        }`}
                     >
                       {statusConfig.label}
                     </Badge>
@@ -274,18 +273,6 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">时间信息</h3>
               <div className="space-y-3">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                    <Clock className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">创建时间</p>
-                    <p className="text-sm text-gray-600 font-mono">
-                      {format(new Date(alert.created_at), 'yyyy-MM-dd HH:mm:ss')}
-                    </p>
-                  </div>
-                </div>
-
                 {alert.starts_at && (
                   <div className="flex items-center space-x-3">
                     <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
@@ -353,20 +340,33 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* 标签 */}
         {alert.labels && Object.keys(alert.labels).length > 0 && (
-          <div className="bg-gradient-to-br from-white to-gray-50/50 border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-br from-white to-gray-50/50 border border-gray-200 rounded-2xl shadow-sm overflow-hidden h-full">
             <div className="bg-white border-b border-gray-100 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">标签</h3>
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Tag className="h-5 w-5 text-primary" />
+                标签
+              </h3>
             </div>
             <div className="px-6 py-4">
-              <div className="space-y-3">
-                {Object.entries(alert.labels).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
-                    <span className="font-medium text-gray-900 text-sm">{key}:</span>
-                    <span className="text-gray-600 text-sm font-mono bg-gray-50 px-2 py-1 rounded">
-                      {String(value)}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(alert.labels).map(([key, value]) => {
+                  // Generate a consistent color based on the key length
+                  const colors = [
+                    "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100",
+                    "bg-green-50 text-green-700 border-green-200 hover:bg-green-100",
+                    "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100",
+                    "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100",
+                    "bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100",
+                  ];
+                  const colorClass = colors[key.length % colors.length];
+
+                  return (
+                    <div key={key} className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${colorClass}`}>
+                      <span className="opacity-70 mr-1.5 font-semibold">{key}:</span>
+                      <span className="break-all">{String(value)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -374,18 +374,21 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
 
         {/* 注释 */}
         {alert.annotations && Object.keys(alert.annotations).length > 0 && (
-          <div className="bg-gradient-to-br from-white to-gray-50/50 border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-gradient-to-br from-white to-gray-50/50 border border-gray-200 rounded-2xl shadow-sm overflow-hidden h-full">
             <div className="bg-white border-b border-gray-100 px-6 py-4">
-              <h3 className="text-lg font-semibold text-gray-900">注释</h3>
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Info className="h-5 w-5 text-primary" />
+                注释
+              </h3>
             </div>
             <div className="px-6 py-4">
-              <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
                 {Object.entries(alert.annotations)
                   .filter(([key]) => key !== 'enrichment_keys' && key !== 'investigate_uri')
                   .map(([key, value]) => (
-                    <div key={key} className="space-y-2">
-                      <span className="font-medium text-gray-900 text-sm">{key}:</span>
-                      {renderAnnotationValue(String(value))}
+                    <div key={key} className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 max-w-full">
+                      <span className="font-semibold text-gray-900 mr-1.5 flex-shrink-0">{key}:</span>
+                      <span className="truncate max-w-[400px]">{String(value)}</span>
                     </div>
                   ))}
               </div>

@@ -253,7 +253,7 @@ export function AppShell({ children }: AppShellProps) {
           </button>
 
           {isExpanded && (
-            <div className="mt-1 space-y-1 pl-3">
+            <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-1">
               {item.children.map((child) => {
                 const isActive = child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
                 const ChildIcon = child.icon
@@ -264,9 +264,9 @@ export function AppShell({ children }: AppShellProps) {
                     key={child.name}
                     href={childHref}
                     className={cn(
-                      'group flex items-center space-x-2.5 px-3 py-1.5 rounded-md text-sm transition-all duration-200',
+                      'group flex items-center space-x-2.5 px-3 py-2 rounded-md text-sm transition-all duration-200 relative overflow-hidden',
                       isActive
-                        ? 'bg-primary text-primary-foreground shadow-sm font-medium'
+                        ? 'bg-primary text-primary-foreground font-medium shadow-sm'
                         : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground font-normal',
                     )}
                     onClick={() => setSidebarOpen(false)}
@@ -274,10 +274,10 @@ export function AppShell({ children }: AppShellProps) {
                     <ChildIcon
                       className={cn(
                         'h-4 w-4 transition-all duration-200 flex-shrink-0',
-                        isActive ? 'text-primary-foreground' : 'text-muted-foreground/70 group-hover:text-foreground group-hover:scale-110',
+                        isActive ? 'text-primary-foreground' : 'text-muted-foreground/70 group-hover:text-foreground',
                       )}
                     />
-                    <span className="text-sm">
+                    <span className="text-sm truncate">
                       {child.name}
                     </span>
                   </Link>

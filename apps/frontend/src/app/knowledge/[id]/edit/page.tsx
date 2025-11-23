@@ -68,11 +68,11 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between px-4 md:px-6">
         <Button variant="ghost" size="sm" onClick={() => router.push(resolveAppPath('/knowledge'))}>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
-            <path d="m12 19-7-7 7-7"/>
-            <path d="M19 12H5"/>
+            <path d="m12 19-7-7 7-7" />
+            <path d="M19 12H5" />
           </svg>
           返回列表
         </Button>
@@ -85,11 +85,10 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
         <CardHeader>
           <div className="flex items-center gap-2">
             <Badge
-              className={`text-xs ${
-                article?.status === 'published'
-                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200'
-                  : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200'
-              }`}
+              className={`text-xs ${article?.status === 'published'
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200'
+                : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200'
+                }`}
             >
               {article?.status === 'published' ? '已发布' : article?.status === 'draft' ? '草稿' : article?.status}
             </Badge>

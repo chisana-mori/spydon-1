@@ -30,20 +30,38 @@ export function KnowledgeViewer({ manifest }: Props) {
   return (
     <div className="knowledge-viewer-wrapper">
       <style jsx global>{`
+        .knowledge-viewer-wrapper {
+          width: 100%;
+          display: flex;
+          justify-content: center;
+        }
+
         .knowledge-viewer-wrapper .simple-editor-wrapper {
+          width: 100%;
+          display: flex;
+          justify-content: center;
           background: transparent;
           border: none;
           box-shadow: none;
         }
-        
+
+        .knowledge-viewer-wrapper .simple-editor-content {
+          max-width: 820px;
+          margin: 0 auto;
+        }
+
         .knowledge-viewer-wrapper .simple-editor-readonly .simple-editor-content {
           padding: 0;
         }
-        
+
         .knowledge-viewer-wrapper .simple-editor {
           background: transparent;
           padding: 0;
           min-height: 200px;
+        }
+
+        .knowledge-viewer-wrapper .tiptap.ProseMirror {
+          text-align: left;
         }
       `}</style>
       <SimpleEditor
@@ -57,5 +75,3 @@ export function KnowledgeViewer({ manifest }: Props) {
 }
 
 export default KnowledgeViewer
-
-
