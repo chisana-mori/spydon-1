@@ -44,3 +44,14 @@ export interface ChatSettings {
   showToolCalls: boolean
   language: 'zh-CN' | 'en-US'
 }
+
+// 审批请求数据
+export interface ApprovalRequest {
+  requestId: string
+  toolCallId: string
+  description: string
+  reason: string
+}
+
+// 审批决策
+export type ApprovalDecision = 'accept' | 'decline'

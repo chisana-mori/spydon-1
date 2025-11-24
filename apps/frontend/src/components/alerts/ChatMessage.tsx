@@ -9,12 +9,12 @@ import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { 
-  Copy, 
-  Download, 
-  Check, 
-  Bot, 
-  User, 
+import {
+  Copy,
+  Download,
+  Check,
+  Bot,
+  User,
   Clock,
   AlertTriangle,
   ListChecks,
@@ -470,7 +470,7 @@ const CommandBlock: FC<{ command: string }> = ({ command }) => {
 
 const SummaryCommandBlock: FC<{ children: string; label?: string }> = ({ children, label = '命令' }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 })
-  
+
   // 提取并格式化命令文本
   const commandText = (typeof children === 'string' ? children : String(children))
     .replace(/\r\n/g, '\n')
@@ -594,13 +594,13 @@ const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
 
   const downloadAsFile = () => {
     if (typeof window === 'undefined') return
-    
+
     const fileExtension = programmingLanguages[detectedLanguage] || '.txt'
     const suggestedFileName = `code-${Date.now()}${fileExtension}`
     const fileName = window.prompt('输入文件名', suggestedFileName)
-    
+
     if (!fileName) return
-    
+
     const blob = new Blob([value], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -655,7 +655,7 @@ const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
           </Button>
         </div>
       </div>
-      
+
       {/* 代码内容 */}
       <div className="relative">
         <SyntaxHighlighter
@@ -687,7 +687,7 @@ const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
         >
           {value}
         </SyntaxHighlighter>
-        
+
         {/* 复制成功提示 */}
         {isCopied && (
           <div className="absolute top-4 right-4 bg-green-600 text-white px-3 py-1 rounded-md text-sm font-medium shadow-lg animate-in fade-in-0 zoom-in-95 duration-300">
@@ -699,7 +699,7 @@ const CodeBlock: FC<CodeBlockProps> = ({ language, value }) => {
   )
 }
 
-export const ChatMessage: FC<ChatMessageProps> = ({
+const ChatMessageComponent: FC<ChatMessageProps> = ({
   role,
   content,
   timestamp,
@@ -714,8 +714,8 @@ export const ChatMessage: FC<ChatMessageProps> = ({
   // 简单的 JSON 检测
   const isJsonContent = (text: string): boolean => {
     const trimmed = text.trim()
-    return (trimmed.startsWith('{') && trimmed.endsWith('}')) || 
-           (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    return (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))
   }
 
   const parseJsonSafely = (text: string) => {
@@ -810,11 +810,14 @@ export const ChatMessage: FC<ChatMessageProps> = ({
     }))
   }
 
-  const toggleTaskExpanded = (taskId: string) => {
-    setExpandedTasks(prev => ({
-      ...prev,
-      [taskId]: !prev[taskId]
-    }))
+  const toggleTaskExpanded = (taskId: string, defaultCollapsed: boolean = false) => {
+    setExpandedTasks(prev => {
+      const currentCollapsed = prev[taskId] ?? defaultCollapsed
+      return {
+        ...prev,
+        [taskId]: !currentCollapsed
+      }
+    })
   }
 
   const renderTaskList = (tasks: HolmesTaskItem[]) => (
@@ -824,7 +827,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
         const isLast = index === tasks.length - 1
         const prevTask = index > 0 ? tasks[index - 1] : null
         const nextTask = index < tasks.length - 1 ? tasks[index + 1] : null
-        
+
         return (
           <li key={task.id} className={cn(
             "relative px-4 py-3 flex items-start justify-between transition-colors",
@@ -838,7 +841,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
             {!isLast && (
               <div className="absolute left-6 bottom-0 w-0.5 h-3 bg-gray-200" />
             )}
-            
+
             <div className="flex items-start space-x-3 pr-3 flex-1">
               <div className="relative z-10 bg-white">
                 {renderTaskStatusIcon(task.status)}
@@ -895,52 +898,52 @@ export const ChatMessage: FC<ChatMessageProps> = ({
     const formattedSummary = summary ? formatSummaryText(summary) : undefined
 
     const copyText = buildStructuredCopyText(data)
-  const hasActiveTasks = taskSections.some(section => 
-    section.tasks.some(task => task.status === 'in_progress')
-  ) || tasks.some(task => task.status === 'in_progress')
+    const hasActiveTasks = taskSections.some(section =>
+      section.tasks.some(task => task.status === 'in_progress')
+    ) || tasks.some(task => task.status === 'in_progress')
 
-  const hasPendingTasks = taskSections.some(section => 
-    section.tasks.some(task => task.status === 'pending')
-  ) || tasks.some(task => task.status === 'pending')
+    const hasPendingTasks = taskSections.some(section =>
+      section.tasks.some(task => task.status === 'pending')
+    ) || tasks.some(task => task.status === 'pending')
 
-  const allTasksFlattened = (
-    taskSections.flatMap(section => section.tasks) 
-      .concat(tasks)
-  )
+    const allTasksFlattened = (
+      taskSections.flatMap(section => section.tasks)
+        .concat(tasks)
+    )
 
-  const completedCount = allTasksFlattened.filter(task => task.status === 'completed').length
-  const totalCount = allTasksFlattened.length
-  const progressRatioText = totalCount > 0 ? `${completedCount}/${totalCount} 完成` : undefined
+    const completedCount = allTasksFlattened.filter(task => task.status === 'completed').length
+    const totalCount = allTasksFlattened.length
+    const progressRatioText = totalCount > 0 ? `${completedCount}/${totalCount} 完成` : undefined
 
-  return (
-    <div className="space-y-4">
-      {(planText || toolName) && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 shadow-sm">
-          <div className="flex items-center space-x-2 text-blue-800 mb-2">
-            <ListChecks className="h-4 w-4" />
-            <span className="text-sm font-semibold">分析计划</span>
-            <div className="flex items-center space-x-2 ml-auto">
-              {progressRatioText && (
-                <Badge variant="secondary" className="text-xs">
-                  {progressRatioText}
-                </Badge>
-              )}
-              {hasActiveTasks && (
-                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  执行中
-                </Badge>
-              )}
-              {hasPendingTasks && !hasActiveTasks && completedCount < totalCount && (
-                <Badge variant="secondary" className="text-xs">
-                  待执行 {totalCount - completedCount}
-                </Badge>
-              )}
+    return (
+      <div className="space-y-4">
+        {(planText || toolName) && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 shadow-sm">
+            <div className="flex items-center space-x-2 text-blue-800 mb-2">
+              <ListChecks className="h-4 w-4" />
+              <span className="text-sm font-semibold">分析计划</span>
+              <div className="flex items-center space-x-2 ml-auto">
+                {progressRatioText && (
+                  <Badge variant="secondary" className="text-xs">
+                    {progressRatioText}
+                  </Badge>
+                )}
+                {hasActiveTasks && (
+                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    执行中
+                  </Badge>
+                )}
+                {hasPendingTasks && !hasActiveTasks && completedCount < totalCount && (
+                  <Badge variant="secondary" className="text-xs">
+                    待执行 {totalCount - completedCount}
+                  </Badge>
+                )}
+              </div>
             </div>
-          </div>
             {planText ? (
               <div className="prose prose-sm max-w-none text-blue-900">
-                <ReactMarkdown 
+                <ReactMarkdown
                   remarkPlugins={[remarkGfm, remarkMath]}
                   components={{
                     p: ({ children }) => <p className="text-sm leading-relaxed mb-2 last:mb-0">{children}</p>,
@@ -971,29 +974,29 @@ export const ChatMessage: FC<ChatMessageProps> = ({
               const sectionActiveTasks = section.tasks.filter(task => task.status === 'in_progress').length
               const sectionCompletedTasks = section.tasks.filter(task => task.status === 'completed').length
               const sectionTotalTasks = section.tasks.length
-                // 从工具调用中提取相关命令
-                const relatedCommands = toolCalls
-                  ?.filter(call => 
-                    call.status === 'success' && 
-                    (section.title?.includes(call.name || '') || 
-                     call.name?.toLowerCase().includes('kubectl') ||
-                     call.name?.toLowerCase().includes('describe') ||
-                     call.name?.toLowerCase().includes('get'))
-                  )
-                  ?.map(call => {
-                    // 优先使用预处理的命令字段
-                    if (call.command) {
-                      return call.command
-                    }
-                    if (typeof call.input === 'string') {
-                      return call.input
-                    } else if (call.input?.command) {
-                      return call.input.command
-                    } else if (call.input?.args) {
-                      return `${call.name} ${call.input.args.join(' ')}`
-                    }
-                    return `${call.name} 调用`
-                  }) || []
+              // 从工具调用中提取相关命令
+              const relatedCommands = toolCalls
+                ?.filter(call =>
+                  call.status === 'success' &&
+                  (section.title?.includes(call.name || '') ||
+                    call.name?.toLowerCase().includes('kubectl') ||
+                    call.name?.toLowerCase().includes('describe') ||
+                    call.name?.toLowerCase().includes('get'))
+                )
+                ?.map(call => {
+                  // 优先使用预处理的命令字段
+                  if (call.command) {
+                    return call.command
+                  }
+                  if (typeof call.input === 'string') {
+                    return call.input
+                  } else if (call.input?.command) {
+                    return call.input.command
+                  } else if (call.input?.args) {
+                    return `${call.name} ${call.input.args.join(' ')}`
+                  }
+                  return `${call.name} 调用`
+                }) || []
 
               return (
                 <div key={section.id} className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -1080,7 +1083,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
               </Button>
             </div>
             <div className="prose prose-sm max-w-none text-blue-900">
-              <ReactMarkdown 
+              <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
                 components={{
                   p: ({ children }) => <p className="text-sm leading-relaxed mb-2 last:mb-0">{children}</p>,
@@ -1116,7 +1119,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
               </Button>
             </div>
             <div className="prose prose-sm max-w-none text-green-900">
-              <ReactMarkdown 
+              <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
                 components={{
                   h1: ({ children }) => <h1 className="text-lg font-bold mb-3 text-green-800">{children}</h1>,
@@ -1130,27 +1133,27 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                     // 提取代码文本
                     const codeString = String(children).replace(/\n$/, '')
                     const isMultiline = codeString.includes('\n')
-                    
+
                     // 提取语言标识
                     const match = /language-(\w+)/.exec(className || '')
                     const language = match ? match[1] : ''
-                    
+
                     // 多行代码块
                     if (isMultiline) {
                       // 检测是否为命令（bash/shell/sh）
-                      const isCommand = /^(bash|shell|sh|zsh|cmd|powershell)$/i.test(language) || 
-                                       codeString.includes('kubectl ') || 
-                                       codeString.includes('sed ') ||
-                                       codeString.includes('echo ')
-                      
+                      const isCommand = /^(bash|shell|sh|zsh|cmd|powershell)$/i.test(language) ||
+                        codeString.includes('kubectl ') ||
+                        codeString.includes('sed ') ||
+                        codeString.includes('echo ')
+
                       if (isCommand) {
                         return <SummaryCommandBlock>{codeString}</SummaryCommandBlock>
                       }
-                      
+
                       // 其他代码块使用完整的代码高亮
                       return <SummaryCommandBlock>{codeString}</SummaryCommandBlock>
                     }
-                    
+
                     // 内联代码
                     return (
                       <code className="bg-green-100 text-green-800 px-1.5 py-0.5 rounded text-sm font-mono border border-green-200">
@@ -1306,7 +1309,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                     const normalized = raw.replace(/\r\n/g, '\n').replace(/\s+$/, '')
                     const languageMatch = /language-([\w-]+)/.exec(className || '')
                     const langHint = languageMatch ? languageMatch[1] : undefined
-                    
+
                     if (normalized.includes('\n')) {
                       return (
                         <CodeBlock
@@ -1315,9 +1318,9 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                         />
                       )
                     }
-                    
+
                     return (
-                      <code 
+                      <code
                         className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono border"
                       >
                         {normalized || children}
@@ -1339,7 +1342,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                 const resultStatus = tool.output?.result?.status || tool.status
                 const errorMessage = tool.output?.result?.error || tool.output?.error
                 const statusMessage = tool.output?.result?.status_message
-                
+
                 const statusVariant =
                   resultStatus === 'success'
                     ? 'default'
@@ -1372,7 +1375,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                 // 提取输出数据
                 let output = ''
                 let returnCode = null
-                
+
                 if (tool.output?.result?.data) {
                   output = tool.output.result.data
                   returnCode = tool.output.result.return_code
@@ -1384,12 +1387,12 @@ export const ChatMessage: FC<ChatMessageProps> = ({
 
                 // 如果有错误，优先显示错误信息
                 const hasError = resultStatus === 'error' || resultStatus === 'failed' || errorMessage
-                
+
                 // 如果有错误，显示错误信息；否则尝试解析表格或键值对
                 let displayContent = null
                 let tableData = null
                 let keyValueLines = null
-                
+
                 if (hasError) {
                   // 错误情况：显示错误信息
                   displayContent = errorMessage || statusMessage || '执行失败'
@@ -1410,7 +1413,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                 const outputLength = output?.length || 0
                 const outputLines = output?.split('\n').length || 0
                 const isLongContent = outputLength > 1000 || outputLines > 10
-                
+
                 // 为每个工具调用创建唯一的折叠状态key
                 const toolCallId = `tool-${index}-${tool.name}`
                 // 长内容默认折叠，短内容默认展开
@@ -1420,10 +1423,10 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                   <div key={index} className="bg-slate-800 rounded-lg overflow-hidden shadow-md border border-slate-600">
                     {/* 工具头部 - Linux终端风格 */}
                     <button
-                      onClick={() => isLongContent && toggleTaskExpanded(toolCallId)}
+                      onClick={() => toggleTaskExpanded(toolCallId, isLongContent)}
                       className={cn(
-                        "w-full bg-gradient-to-r from-slate-700 to-slate-600 px-4 py-3 flex items-center justify-between border-b border-slate-500",
-                        isLongContent && "hover:from-slate-600 hover:to-slate-500 transition-colors cursor-pointer"
+                        "w-full bg-gradient-to-r from-slate-700 to-slate-600 px-4 py-3 flex items-center justify-between border-b border-slate-500 select-none",
+                        "hover:from-slate-600 hover:to-slate-500 transition-colors cursor-pointer"
                       )}
                     >
                       <div className="flex items-center space-x-3">
@@ -1434,22 +1437,18 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                         </div>
                         <span className="text-green-400 font-mono text-sm">$</span>
                         <span className="text-white text-sm font-medium">{tool.name}</span>
-                        {isLongContent && (
-                          <ChevronDown
-                            className={cn(
-                              'h-4 w-4 text-slate-300 transition-transform ml-2',
-                              isCollapsed ? 'rotate-0' : 'rotate-180'
-                            )}
-                          />
-                        )}
+                        <ChevronDown
+                          className={cn(
+                            'h-4 w-4 text-slate-300 transition-transform ml-2',
+                            isCollapsed ? 'rotate-0' : 'rotate-180'
+                          )}
+                        />
                       </div>
                       <div className="flex items-center space-x-2">
-                        {isLongContent && (
-                          <span className="text-xs text-slate-400">
-                            {outputLines} 行 · {(outputLength / 1024).toFixed(1)}KB
-                          </span>
-                        )}
-                        <Badge 
+                        <span className="text-xs text-slate-400">
+                          {outputLines} 行 · {(outputLength / 1024).toFixed(1)}KB
+                        </span>
+                        <Badge
                           variant={statusVariant}
                           className="text-xs font-mono"
                         >
@@ -1457,10 +1456,10 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                         </Badge>
                       </div>
                     </button>
-                    
+
                     {/* 执行命令 - 始终显示 */}
                     {command && !isCollapsed && <CommandBlock command={command} />}
-                    
+
                     {/* 输出结果或错误信息 - 可折叠 */}
                     {!isCollapsed && (displayContent || tableData || keyValueLines) && (
                       <div className="px-4 py-3">
@@ -1472,11 +1471,10 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                             {hasError ? '错误信息:' : '执行结果:'}
                           </div>
                           {returnCode !== null && (
-                            <div className={`text-xs px-2 py-0.5 rounded ${
-                              returnCode === 0 
-                                ? 'bg-green-600 text-green-100' 
-                                : 'bg-red-600 text-red-100'
-                            }`}>
+                            <div className={`text-xs px-2 py-0.5 rounded ${returnCode === 0
+                              ? 'bg-green-600 text-green-100'
+                              : 'bg-red-600 text-red-100'
+                              }`}>
                               退出码: {returnCode}
                             </div>
                           )}
@@ -1486,7 +1484,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({
                             </div>
                           )}
                         </div>
-                        
+
                         {/* 表格展示 */}
                         {tableData ? (
                           <div className="bg-slate-900 rounded-md border border-slate-600 overflow-hidden">
@@ -1666,3 +1664,5 @@ const statusSymbol = (status: HolmesTaskItem['status']) => {
       return '待处理'
   }
 }
+
+export const ChatMessage = React.memo(ChatMessageComponent)

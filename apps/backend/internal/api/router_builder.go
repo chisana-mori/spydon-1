@@ -224,7 +224,8 @@ func (r *routeRegistrar) registerHolmesRoutes(v1 *gin.RouterGroup) {
 	apiGroup := v1.Group("")
 	apiGroup.Use(middleware.APITokenMiddleware(r.cfg))
 	apiGroup.Use(middleware.AuditLogMiddleware())
-	apiGroup.POST("/holmesgpt/stream/investigate", r.handlers.holmesProxy.StreamInvestigate)
+	apiGroup.GET("/holmesgpt/stream/investigate", r.handlers.holmesProxy.StreamInvestigate)
+	apiGroup.POST("/holmesgpt/stream/investigate/send", r.handlers.holmesProxy.SendApprovalDecision)
 }
 
 func (r *routeRegistrar) registerAPIKeyRoutes(v1 *gin.RouterGroup) {

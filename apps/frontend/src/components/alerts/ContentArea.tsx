@@ -18,9 +18,10 @@ interface ContentAreaProps {
   tasksMessageId: string
   summaryMessageId: string
   onReanalyze: () => void
+  isReplayingCache?: boolean
 }
 
-export const ContentArea: React.FC<ContentAreaProps> = ({
+const ContentAreaComponent: React.FC<ContentAreaProps> = ({
   analysisState,
   scrollAreaRef,
   messagesEndRef,
@@ -31,7 +32,8 @@ export const ContentArea: React.FC<ContentAreaProps> = ({
   pinnedSummaryData,
   tasksMessageId,
   summaryMessageId,
-  onReanalyze
+  onReanalyze,
+  isReplayingCache = false
 }) => {
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -79,7 +81,7 @@ export const ContentArea: React.FC<ContentAreaProps> = ({
                     role={message.role}
                     content={displayContent}
                     timestamp={message.timestamp}
-                    isStreaming={message.isStreaming}
+                    isStreaming={message.isStreaming && !isReplayingCache}
                     toolCalls={message.toolCalls || []}
                     structuredData={sanitized}
                   />
@@ -96,7 +98,7 @@ export const ContentArea: React.FC<ContentAreaProps> = ({
                   role="assistant"
                   content={''}
                   timestamp={format(new Date(), 'HH:mm:ss', { locale: zhCN })}
-                  isStreaming={pinnedIsStreaming}
+                  isStreaming={pinnedIsStreaming && !isReplayingCache}
                   toolCalls={[]}
                   structuredData={pinnedTasksData}
                 />
@@ -115,13 +117,13 @@ export const ContentArea: React.FC<ContentAreaProps> = ({
               />
             )}
 
-          {showScrollToLatest && (
-            <div className="sticky bottom-4 flex justify-end">
-              <Button size="sm" variant="secondary" className="shadow" onClick={handleScrollToLatest}>回到最新</Button>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+            {showScrollToLatest && (
+              <div className="sticky bottom-4 flex justify-end">
+                <Button size="sm" variant="secondary" className="shadow" onClick={handleScrollToLatest}>回到最新</Button>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         )}
       </div>
       {analysisState.status === 'error' && analysisState.error && (
@@ -136,3 +138,5 @@ export const ContentArea: React.FC<ContentAreaProps> = ({
     </div>
   )
 }
+
+export const ContentArea = React.memo(ContentAreaComponent)

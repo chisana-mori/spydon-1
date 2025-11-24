@@ -24,7 +24,7 @@ interface ControlBarProps {
   onDownload: () => void
 }
 
-export const ControlBar: React.FC<ControlBarProps> = ({
+const ControlBarComponent: React.FC<ControlBarProps> = ({
   statusIcon,
   statusText,
   progressText,
@@ -146,3 +146,5 @@ export const ControlBar: React.FC<ControlBarProps> = ({
     </div>
   )
 }
+
+export const ControlBar = React.memo(ControlBarComponent)
