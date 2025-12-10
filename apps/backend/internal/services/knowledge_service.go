@@ -64,14 +64,13 @@ func (s *KnowledgeService) versionKey(articleID string, version int) string {
 
 // Create 创建知识条目，初始化manifest
 func (s *KnowledgeService) Create(ctx context.Context, alertRuleName string, tags []string, user string) (*models.KnowledgeArticle, error) {
-	articleID := uuid.NewString()
+	articleID := fmt.Sprintf("%d", time.Now().UnixNano())
 	objectKey := s.manifestKey(articleID)
 
 	norm := s.Normalize(alertRuleName)
 	tagsJSON, _ := json.Marshal(tags)
 
 	art := &models.KnowledgeArticle{
-		BaseModel:               models.BaseModel{ID: uuid.New()},
 		AlertRuleName:           alertRuleName,
 		AlertRuleNameNormalized: norm,
 		Tags:                    datatypes.JSON(tagsJSON),
@@ -112,7 +111,7 @@ func (s *KnowledgeService) Create(ctx context.Context, alertRuleName string, tag
 }
 
 // Update 更新manifest与元数据（不改变status）
-func (s *KnowledgeService) Update(ctx context.Context, id string, payload Manifest, user string) (*models.KnowledgeArticle, error) {
+func (s *KnowledgeService) Update(ctx context.Context, id uint64, payload Manifest, user string) (*models.KnowledgeArticle, error) {
 	var art models.KnowledgeArticle
 	if err := s.db.DB.First(&art, "id = ?", id).Error; err != nil {
 		return nil, err
@@ -150,7 +149,7 @@ func (s *KnowledgeService) Update(ctx context.Context, id string, payload Manife
 }
 
 // Publish 发布（复制当前manifest至 versions/{version} 并置为 published）
-func (s *KnowledgeService) Publish(ctx context.Context, id string, changeSummary, user string) error {
+func (s *KnowledgeService) Publish(ctx context.Context, id uint64, changeSummary, user string) error {
 	var art models.KnowledgeArticle
 	if err := s.db.DB.First(&art, "id = ?", id).Error; err != nil {
 		return err
@@ -169,7 +168,6 @@ func (s *KnowledgeService) Publish(ctx context.Context, id string, changeSummary
 
 	// 写版本记录
 	ver := &models.KnowledgeArticleVersion{
-		BaseModel:     models.BaseModel{ID: uuid.New()},
 		ArticleID:     art.ID,
 		Version:       art.Version,
 		ObjectKey:     vkey,
@@ -242,7 +240,7 @@ func (s *KnowledgeService) PresignAssetPut(ctx context.Context, articleID, filen
 }
 
 // GetByID 查询单条
-func (s *KnowledgeService) GetByID(id string) (*models.KnowledgeArticle, error) {
+func (s *KnowledgeService) GetByID(id uint64) (*models.KnowledgeArticle, error) {
 	var art models.KnowledgeArticle
 	if err := s.db.DB.First(&art, "id = ?", id).Error; err != nil {
 		return nil, err
@@ -251,7 +249,7 @@ func (s *KnowledgeService) GetByID(id string) (*models.KnowledgeArticle, error) 
 }
 
 // GetManifestByArticleID 读取 manifest（通过文章ID）
-func (s *KnowledgeService) GetManifestByArticleID(ctx context.Context, id string) ([]byte, error) {
+func (s *KnowledgeService) GetManifestByArticleID(ctx context.Context, id uint64) ([]byte, error) {
 	art, err := s.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -260,7 +258,7 @@ func (s *KnowledgeService) GetManifestByArticleID(ctx context.Context, id string
 }
 
 // Delete 删除知识条目（软删除）
-func (s *KnowledgeService) Delete(ctx context.Context, id string) error {
+func (s *KnowledgeService) Delete(ctx context.Context, id uint64) error {
 	var art models.KnowledgeArticle
 	if err := s.db.DB.First(&art, "id = ?", id).Error; err != nil {
 		return err

@@ -11,7 +11,6 @@ import (
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
@@ -21,8 +20,8 @@ import (
 // RCACachedResult 存储到对象存储中的RCA分析结果
 type RCACachedResult struct {
 	Version      string                  `json:"version"`
-	RunID        string                  `json:"run_id"`
-	AlertID      string                  `json:"alert_id"`
+	RunID        uint64                  `json:"run_id,string"`
+	AlertID      uint64                  `json:"alert_id,string"`
 	CachedAt     time.Time               `json:"cached_at"`
 	Analysis     *HolmesAnalysisResponse `json:"analysis"`
 	StorageKey   string                  `json:"storage_key,omitempty"`
@@ -54,10 +53,10 @@ func (s *HolmesService) updateAnalysisResult(ctx context.Context, rcaRun *models
 	s.persistAnalysisResult(ctx, rcaRun, response, now)
 
 	if err := s.db.Save(rcaRun).Error; err != nil {
-		logger.L().Error("更新RCA运行结果失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
+		logger.L().Error("更新RCA运行结果失败", zap.Error(err), zap.Uint64("rca_run_id", rcaRun.ID))
 	}
 
-	logger.L().Info("RCA分析完成", zap.String("rca_run_id", rcaRun.ID.String()), zap.String("status", rcaRun.Status))
+	logger.L().Info("RCA分析完成", zap.Uint64("rca_run_id", rcaRun.ID), zap.String("status", rcaRun.Status))
 }
 
 func (s *HolmesService) persistAnalysisResult(ctx context.Context, rcaRun *models.RCARun, response *HolmesAnalysisResponse, snapshot time.Time) {
@@ -67,22 +66,22 @@ func (s *HolmesService) persistAnalysisResult(ctx context.Context, rcaRun *model
 
 	cached := RCACachedResult{
 		Version:  "v1",
-		RunID:    rcaRun.ID.String(),
-		AlertID:  rcaRun.AlertID.String(),
+		RunID:    rcaRun.ID,
+		AlertID:  rcaRun.AlertID,
 		CachedAt: snapshot,
 		Analysis: response,
 	}
 
 	payload, err := json.Marshal(cached)
 	if err != nil {
-		logger.L().Error("序列化RCA分析缓存失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
+		logger.L().Error("序列化RCA分析缓存失败", zap.Error(err), zap.Uint64("rca_run_id", rcaRun.ID))
 		return
 	}
 
-	prefix := fmt.Sprintf("rca-results/%s", rcaRun.AlertID.String())
+	prefix := fmt.Sprintf("rca-results/%s", models.FormatID(rcaRun.AlertID))
 	key, err := s.storage.Save(ctx, prefix, payload, "application/json")
 	if err != nil {
-		logger.L().Error("写入RCA分析缓存失败", zap.Error(err), zap.String("rca_run_id", rcaRun.ID.String()))
+		logger.L().Error("写入RCA分析缓存失败", zap.Error(err), zap.Uint64("rca_run_id", rcaRun.ID))
 		return
 	}
 
@@ -90,7 +89,7 @@ func (s *HolmesService) persistAnalysisResult(ctx context.Context, rcaRun *model
 }
 
 // GetCachedResult 获取存储在对象存储中的最新RCA缓存结果
-func (s *HolmesService) GetCachedResult(ctx context.Context, alertID string) (*RCACachedResult, error) {
+func (s *HolmesService) GetCachedResult(ctx context.Context, alertID uint64) (*RCACachedResult, error) {
 	if s.storage == nil {
 		return nil, nil
 	}
@@ -135,32 +134,23 @@ func (s *HolmesService) loadCachedResultForRun(ctx context.Context, run *models.
 	if cached.StorageKey == "" {
 		cached.StorageKey = run.RawPayloadKey
 	}
-	if cached.AlertID == "" {
-		cached.AlertID = run.AlertID.String()
+	if cached.AlertID == 0 {
+		cached.AlertID = run.AlertID
 	}
-	if cached.RunID == "" {
-		cached.RunID = run.ID.String()
+	if cached.RunID == 0 {
+		cached.RunID = run.ID
 	}
 
 	return &cached, nil
 }
 
-func (s *HolmesService) GetCachedResultByRunID(ctx context.Context, runID string) (*RCACachedResult, error) {
+func (s *HolmesService) GetCachedResultByRunID(ctx context.Context, runID uint64) (*RCACachedResult, error) {
 	if s.storage == nil {
 		return nil, nil
 	}
 
-	if runID == "" {
-		return nil, fmt.Errorf("运行ID不能为空")
-	}
-
-	parsedID, err := uuid.Parse(runID)
-	if err != nil {
-		return nil, fmt.Errorf("无效的运行ID: %w", err)
-	}
-
 	var run models.RCARun
-	if err := s.db.Where("id = ?", parsedID).First(&run).Error; err != nil {
+	if err := s.db.Where("id = ?", runID).First(&run).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, gorm.ErrRecordNotFound
 		}

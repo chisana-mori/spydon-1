@@ -85,10 +85,9 @@ func (s *RCAService) updateRateLimiter(config *AutoRCAConfig) {
 	s.limiterMux.Lock()
 	defer s.limiterMux.Unlock()
 
-	// 只在配置变化时更新
+	// 只在配置变化时更新，并重置令牌桶以避免旧的令牌配额影响新配置
 	if s.rateLimiter.Limit() != newLimit || s.rateLimiter.Burst() != burst {
-		s.rateLimiter.SetLimit(newLimit)
-		s.rateLimiter.SetBurst(burst)
+		s.rateLimiter = rate.NewLimiter(newLimit, burst)
 		logger.L().Info("更新RCA速率限制配置",
 			zap.Float64("rate_per_second", ratePerSecond),
 			zap.Int("burst", burst),
@@ -198,13 +197,13 @@ func (s *RCAService) processNextInQueue() {
 	}
 
 	logger.L().Info("找到排队的RCA任务",
-		zap.String("run_id", queuedRun.ID.String()),
-		zap.String("alert_id", queuedRun.AlertID.String()),
+		zap.Uint64("run_id", queuedRun.ID),
+		zap.Uint64("alert_id", queuedRun.AlertID),
 	)
 
-	alertID := queuedRun.AlertID.String()
+	alertID := models.FormatID(queuedRun.AlertID)
 	if queuedRun.Alert == nil {
-		logger.L().Warn("排队任务缺少告警信息，标记为失败", zap.String("rca_run_id", queuedRun.ID.String()))
+		logger.L().Warn("排队任务缺少告警信息，标记为失败", zap.Uint64("rca_run_id", queuedRun.ID))
 		errMsg := "missing alert reference for queued RCA run"
 		now := time.Now()
 		queuedRun.Status = string(models.RCAStatusFailed)
@@ -219,7 +218,7 @@ func (s *RCAService) processNextInQueue() {
 
 	if !s.isSeverityAllowed(config, queuedRun.Alert.Severity) {
 		logger.L().Info("跳过不符合级别配置的排队RCA任务",
-			zap.String("alert_id", queuedRun.Alert.ID.String()),
+			zap.Uint64("alert_id", queuedRun.Alert.ID),
 			zap.String("severity", queuedRun.Alert.Severity),
 		)
 		errMsg := "alert severity no longer allowed by Auto-RCA configuration"
@@ -243,12 +242,12 @@ func (s *RCAService) processNextInQueue() {
 	}
 
 	logger.L().Info("从队列中取出RCA任务开始执行",
-		zap.String("alert_id", queuedRun.Alert.ID.String()),
-		zap.String("run_id", queuedRun.ID.String()),
+		zap.Uint64("alert_id", queuedRun.Alert.ID),
+		zap.Uint64("run_id", queuedRun.ID),
 		zap.String("severity", queuedRun.Alert.Severity),
 	)
 
-	s.broadcastStatus(queuedRun.Alert.ID.String(), models.RCAStatusPending, queuedRun.ID.String())
+	s.broadcastStatus(models.FormatID(queuedRun.Alert.ID), models.RCAStatusPending, models.FormatID(queuedRun.ID))
 
 	go s.runAnalysis(&queuedRun, queuedRun.Alert)
 }
@@ -288,7 +287,7 @@ func (s *RCAService) triggerRCA(alert *models.Alert, config *AutoRCAConfig, enfo
 
 	if enforceSeverity && !s.isSeverityAllowed(config, alert.Severity) {
 		logger.L().Debug("Auto-RCA因告警级别被跳过",
-			zap.String("alert_id", alert.ID.String()),
+			zap.Uint64("alert_id", alert.ID),
 			zap.String("severity", alert.Severity),
 		)
 		return nil, fmt.Errorf("告警级别 %s 不在自动RCA配置范围内", alert.Severity)
@@ -322,7 +321,7 @@ func (s *RCAService) triggerRCA(alert *models.Alert, config *AutoRCAConfig, enfo
 	if !allowed {
 		// 超过限制，入队
 		rcaRun.Status = string(models.RCAStatusQueued)
-		logger.L().Info("RCA请求超过速率限制，已入队", zap.String("alert_id", alert.ID.String()))
+		logger.L().Info("RCA请求超过速率限制，已入队", zap.Uint64("alert_id", alert.ID))
 	}
 
 	if err := s.CreateRCARun(rcaRun); err != nil {
@@ -332,18 +331,18 @@ func (s *RCAService) triggerRCA(alert *models.Alert, config *AutoRCAConfig, enfo
 	if rcaRun.Status == string(models.RCAStatusQueued) {
 		// 入队后广播状态，此时 rcaRun.ID 已生成
 		logger.L().Info("RCA任务已入队",
-			zap.String("alert_id", alert.ID.String()),
-			zap.String("run_id", rcaRun.ID.String()),
+			zap.Uint64("alert_id", alert.ID),
+			zap.Uint64("run_id", rcaRun.ID),
 			zap.String("severity", alert.Severity),
 		)
-		s.broadcastStatus(alert.ID.String(), models.RCAStatusQueued, rcaRun.ID.String())
+		s.broadcastStatus(models.FormatID(alert.ID), models.RCAStatusQueued, models.FormatID(rcaRun.ID))
 	} else if rcaRun.Status == string(models.RCAStatusPending) {
 		logger.L().Info("RCA任务立即执行",
-			zap.String("alert_id", alert.ID.String()),
-			zap.String("run_id", rcaRun.ID.String()),
+			zap.Uint64("alert_id", alert.ID),
+			zap.Uint64("run_id", rcaRun.ID),
 			zap.String("severity", alert.Severity),
 		)
-		s.broadcastStatus(alert.ID.String(), models.RCAStatusPending, rcaRun.ID.String())
+		s.broadcastStatus(models.FormatID(alert.ID), models.RCAStatusPending, models.FormatID(rcaRun.ID))
 	}
 
 	// 5. 如果未被限流，直接执行；否则通知队列处理器

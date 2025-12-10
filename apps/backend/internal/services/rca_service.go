@@ -11,7 +11,6 @@ import (
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
@@ -99,13 +98,7 @@ func NewRCAService(
 }
 
 // ProcessRCA 处理RCA接收逻辑
-func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uuid.UUID, error) {
-	// 解析AlertID
-	alertID, err := uuid.Parse(req.AlertID)
-	if err != nil {
-		return nil, fmt.Errorf("无效的告警ID: %w", err)
-	}
-
+func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uint64, error) {
 	// 验证RCA状态
 	if !isValidRCAStatus(req.Status) {
 		return nil, fmt.Errorf("无效的RCA状态: %s", req.Status)
@@ -114,10 +107,10 @@ func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uu
 	// 保存原始payload（可选）
 	var payloadKey string
 	if s.payloadStorage != nil && len(req.RawBody) > 0 {
-		key, err := s.savePayload(ctx, fmt.Sprintf("rca/%s", alertID.String()), req.RawBody, "application/json")
+		key, err := s.savePayload(ctx, fmt.Sprintf("rca/%d", req.AlertID), req.RawBody, "application/json")
 		if err != nil {
 			// 记录错误但不中断流程
-			logger.L().Warn("保存RCA原始数据失败", zap.Error(err), zap.String("alert_id", req.AlertID))
+			logger.L().Warn("保存RCA原始数据失败", zap.Error(err), zap.Uint64("alert_id", req.AlertID))
 		} else {
 			payloadKey = key
 		}
@@ -125,7 +118,7 @@ func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uu
 
 	// 创建RCA运行记录
 	rcaRun := &models.RCARun{
-		AlertID:         alertID,
+		AlertID:         req.AlertID,
 		Status:          req.Status,
 		Summary:         &req.Summary,
 		Suspects:        toJSON(req.Suspects),
@@ -148,7 +141,7 @@ func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uu
 
 	// 记录审计日志
 	if s.auditService != nil {
-		_ = s.auditService.LogAction("system", "rca_ingested", "rca_run", rcaRun.ID.String(), map[string]interface{}{
+		_ = s.auditService.LogAction(0, "rca_ingested", "rca_run", &rcaRun.ID, map[string]interface{}{
 			"alert_id": req.AlertID,
 			"status":   req.Status,
 		}, req.ClientIP, req.UserAgent)
@@ -163,7 +156,7 @@ func (s *RCAService) CreateRCARun(rcaRun *models.RCARun) error {
 }
 
 // GetRCARunsByAlertID 根据告警ID获取RCA运行记录
-func (s *RCAService) GetRCARunsByAlertID(alertID uuid.UUID) ([]models.RCARun, error) {
+func (s *RCAService) GetRCARunsByAlertID(alertID uint64) ([]models.RCARun, error) {
 	var rcaRuns []models.RCARun
 	if err := s.db.Where("alert_id = ?", alertID).
 		Order("created_at DESC").
@@ -174,7 +167,7 @@ func (s *RCAService) GetRCARunsByAlertID(alertID uuid.UUID) ([]models.RCARun, er
 }
 
 // GetRCARunByID 根据ID获取RCA运行记录
-func (s *RCAService) GetRCARunByID(id uuid.UUID) (*models.RCARun, error) {
+func (s *RCAService) GetRCARunByID(id uint64) (*models.RCARun, error) {
 	var rcaRun models.RCARun
 	if err := s.db.Preload("Alert").First(&rcaRun, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -186,7 +179,7 @@ func (s *RCAService) GetRCARunByID(id uuid.UUID) (*models.RCARun, error) {
 }
 
 // UpdateRCARunStatus 更新RCA运行状态
-func (s *RCAService) UpdateRCARunStatus(id uuid.UUID, status string, errorMessage string) error {
+func (s *RCAService) UpdateRCARunStatus(id uint64, status string, errorMessage string) error {
 	updates := map[string]interface{}{
 		"status": status,
 	}

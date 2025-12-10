@@ -65,7 +65,7 @@ func (s *HolmesService) buildInvestigatePayload(alert *models.Alert, opts Invest
 // buildSubjectContext 构建告警主体信息，包含完整的告警数据供 AI 分析
 func (s *HolmesService) buildSubjectContext(alert *models.Alert) map[string]interface{} {
 	return map[string]interface{}{
-		"alert_id":    alert.ID.String(),
+		"alert_id":    models.FormatID(alert.ID),
 		"fingerprint": alert.Fingerprint,
 		"title":       alert.Title,
 		"description": alert.Description,
@@ -110,9 +110,8 @@ func languageDisplayName(code string) string {
 }
 
 // GetAnalysisByAlertID 根据告警ID获取分析结果
-func (s *HolmesService) GetAnalysisByAlertID(alertID string) ([]*models.RCARun, error) {
+func (s *HolmesService) GetAnalysisByAlertID(alertID uint64) ([]*models.RCARun, error) {
 	var rcaRuns []*models.RCARun
-
 	err := s.db.Where("alert_id = ?", alertID).
 		Order("created_at DESC").
 		Find(&rcaRuns).Error
@@ -123,7 +122,7 @@ func (s *HolmesService) GetAnalysisByAlertID(alertID string) ([]*models.RCARun, 
 	return rcaRuns, nil
 }
 
-func (s *HolmesService) getAlertByID(alertID string) (*models.Alert, error) {
+func (s *HolmesService) getAlertByID(alertID uint64) (*models.Alert, error) {
 	var alert models.Alert
 	err := s.db.Where("id = ?", alertID).First(&alert).Error
 	if err != nil {
@@ -132,7 +131,7 @@ func (s *HolmesService) getAlertByID(alertID string) (*models.Alert, error) {
 	return &alert, nil
 }
 
-func (s *HolmesService) getRunningAnalysis(alertID string) (*models.RCARun, error) {
+func (s *HolmesService) getRunningAnalysis(alertID uint64) (*models.RCARun, error) {
 	var rcaRun models.RCARun
 	err := s.db.Where("alert_id = ? AND status IN (?)", alertID, []string{string(models.RCAStatusPending), string(models.RCAStatusRunning)}).
 		First(&rcaRun).Error

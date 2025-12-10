@@ -36,7 +36,7 @@ A modern, intelligent alert management and root cause analysis platform for Kube
 ### 🏗️ **Infrastructure Management**
 - Multi-cluster Kubernetes support
 - MinIO object storage integration
-- PostgreSQL database for persistent data
+- MySQL database for persistent data
 - Redis caching for performance optimization
 - Docker and Kubernetes deployment ready
 
@@ -44,7 +44,7 @@ A modern, intelligent alert management and root cause analysis platform for Kube
 
 ### Backend
 - **Go 1.23+** with Gin framework
-- **PostgreSQL** for data persistence
+- **MySQL** for data persistence
 - **Redis** for caching and session management
 - **MinIO** for object storage
 - **Docker** & **Kubernetes** deployment
@@ -102,7 +102,7 @@ For local development with hot reload:
 
 
 # Start dependencies
-docker compose -f infrastructure/docker/docker-compose.yml up -d postgres minio redis
+docker compose -f infrastructure/docker/docker-compose.yml up -d mysql minio redis
 
 # Start backend
 cd apps/backend
@@ -153,7 +153,7 @@ Spydon uses environment variables for configuration. Key configuration options:
 
 # Database
 DB_HOST=localhost
-DB_PORT=5432
+DB_PORT=3306
 DB_NAME=robusta
 DB_USER=robusta
 DB_PASSWORD=password
@@ -261,7 +261,7 @@ kubectl apply -f infrastructure/k8s/
 ### Production Considerations
 
 - **High Availability**: Deploy multiple replicas for frontend and backend
-- **Database**: Use managed PostgreSQL service for production
+- **Database**: Use managed MySQL service for production
 - **Storage**: Configure persistent MinIO storage
 - **Monitoring**: Enable Prometheus metrics collection
 - **Security**: Configure proper SSL/TLS certificates

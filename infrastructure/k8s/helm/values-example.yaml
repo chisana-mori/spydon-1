@@ -33,7 +33,7 @@ backend:
     port: "8080"
 
     # 数据库配置（必需）
-    databaseUrl: "postgres://spydon:CHANGE_ME@postgres:5432/spydon?sslmode=disable"
+    databaseUrl: "root:CHANGE_ME@tcp(mysql:3306)/spydon?charset=utf8mb4&parseTime=True&loc=Local"
 
     # 安全密钥（必需 - 请使用强随机字符串）
     jwtSecret: "CHANGE_ME_JWT_SECRET_AT_LEAST_32_CHARS"
@@ -150,25 +150,9 @@ ingress:
       hosts:
         - spydon.example.com
 
-# PostgreSQL 数据库
+# 数据库（使用外部 MySQL）
 postgresql:
-  enabled: true
-  auth:
-    username: spydon
-    password: "CHANGE_ME_POSTGRES_PASSWORD"
-    database: spydon
-  primary:
-    persistence:
-      enabled: true
-      size: 20Gi
-      storageClass: ""  # 使用默认 StorageClass
-    resources:
-      limits:
-        cpu: 1000m
-        memory: 2Gi
-      requests:
-        cpu: 500m
-        memory: 1Gi
+  enabled: false
 
 # Redis 缓存
 redis:

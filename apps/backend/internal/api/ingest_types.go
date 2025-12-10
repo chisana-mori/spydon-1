@@ -49,7 +49,7 @@ type AlertmanagerAlert struct {
 
 // IngestRCARequest 接收RCA请求结构
 type IngestRCARequest struct {
-	AlertID         string                 `json:"alert_id" binding:"required,uuid"`
+	AlertID         uint64                 `json:"alert_id" binding:"required,gt=0"`
 	Status          string                 `json:"status" binding:"required,oneof=pending running completed failed timeout"`
 	Summary         string                 `json:"summary"`
 	Suspects        map[string]interface{} `json:"suspects"`

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"robusta-web/backend/internal/config"
+	"robusta-web/backend/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -172,7 +173,14 @@ func parseJWTClaims(cfg *config.Config, tokenString string) (jwt.MapClaims, erro
 }
 
 func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
-	c.Set("user_id", claims["sub"])
+	if rawSub, ok := claims["sub"]; ok {
+		if uid, err := models.ParseID(fmt.Sprint(rawSub)); err == nil {
+			c.Set("user_id", uid)
+		} else {
+			// 保持兼容：解析失败时仍然写入原始值
+			c.Set("user_id", rawSub)
+		}
+	}
 	c.Set("user_email", claims["email"])
 	c.Set("user_name", claims["name"])
 	c.Set("user_roles", claims["roles"]) // 保留兼容性

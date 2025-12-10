@@ -54,7 +54,7 @@ check_test_env() {
     export CGO_ENABLED=1
     export GO111MODULE=on
     export TEST_ENV=true
-    export DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/test_db?sslmode=disable}"
+    export DATABASE_URL="${DATABASE_URL:-root:password@tcp(127.0.0.1:3306)/test_db?charset=utf8mb4&parseTime=True&loc=Local}"
     export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 }
 
@@ -67,26 +67,29 @@ start_test_dependencies() {
         error "Docker is not running"
     fi
 
-    # 启动 PostgreSQL 和 Redis（如果需要）
-    if ! curl -s "$DATABASE_URL" &> /dev/null; then
-        log "Starting PostgreSQL for tests..."
-        docker run -d --name test-postgres \
-            -e POSTGRES_DB=test_db \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_PASSWORD=postgres \
-            -p 5432:5432 \
-            postgres:15-alpine || true
-
-        # 等待 PostgreSQL 启动
-        local retries=0
-        while ! curl -s "$DATABASE_URL" &> /dev/null && [ $retries -lt 30 ]; do
-            sleep 2
-            ((retries++))
-        done
-
-        if [ $retries -eq 30 ]; then
-            error "Failed to start PostgreSQL"
+    # 启动 MySQL 和 Redis（如果需要）
+    if ! docker ps --format '{{.Names}}' | grep -q '^test-mysql$'; then
+        log "Starting MySQL for tests..."
+        if docker ps -a --format '{{.Names}}' | grep -q '^test-mysql$'; then
+            docker start test-mysql >/dev/null
+        else
+            docker run -d --name test-mysql \
+                -e MYSQL_DATABASE=test_db \
+                -e MYSQL_ROOT_PASSWORD=password \
+                -p 3306:3306 \
+                mysql:8.0 || true
         fi
+    fi
+
+    # 等待 MySQL 启动
+    local retries=0
+    while ! docker exec test-mysql mysqladmin ping -h 127.0.0.1 -uroot -ppassword --silent &> /dev/null && [ $retries -lt 30 ]; do
+        sleep 2
+        ((retries++))
+    done
+
+    if [ $retries -eq 30 ]; then
+        error "Failed to start MySQL"
     fi
 
     if ! redis-cli -u "$REDIS_URL" ping &> /dev/null; then
@@ -216,8 +219,8 @@ cleanup() {
     log "Cleaning up test environment..."
 
     # 停止测试容器
-    docker stop test-postgres test-redis 2>/dev/null || true
-    docker rm test-postgres test-redis 2>/dev/null || true
+    docker stop test-mysql test-redis 2>/dev/null || true
+    docker rm test-mysql test-redis 2>/dev/null || true
 
     # 清理临时文件
     rm -f test.tmp test.json

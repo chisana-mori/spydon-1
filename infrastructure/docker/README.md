@@ -10,7 +10,7 @@
 
 | 服务 | 端口 | 描述 | 状态 |
 |------|------|------|------|
-| PostgreSQL | 5432 | 主数据库 | ✅ 运行中 |
+| MySQL | 3306 | 主数据库 | ✅ 运行中 |
 | MinIO | 9000, 9001 | 对象存储 | ✅ 运行中 |
 | Redis | 6379 | 缓存和会话存储 | ✅ 运行中 |
 
@@ -54,13 +54,13 @@ docker-compose logs -f
 
 ## 服务详情
 
-### PostgreSQL
-- **镜像**: `postgres:15-alpine`
+### MySQL
+- **镜像**: `mysql:8.0`
 - **数据库**: `robusta_hub`
-- **用户**: `postgres`
+- **用户**: `root`
 - **密码**: `password`
-- **持久化**: `postgres_data` volume
-- **健康检查**: PostgreSQL连接检查
+- **持久化**: `mysql_data` volume
+- **健康检查**: `mysqladmin ping`
 
 ### MinIO
 - **镜像**: `minio/minio:latest`
@@ -84,7 +84,7 @@ docker-compose logs -f
 - **子网**: 自动分配
 
 ### 端口映射
-- PostgreSQL: `5432:5432`
+- MySQL: `3306:3306`
 - MinIO API: `9000:9000`
 - MinIO 控制台: `9001:9001`
 - Redis: `6379:6379`
@@ -93,7 +93,7 @@ docker-compose logs -f
 
 所有数据都通过Docker volumes持久化存储：
 
-- `postgres_data`: PostgreSQL数据文件
+- `mysql_data`: MySQL数据文件
 - `minio_data`: MinIO对象存储数据
 - `redis_data`: Redis数据文件
 
@@ -101,16 +101,15 @@ docker-compose logs -f
 
 每个容器都配置了相应的健康检查：
 
-- **PostgreSQL**: `pg_isready -U postgres`
+- **MySQL**: `mysqladmin ping`
 - **MinIO**: `curl -f http://localhost:9000/minio/health/live`
 - **Redis**: `redis-cli ping`
 
 ## 环境变量
 
-### PostgreSQL
-- `POSTGRES_DB`: robusta_hub
-- `POSTGRES_USER`: postgres
-- `POSTGRES_PASSWORD`: password
+### MySQL
+- `MYSQL_DATABASE`: robusta_hub
+- `MYSQL_ROOT_PASSWORD`: password
 
 ### MinIO
 - `MINIO_ROOT_USER`: minioadmin
@@ -120,8 +119,8 @@ docker-compose logs -f
 
 ### 备份数据
 ```bash
-# 备份PostgreSQL
-docker exec robusta-postgres pg_dump -U postgres robusta_hub > backup.sql
+# 备份MySQL
+docker exec robusta-mysql mysqldump -uroot -ppassword robusta_hub > backup.sql
 
 # 备份MinIO数据（需要MinIO客户端）
 # 使用minio客户端工具备份桶数据
@@ -136,7 +135,7 @@ docker exec robusta-redis redis-cli BGSAVE
 docker-compose logs
 
 # 查看特定服务日志
-docker-compose logs postgres
+docker-compose logs mysql
 docker-compose logs minio
 docker-compose logs redis
 ```
@@ -147,7 +146,7 @@ docker-compose logs redis
 docker-compose restart
 
 # 重启特定服务
-docker-compose restart postgres
+docker-compose restart mysql
 ```
 
 ## 故障排除
@@ -174,11 +173,11 @@ docker-compose restart postgres
 
 ### 数据库连接
 ```bash
-# PostgreSQL连接信息
+# MySQL连接信息
 Host: localhost
-Port: 5432
+Port: 3306
 Database: robusta_hub
-Username: postgres
+Username: root
 Password: password
 ```
 

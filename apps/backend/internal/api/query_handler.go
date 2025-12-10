@@ -8,7 +8,6 @@ import (
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // QueryHandler 查询处理器
@@ -138,14 +137,15 @@ func (h *QueryHandler) GetAlertTrend(c *gin.Context) {
 
 // GetAlert 获取单个告警详情
 func (h *QueryHandler) GetAlert(c *gin.Context) {
-	alertIDStr := c.Param("id")
-	alertID, err := uuid.Parse(alertIDStr)
-	if err != nil {
+	var path struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
 		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
-	alert, err := h.alertService.GetAlertByID(alertID)
+	alert, err := h.alertService.GetAlertByID(path.ID)
 	if err != nil {
 		NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
@@ -156,15 +156,16 @@ func (h *QueryHandler) GetAlert(c *gin.Context) {
 
 // GetAlertRawPayload 获取告警的原始数据
 func (h *QueryHandler) GetAlertRawPayload(c *gin.Context) {
-	alertIDStr := c.Param("id")
-	alertID, err := uuid.Parse(alertIDStr)
-	if err != nil {
+	var path struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
 		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	// 获取告警信息
-	alert, err := h.alertService.GetAlertByID(alertID)
+	alert, err := h.alertService.GetAlertByID(path.ID)
 	if err != nil {
 		NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
@@ -193,14 +194,15 @@ func (h *QueryHandler) GetAlertRawPayload(c *gin.Context) {
 
 // GetRCAByAlertID 根据告警ID获取RCA报告
 func (h *QueryHandler) GetRCAByAlertID(c *gin.Context) {
-	alertIDStr := c.Param("alert_id")
-	alertID, err := uuid.Parse(alertIDStr)
-	if err != nil {
+	var path struct {
+		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
 		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
-	rcaRuns, err := h.rcaService.GetRCARunsByAlertID(alertID)
+	rcaRuns, err := h.rcaService.GetRCARunsByAlertID(path.AlertID)
 	if err != nil {
 		InternalError(c, "GET_RCA_ERROR", "获取RCA报告失败")
 		return
@@ -211,15 +213,16 @@ func (h *QueryHandler) GetRCAByAlertID(c *gin.Context) {
 
 // TriggerRCA 手动触发RCA分析
 func (h *QueryHandler) TriggerRCA(c *gin.Context) {
-	alertIDStr := c.Param("alert_id")
-	alertID, err := uuid.Parse(alertIDStr)
-	if err != nil {
+	var path struct {
+		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
 		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	// 检查告警是否存在
-	alert, err := h.alertService.GetAlertByID(alertID)
+	alert, err := h.alertService.GetAlertByID(path.AlertID)
 	if err != nil {
 		NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return

@@ -5,10 +5,10 @@ import (
 
 	"robusta-web/backend/internal/apperrors"
 	"robusta-web/backend/internal/constants"
+	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // APIKeyHandler API Key处理器
@@ -53,20 +53,19 @@ type APIKeyListResponse struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
-func resolveUserID(c *gin.Context) (uuid.UUID, apperrors.DomainError) {
+type apiKeyURI struct {
+	ID uint64 `uri:"id" binding:"required,gt=0"`
+}
+
+func resolveUserID(c *gin.Context) (uint64, apperrors.DomainError) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		return uuid.Nil, apperrors.Unauthorized("未授权", apperrors.WithCode("UNAUTHORIZED"))
+		return 0, apperrors.Unauthorized("未授权", apperrors.WithCode("UNAUTHORIZED"))
 	}
 
-	uidStr, ok := userID.(string)
-	if !ok {
-		return uuid.Nil, apperrors.BadRequest("无效的用户ID类型", nil, apperrors.WithCode("INVALID_USER_ID"))
-	}
-
-	uid, err := uuid.Parse(uidStr)
+	uid, err := toUint64(userID)
 	if err != nil {
-		return uuid.Nil, apperrors.BadRequest("无效的用户ID", nil, apperrors.WithCode("INVALID_USER_ID"), apperrors.WithCause(err))
+		return 0, apperrors.BadRequest("无效的用户ID", nil, apperrors.WithCode("INVALID_USER_ID"), apperrors.WithCause(err))
 	}
 
 	return uid, nil
@@ -101,7 +100,7 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 	}
 
 	Created(c, CreateAPIKeyResponse{
-		ID:          apiKey.ID.String(),
+		ID:          models.FormatID(apiKey.ID),
 		Name:        apiKey.Name,
 		Key:         rawKey, // 仅在创建时返回完整密钥
 		KeyPrefix:   apiKey.KeyPrefix,
@@ -129,7 +128,7 @@ func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 	response := make([]APIKeyListResponse, len(apiKeys))
 	for i, key := range apiKeys {
 		response[i] = APIKeyListResponse{
-			ID:          key.ID.String(),
+			ID:          models.FormatID(key.ID),
 			Name:        key.Name,
 			KeyPrefix:   key.KeyPrefix,
 			LastUsedAt:  key.LastUsedAt,
@@ -145,14 +144,8 @@ func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 
 // DeleteAPIKey 删除API Key
 func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
-	keyID := c.Param("id")
-	if keyID == "" {
-		BadRequest(c, "MISSING_ID", "缺少API Key ID")
-		return
-	}
-
-	id, err := uuid.Parse(keyID)
-	if err != nil {
+	var uri apiKeyURI
+	if err := c.ShouldBindUri(&uri); err != nil {
 		BadRequest(c, "INVALID_ID", "无效的API Key ID")
 		return
 	}
@@ -164,7 +157,7 @@ func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
 	}
 
 	// 删除API Key
-	if err := h.apiKeyService.DeleteAPIKey(id, uid); err != nil {
+	if err := h.apiKeyService.DeleteAPIKey(uri.ID, uid); err != nil {
 		InternalError(c, constants.ErrorCodeDeleteFailed, err.Error())
 		return
 	}
@@ -174,14 +167,8 @@ func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
 
 // UpdateAPIKeyStatus 更新API Key状态
 func (h *APIKeyHandler) UpdateAPIKeyStatus(c *gin.Context) {
-	keyID := c.Param("id")
-	if keyID == "" {
-		BadRequest(c, "MISSING_ID", "缺少API Key ID")
-		return
-	}
-
-	id, err := uuid.Parse(keyID)
-	if err != nil {
+	var uri apiKeyURI
+	if err := c.ShouldBindUri(&uri); err != nil {
 		BadRequest(c, "INVALID_ID", "无效的API Key ID")
 		return
 	}
@@ -201,7 +188,7 @@ func (h *APIKeyHandler) UpdateAPIKeyStatus(c *gin.Context) {
 	}
 
 	// 更新状态
-	if err := h.apiKeyService.UpdateAPIKeyStatus(id, uid, req.IsActive); err != nil {
+	if err := h.apiKeyService.UpdateAPIKeyStatus(uri.ID, uid, req.IsActive); err != nil {
 		InternalError(c, constants.ErrorCodeUpdateFailed, err.Error())
 		return
 	}
@@ -228,7 +215,7 @@ func (h *APIKeyHandler) ListAllAPIKeys(c *gin.Context) {
 	response := make([]map[string]interface{}, len(apiKeys))
 	for i, key := range apiKeys {
 		response[i] = map[string]interface{}{
-			"id":           key.ID.String(),
+			"id":           models.FormatID(key.ID),
 			"name":         key.Name,
 			"key_prefix":   key.KeyPrefix,
 			"last_used_at": key.LastUsedAt,
@@ -237,7 +224,7 @@ func (h *APIKeyHandler) ListAllAPIKeys(c *gin.Context) {
 			"permissions":  key.Permissions,
 			"created_at":   key.CreatedAt,
 			"user": map[string]interface{}{
-				"id":       key.User.ID.String(),
+				"id":       models.FormatID(key.User.ID),
 				"username": key.User.Username,
 				"email":    key.User.Email,
 				"name":     key.User.Name,

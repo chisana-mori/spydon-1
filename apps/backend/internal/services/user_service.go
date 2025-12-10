@@ -8,7 +8,6 @@ import (
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/utils"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -69,7 +68,7 @@ func (s *UserService) GetUsers(page, limit int, keyword string) ([]UserListItem,
 		maskedUsername, maskedEmail, maskedName := utils.MaskUserInfo(user.Username, user.Email, user.Name)
 
 		items[i] = UserListItem{
-			ID:            user.ID.String(),
+			ID:            models.FormatID(user.ID),
 			Username:      maskedUsername,
 			Email:         maskedEmail,
 			Name:          maskedName,
@@ -88,14 +87,9 @@ func (s *UserService) GetUsers(page, limit int, keyword string) ([]UserListItem,
 }
 
 // GetUserByID 根据ID获取用户
-func (s *UserService) GetUserByID(userID string) (*models.User, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, fmt.Errorf("无效的用户ID: %w", err)
-	}
-
+func (s *UserService) GetUserByID(userID uint64) (*models.User, error) {
 	var user models.User
-	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("用户不存在")
 		}
@@ -106,14 +100,9 @@ func (s *UserService) GetUserByID(userID string) (*models.User, error) {
 }
 
 // SetUserAdmin 设置用户管理员权限
-func (s *UserService) SetUserAdmin(userID string, isAdmin bool) error {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return fmt.Errorf("无效的用户ID: %w", err)
-	}
-
+func (s *UserService) SetUserAdmin(userID uint64, isAdmin bool) error {
 	var user models.User
-	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("用户不存在")
 		}
@@ -130,14 +119,9 @@ func (s *UserService) SetUserAdmin(userID string, isAdmin bool) error {
 }
 
 // DeleteUser 删除用户（软删除）
-func (s *UserService) DeleteUser(userID string) error {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return fmt.Errorf("无效的用户ID: %w", err)
-	}
-
+func (s *UserService) DeleteUser(userID uint64) error {
 	var user models.User
-	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("用户不存在")
 		}
@@ -162,14 +146,9 @@ func (s *UserService) GetAdminCount() (int64, error) {
 }
 
 // UpdateUserProfile 更新用户资料
-func (s *UserService) UpdateUserProfile(userID string, name, picture string) error {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return fmt.Errorf("无效的用户ID: %w", err)
-	}
-
+func (s *UserService) UpdateUserProfile(userID uint64, name, picture string) error {
 	var user models.User
-	if err := s.db.Where("id = ?", uid).First(&user).Error; err != nil {
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("用户不存在")
 		}

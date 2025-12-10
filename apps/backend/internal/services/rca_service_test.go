@@ -7,12 +7,15 @@ import (
 
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestRCAService_TriggerAndRateLimit(t *testing.T) {
 	database := setupTestDB()
+
+	// Create required cluster
+	cluster := &models.Cluster{ClusterID: "cluster-1", Name: "Test Cluster"}
+	assert.NoError(t, database.Create(cluster).Error)
 	settingService := NewSystemSettingService(database)
 	rcaService := NewRCAService(database, nil, nil, settingService, nil, nil)
 	rcaService.SetAnalysisExecutor(func(*models.RCARun, *models.Alert) {})
@@ -29,14 +32,13 @@ func TestRCAService_TriggerAndRateLimit(t *testing.T) {
 	// Helper to create alert
 	createAlert := func(i int) *models.Alert {
 		alert := &models.Alert{
-			BaseModel:   models.BaseModel{ID: uuid.New()},
 			Fingerprint: fmt.Sprintf("fp-%d", i),
 			ClusterID:   "cluster-1",
 			Title:       fmt.Sprintf("Alert %d", i),
 			Status:      "firing",
 			Severity:    string(models.AlertSeverityHigh),
 		}
-		database.Create(alert)
+		assert.NoError(t, database.Create(alert).Error)
 		return alert
 	}
 
@@ -70,6 +72,10 @@ func TestRCAService_TriggerAndRateLimit(t *testing.T) {
 
 func TestRCAService_QueueProcessing(t *testing.T) {
 	database := setupTestDB()
+
+	// Create required cluster
+	cluster := &models.Cluster{ClusterID: "cluster-1", Name: "Test Cluster"}
+	assert.NoError(t, database.Create(cluster).Error)
 	settingService := NewSystemSettingService(database)
 	rcaService := NewRCAService(database, nil, nil, settingService, nil, nil)
 	rcaService.SetAnalysisExecutor(func(*models.RCARun, *models.Alert) {})
@@ -81,7 +87,6 @@ func TestRCAService_QueueProcessing(t *testing.T) {
 
 	// 2. Manually insert a Queued RCA
 	alert := &models.Alert{
-		BaseModel:   models.BaseModel{ID: uuid.New()},
 		Fingerprint: "fp-queued",
 		ClusterID:   "cluster-1",
 		Title:       "Queued Alert",
@@ -120,7 +125,7 @@ func TestRCAService_Streaming(t *testing.T) {
 	rcaService := NewRCAService(database, nil, nil, settingService, nil, nil)
 	rcaService.SetAnalysisExecutor(func(*models.RCARun, *models.Alert) {})
 
-	alertID := uuid.New().String()
+	alertID := "1"
 
 	// 1. Subscribe
 	ch, unsubscribe := rcaService.Subscribe(alertID)
@@ -150,6 +155,10 @@ func TestRCAService_Streaming(t *testing.T) {
 
 func TestRCAService_SeverityFilter(t *testing.T) {
 	database := setupTestDB()
+
+	// Create required cluster
+	cluster := &models.Cluster{ClusterID: "cluster-1", Name: "Test Cluster"}
+	assert.NoError(t, database.Create(cluster).Error)
 	settingService := NewSystemSettingService(database)
 	config := AutoRCAConfig{
 		Enabled:           true,
@@ -164,7 +173,6 @@ func TestRCAService_SeverityFilter(t *testing.T) {
 	rcaService.SetAnalysisExecutor(func(*models.RCARun, *models.Alert) {})
 
 	warningAlert := &models.Alert{
-		BaseModel:   models.BaseModel{ID: uuid.New()},
 		Fingerprint: "fp-warning",
 		ClusterID:   "cluster-1",
 		Title:       "Warning Alert",
@@ -177,7 +185,6 @@ func TestRCAService_SeverityFilter(t *testing.T) {
 	assert.Error(t, err, "warning severity should be filtered out")
 
 	criticalAlert := &models.Alert{
-		BaseModel:   models.BaseModel{ID: uuid.New()},
 		Fingerprint: "fp-critical",
 		ClusterID:   "cluster-1",
 		Title:       "Critical Alert",

@@ -76,7 +76,7 @@ func GetDefaultAutoRCAConfig() *AutoRCAConfig {
 
 // ProcessRCARequest 处理RCA请求参数
 type ProcessRCARequest struct {
-	AlertID         string
+	AlertID         uint64
 	Status          string
 	Summary         string
 	Suspects        map[string]interface{}

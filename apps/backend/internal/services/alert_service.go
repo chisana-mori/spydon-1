@@ -10,7 +10,6 @@ import (
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -59,7 +58,7 @@ type ProcessAlertRequest struct {
 }
 
 // ProcessAlert 处理告警接收逻辑
-func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest) (*uuid.UUID, error) {
+func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest) (*uint64, error) {
 	// 验证严重级别
 	if !isValidSeverity(req.Severity) {
 		return nil, fmt.Errorf("无效的严重级别: %s", req.Severity)
@@ -117,7 +116,7 @@ func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.A
 
 	// 记录审计日志
 	if s.auditService != nil {
-		_ = s.auditService.LogAction("system", "alert_ingested", "alert", alert.ID.String(), map[string]interface{}{
+		_ = s.auditService.LogAction(0, "alert_ingested", "alert", &alert.ID, map[string]interface{}{
 			"cluster_id":  alert.ClusterID,
 			"fingerprint": alert.Fingerprint,
 			"severity":    alert.Severity,
@@ -131,13 +130,13 @@ func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.A
 			rcaRun, err := s.rcaService.TriggerRCAAnalysis(alert)
 			if err != nil {
 				logger.L().Debug("Auto-RCA未触发",
-					zap.String("alert_id", alert.ID.String()),
+					zap.Uint64("alert_id", alert.ID),
 					zap.String("reason", err.Error()),
 				)
 			} else if rcaRun != nil {
 				logger.L().Info("Auto-RCA已触发",
-					zap.String("alert_id", alert.ID.String()),
-					zap.String("run_id", rcaRun.ID.String()),
+					zap.Uint64("alert_id", alert.ID),
+					zap.Uint64("run_id", rcaRun.ID),
 					zap.String("status", rcaRun.Status),
 				)
 			}
@@ -255,7 +254,7 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 }
 
 // GetAlertByID 根据ID获取告警
-func (s *AlertService) GetAlertByID(id uuid.UUID) (*models.Alert, error) {
+func (s *AlertService) GetAlertByID(id uint64) (*models.Alert, error) {
 	var alert models.Alert
 	if err := s.db.Preload("Cluster").Preload("RCARuns").First(&alert, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -279,7 +278,7 @@ func (s *AlertService) GetAlertByFingerprint(fingerprint, clusterID string) (*mo
 }
 
 // UpdateAlertStatus 更新告警状态
-func (s *AlertService) UpdateAlertStatus(id uuid.UUID, status string) error {
+func (s *AlertService) UpdateAlertStatus(id uint64, status string) error {
 	result := s.db.Model(&models.Alert{}).Where("id = ?", id).Update("status", status)
 	if result.Error != nil {
 		return fmt.Errorf("更新告警状态失败: %w", result.Error)
@@ -400,7 +399,7 @@ func (s *AlertService) GetAlertTrend(days int) ([]AlertTrendPoint, error) {
 }
 
 // DeleteAlert 删除告警
-func (s *AlertService) DeleteAlert(id uuid.UUID) error {
+func (s *AlertService) DeleteAlert(id uint64) error {
 	result := s.db.Delete(&models.Alert{}, "id = ?", id)
 	if result.Error != nil {
 		return fmt.Errorf("删除告警失败: %w", result.Error)

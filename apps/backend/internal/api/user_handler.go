@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 	"robusta-web/backend/internal/utils"
 
@@ -44,9 +45,15 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 
 // GetUser 获取单个用户详情（管理员功能）
 func (h *UserHandler) GetUser(c *gin.Context) {
-	userID := c.Param("id")
+	var path struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
+		return
+	}
 
-	user, err := h.userService.GetUserByID(userID)
+	user, err := h.userService.GetUserByID(path.ID)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusNotFound, "USER_NOT_FOUND", "用户不存在", err.Error())
 		return
@@ -56,7 +63,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	maskedUsername, maskedEmail, maskedName := utils.MaskUserInfo(user.Username, user.Email, user.Name)
 
 	Success(c, gin.H{
-		"id":             user.ID.String(),
+		"id":             models.FormatID(user.ID),
 		"username":       maskedUsername,
 		"email":          maskedEmail,
 		"name":           maskedName,
@@ -72,7 +79,13 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 
 // SetUserAdmin 设置用户管理员权限（管理员功能）
 func (h *UserHandler) SetUserAdmin(c *gin.Context) {
-	userID := c.Param("id")
+	var path struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
+		return
+	}
 
 	var req struct {
 		IsAdmin *bool `json:"is_admin" binding:"required"`
@@ -102,30 +115,38 @@ func (h *UserHandler) SetUserAdmin(c *gin.Context) {
 		}
 	}
 
-	if err := h.userService.SetUserAdmin(userID, *req.IsAdmin); err != nil {
+	if err := h.userService.SetUserAdmin(path.ID, *req.IsAdmin); err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "SET_ADMIN_FAILED", "设置用户权限失败", err.Error())
 		return
 	}
 
 	SuccessWithMessage(c, "用户权限设置成功", gin.H{
-		"user_id":  userID,
+		"user_id":  models.FormatID(path.ID),
 		"is_admin": *req.IsAdmin,
 	})
 }
 
 // DeleteUser 删除用户（管理员功能）
 func (h *UserHandler) DeleteUser(c *gin.Context) {
-	userID := c.Param("id")
-
-	// 获取当前用户ID，防止删除自己
-	currentUserID, exists := c.Get("user_id")
-	if exists && currentUserID == userID {
-		BadRequest(c, "CANNOT_DELETE_SELF", "不能删除自己的账号")
+	var path struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
 		return
 	}
 
+	// 获取当前用户ID，防止删除自己
+	currentUserID, exists := c.Get("user_id")
+	if exists {
+		if uid, err := toUint64(currentUserID); err == nil && uid == path.ID {
+			BadRequest(c, "CANNOT_DELETE_SELF", "不能删除自己的账号")
+			return
+		}
+	}
+
 	// 检查要删除的用户是否是管理员
-	user, err := h.userService.GetUserByID(userID)
+	user, err := h.userService.GetUserByID(path.ID)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusNotFound, "USER_NOT_FOUND", "用户不存在", err.Error())
 		return
@@ -145,7 +166,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	if err := h.userService.DeleteUser(userID); err != nil {
+	if err := h.userService.DeleteUser(path.ID); err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "DELETE_USER_FAILED", "删除用户失败", err.Error())
 		return
 	}

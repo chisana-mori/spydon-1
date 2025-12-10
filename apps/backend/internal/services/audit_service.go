@@ -8,7 +8,6 @@ import (
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
 
@@ -26,7 +25,7 @@ func NewAuditService(database *db.Database) *AuditService {
 
 // LogAction 记录操作日志
 func (s *AuditService) LogAction(
-	userID, action, resourceType, resourceID string,
+	userID uint64, action, resourceType string, resourceID *uint64,
 	details map[string]interface{},
 	ipAddress, userAgent string,
 ) error {
@@ -37,7 +36,7 @@ func (s *AuditService) LogAction(
 		}
 	}
 	auditLog := &models.AuditLog{
-		UserID:       userID,
+		UserID:       toPtrIfNonZero(userID),
 		Action:       action,
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
@@ -55,10 +54,10 @@ func (s *AuditService) LogAction(
 
 // AuditFilters 审计日志过滤条件
 type AuditFilters struct {
-	UserID       string
+	UserID       *uint64
 	Action       string
 	ResourceType string
-	ResourceID   string
+	ResourceID   *uint64
 	Since        *time.Time
 	Until        *time.Time
 }
@@ -72,8 +71,8 @@ func (s *AuditService) GetAuditLogs(page, limit int, filters AuditFilters) ([]mo
 	query := s.db.Model(&models.AuditLog{})
 
 	// 应用过滤条件
-	if filters.UserID != "" {
-		query = query.Where("user_id = ?", filters.UserID)
+	if filters.UserID != nil {
+		query = query.Where("user_id = ?", *filters.UserID)
 	}
 	if filters.Action != "" {
 		query = query.Where("action = ?", filters.Action)
@@ -81,8 +80,8 @@ func (s *AuditService) GetAuditLogs(page, limit int, filters AuditFilters) ([]mo
 	if filters.ResourceType != "" {
 		query = query.Where("resource_type = ?", filters.ResourceType)
 	}
-	if filters.ResourceID != "" {
-		query = query.Where("resource_id = ?", filters.ResourceID)
+	if filters.ResourceID != nil {
+		query = query.Where("resource_id = ?", *filters.ResourceID)
 	}
 	if filters.Since != nil {
 		query = query.Where("created_at >= ?", filters.Since)
@@ -106,7 +105,7 @@ func (s *AuditService) GetAuditLogs(page, limit int, filters AuditFilters) ([]mo
 }
 
 // GetAuditLogByID 根据ID获取审计日志
-func (s *AuditService) GetAuditLogByID(id uuid.UUID) (*models.AuditLog, error) {
+func (s *AuditService) GetAuditLogByID(id uint64) (*models.AuditLog, error) {
 	var auditLog models.AuditLog
 	if err := s.db.First(&auditLog, "id = ?", id).Error; err != nil {
 		return nil, fmt.Errorf("获取审计日志失败: %w", err)
@@ -139,13 +138,13 @@ func (s *AuditService) GetAuditStats(days int) (map[string]interface{}, error) {
 
 	// 按用户统计
 	var userStats []struct {
-		UserID string `json:"user_id"`
-		Count  int64  `json:"count"`
+		UserID *uint64 `json:"user_id"`
+		Count  int64   `json:"count"`
 	}
 
 	if err := s.db.Model(&models.AuditLog{}).
 		Select("user_id, count(*) as count").
-		Where("created_at >= ? AND user_id != ''", since).
+		Where("created_at >= ? AND user_id IS NOT NULL", since).
 		Group("user_id").
 		Order("count DESC").
 		Limit(10).
@@ -209,7 +208,7 @@ func (s *AuditService) CleanupOldAuditLogs(olderThan time.Duration) error {
 }
 
 // GetUserActivity 获取用户活动记录
-func (s *AuditService) GetUserActivity(userID string, limit int) ([]models.AuditLog, error) {
+func (s *AuditService) GetUserActivity(userID uint64, limit int) ([]models.AuditLog, error) {
 	var auditLogs []models.AuditLog
 	if err := s.db.Where("user_id = ?", userID).
 		Order("created_at DESC").
@@ -218,6 +217,13 @@ func (s *AuditService) GetUserActivity(userID string, limit int) ([]models.Audit
 		return nil, fmt.Errorf("获取用户活动记录失败: %w", err)
 	}
 	return auditLogs, nil
+}
+
+func toPtrIfNonZero(val uint64) *uint64 {
+	if val == 0 {
+		return nil
+	}
+	return &val
 }
 
 // GetResourceActivity 获取资源活动记录

@@ -13,7 +13,6 @@ import (
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
 )
@@ -23,16 +22,13 @@ func (s *HolmesService) streamInvestigateURL() string {
 }
 
 // StartStreamRun 为流式RCA创建运行记录
-func (s *HolmesService) StartStreamRun(alertID string) (*models.RCARun, error) {
+func (s *HolmesService) StartStreamRun(alertID uint64) (*models.RCARun, error) {
 	alert, err := s.getAlertByID(alertID)
 	if err != nil {
 		return nil, fmt.Errorf("获取告警失败: %w", err)
 	}
 
 	run := &models.RCARun{
-		BaseModel: models.BaseModel{
-			ID: uuid.New(),
-		},
 		AlertID:         alert.ID,
 		Status:          string(models.RCAStatusRunning),
 		StartedAt:       time.Now(),
@@ -71,7 +67,7 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 		run.ErrorMessage = &errorMessage
 
 		if err := s.db.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
-			logger.L().Error("更新流式RCA失败状态时出错", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
+			logger.L().Error("更新流式RCA失败状态时出错", zap.Error(err), zap.Uint64("rca_run_id", run.ID))
 		}
 		return
 	}
@@ -102,8 +98,8 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 	if s.storage != nil {
 		cached := RCACachedResult{
 			Version:      "v1",
-			RunID:        run.ID.String(),
-			AlertID:      run.AlertID.String(),
+			RunID:        run.ID,
+			AlertID:      run.AlertID,
 			CachedAt:     now,
 			StreamChunks: streamChunks,
 			Metadata: map[string]interface{}{
@@ -115,16 +111,16 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 
 		payload, err := json.Marshal(cached)
 		if err != nil {
-			logger.L().Error("序列化RCA流缓存失败", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
+			logger.L().Error("序列化RCA流缓存失败", zap.Error(err), zap.Uint64("rca_run_id", run.ID))
 		} else {
-			prefix := fmt.Sprintf("rca-results/%s", run.AlertID.String())
+			prefix := fmt.Sprintf("rca-results/%s", models.FormatID(run.AlertID))
 			key, saveErr := s.storage.Save(ctx, prefix, payload, "application/json")
 			if saveErr != nil {
-				logger.L().Error("保存RCA流缓存失败", zap.Error(saveErr), zap.String("rca_run_id", run.ID.String()))
+				logger.L().Error("保存RCA流缓存失败", zap.Error(saveErr), zap.Uint64("rca_run_id", run.ID))
 			} else {
 				updates["raw_payload_key"] = key
 				run.RawPayloadKey = key
-				logger.L().Info("RCA分析结果已缓存到MinIO", zap.String("rca_run_id", run.ID.String()), zap.String("object_key", key), zap.Int("payload_size", len(payload)))
+				logger.L().Info("RCA分析结果已缓存到MinIO", zap.Uint64("rca_run_id", run.ID), zap.String("object_key", key), zap.Int("payload_size", len(payload)))
 			}
 		}
 	}
@@ -133,12 +129,12 @@ func (s *HolmesService) FinalizeStreamRun(ctx context.Context, run *models.RCARu
 	run.CompletedAt = &now
 
 	if err := s.db.Model(&models.RCARun{}).Where("id = ?", run.ID).Updates(updates).Error; err != nil {
-		logger.L().Error("更新流式RCA运行记录失败", zap.Error(err), zap.String("rca_run_id", run.ID.String()))
+		logger.L().Error("更新流式RCA运行记录失败", zap.Error(err), zap.Uint64("rca_run_id", run.ID))
 	}
 }
 
 // Investigate 执行完整的分析流程，包括缓存检查、创建运行记录、流式分析和结果保存
-func (s *HolmesService) Investigate(ctx context.Context, alertID string, opts InvestigateOptions, streamCallback func(string) error) error {
+func (s *HolmesService) Investigate(ctx context.Context, alertID uint64, opts InvestigateOptions, streamCallback func(string) error) error {
 	if s == nil {
 		return fmt.Errorf("HolmesService is not initialized")
 	}
@@ -148,7 +144,7 @@ func (s *HolmesService) Investigate(ctx context.Context, alertID string, opts In
 		cached, err := s.GetCachedResult(ctx, alertID)
 		if err == nil && cached != nil && len(cached.StreamChunks) > 0 {
 			// 缓存命中，回放流
-			logger.L().Info("RCA缓存命中", zap.String("alert_id", alertID))
+			logger.L().Info("RCA缓存命中", zap.Uint64("alert_id", alertID))
 
 			// 发送缓存命中标记（如果需要，可以通过callback发送特定事件，或者由调用方处理header）
 			// 这里我们模拟流式回放
@@ -159,14 +155,14 @@ func (s *HolmesService) Investigate(ctx context.Context, alertID string, opts In
 			}
 			return nil
 		} else if err != nil {
-			logger.L().Warn("读取RCA缓存失败，继续走实时分析", zap.Error(err), zap.String("alert_id", alertID))
+			logger.L().Warn("读取RCA缓存失败，继续走实时分析", zap.Error(err), zap.Uint64("alert_id", alertID))
 		}
 	}
 
 	// 2. 创建新的运行记录
 	rcaRun, err := s.StartStreamRun(alertID)
 	if err != nil {
-		logger.L().Warn("创建RCA流式运行记录失败", zap.Error(err), zap.String("alert_id", alertID))
+		logger.L().Warn("创建RCA流式运行记录失败", zap.Error(err), zap.Uint64("alert_id", alertID))
 		// 即使创建记录失败，也可以尝试继续分析，只是无法保存结果
 	}
 
@@ -181,7 +177,7 @@ func (s *HolmesService) Investigate(ctx context.Context, alertID string, opts In
 		if kb, kbErr := s.knowledge.BuildKnowledgeBaseForRule(ctx, alert.Title); kbErr == nil && kb != "" {
 			opts.KnowledgeBase = kb
 		} else if kbErr != nil {
-			logger.L().Warn("加载经验指南作为提示词失败", zap.Error(kbErr), zap.String("alert_id", alertID))
+			logger.L().Warn("加载经验指南作为提示词失败", zap.Error(kbErr), zap.Uint64("alert_id", alertID))
 		}
 	}
 

@@ -42,7 +42,7 @@ repos:
                 sh -s -- -b "$BIN_DIR" v2.6.2
               export PATH="$BIN_DIR:$PATH"
             fi
-            cd apps/backend && golangci-lint run --config .golangci-fast.yml
+            cd apps/backend && golangci-lint run --config .golangci.yml
         language: system
         pass_filenames: false
         types: [go]

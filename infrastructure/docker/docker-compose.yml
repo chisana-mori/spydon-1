@@ -12,21 +12,20 @@ version: '3.8'
 # These services are not managed by Docker Compose and must be started separately.
 
 services:
-  # PostgreSQL数据库
-  postgres:
-    image: postgres:15-alpine
-    container_name: robusta-postgres
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: robusta-mysql
     environment:
-      POSTGRES_DB: robusta_hub
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      MYSQL_DATABASE: robusta_hub
+      MYSQL_ROOT_PASSWORD: password
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ../../apps/backend/migrations:/docker-entrypoint-initdb.d
+      - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -ppassword --silent"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -73,7 +72,7 @@ services:
       - robusta-network
     restart: unless-stopped
 volumes:
-  postgres_data:
+  mysql_data:
     driver: local
   minio_data:
     driver: local

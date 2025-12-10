@@ -7,7 +7,6 @@ import (
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -28,17 +27,17 @@ func (s *RCAService) SetAnalysisExecutor(fn func(*models.RCARun, *models.Alert))
 // executeRCAAnalysis 执行RCA分析（异步）
 func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Alert) {
 	logger.L().Info("开始执行RCA分析",
-		zap.String("alert_id", alert.ID.String()),
-		zap.String("run_id", rcaRun.ID.String()),
+		zap.Uint64("alert_id", alert.ID),
+		zap.Uint64("run_id", rcaRun.ID),
 	)
 
 	// 更新状态为运行中
 	_ = s.UpdateRCARunStatus(rcaRun.ID, string(models.RCAStatusRunning), "")
-	s.broadcastStatus(alert.ID.String(), models.RCAStatusRunning, rcaRun.ID.String())
+	s.broadcastStatus(models.FormatID(alert.ID), models.RCAStatusRunning, models.FormatID(rcaRun.ID))
 
 	logger.L().Info("RCA状态已更新为运行中",
-		zap.String("alert_id", alert.ID.String()),
-		zap.String("run_id", rcaRun.ID.String()),
+		zap.Uint64("alert_id", alert.ID),
+		zap.Uint64("run_id", rcaRun.ID),
 	)
 
 	includeTools := true
@@ -59,27 +58,27 @@ func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Ale
 	}
 	chunks, err := s.holmesService.StreamInvestigateChunks(context.Background(), alert, opts, nil)
 	if err != nil {
-		logger.L().Error("HolmesGPT流式分析失败", zap.Error(err), zap.String("alert_id", alert.ID.String()))
+		logger.L().Error("HolmesGPT流式分析失败", zap.Error(err), zap.Uint64("alert_id", alert.ID))
 		s.holmesService.FinalizeStreamRun(context.Background(), rcaRun, chunks, nil, err)
-		s.handleRCAFailure(rcaRun.ID, alert.ID.String(), fmt.Errorf("HolmesGPT stream failed: %w", err))
+		s.handleRCAFailure(rcaRun.ID, models.FormatID(alert.ID), fmt.Errorf("HolmesGPT stream failed: %w", err))
 		return
 	}
 
 	logger.L().Info("RCA分析完成",
-		zap.String("alert_id", alert.ID.String()),
-		zap.String("run_id", rcaRun.ID.String()),
+		zap.Uint64("alert_id", alert.ID),
+		zap.Uint64("run_id", rcaRun.ID),
 	)
 
 	s.holmesService.FinalizeStreamRun(context.Background(), rcaRun, chunks, nil, nil)
-	s.broadcastStatus(alert.ID.String(), models.RCAStatusCompleted, rcaRun.ID.String())
+	s.broadcastStatus(models.FormatID(alert.ID), models.RCAStatusCompleted, models.FormatID(rcaRun.ID))
 }
 
-func (s *RCAService) handleRCAFailure(runID uuid.UUID, alertID string, err error) {
+func (s *RCAService) handleRCAFailure(runID uint64, alertID string, err error) {
 	if err == nil {
 		return
 	}
 	if s.holmesService == nil {
 		_ = s.UpdateRCARunStatus(runID, string(models.RCAStatusFailed), err.Error())
 	}
-	s.Broadcast(alertID, fmt.Sprintf(`{"type":"status","status":"failed","error":"%s","run_id":"%s"}`, err.Error(), runID.String()))
+	s.Broadcast(alertID, fmt.Sprintf(`{"type":"status","status":"failed","error":"%s","run_id":"%s"}`, err.Error(), models.FormatID(runID)))
 }

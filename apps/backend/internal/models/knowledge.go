@@ -3,7 +3,6 @@ package models
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
 
@@ -12,7 +11,7 @@ type KnowledgeArticle struct {
 	BaseModel
 	AlertRuleName           string         `json:"alert_rule_name" gorm:"type:varchar(255);not null"`
 	AlertRuleNameNormalized string         `json:"alert_rule_name_normalized" gorm:"type:varchar(255);index;not null"`
-	Tags                    datatypes.JSON `json:"tags" gorm:"type:jsonb"`
+	Tags                    datatypes.JSON `json:"tags" gorm:"type:json"`
 	Status                  string         `json:"status" gorm:"type:varchar(16);default:'draft'"`
 	ObjectKey               string         `json:"object_key" gorm:"type:varchar(512);not null"`
 	Version                 int            `json:"version" gorm:"not null;default:1"`
@@ -23,7 +22,7 @@ type KnowledgeArticle struct {
 // KnowledgeArticleVersion 历史版本（可选）
 type KnowledgeArticleVersion struct {
 	BaseModel
-	ArticleID     uuid.UUID `json:"article_id" gorm:"not null"`
+	ArticleID     uint64    `json:"article_id" gorm:"type:bigint unsigned;not null"`
 	Version       int       `json:"version" gorm:"not null"`
 	ObjectKey     string    `json:"object_key" gorm:"type:varchar(512);not null"`
 	ChangeSummary string    `json:"change_summary" gorm:"type:text"`

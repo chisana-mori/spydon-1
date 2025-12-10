@@ -11,7 +11,6 @@ import (
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +25,7 @@ func NewAPIKeyService(database *db.Database) *APIKeyService {
 }
 
 // GenerateAPIKey 生成新的API Key
-func (s *APIKeyService) GenerateAPIKey(userID uuid.UUID, name string, expiresAt *time.Time, permissions string) (*models.APIKey, string, error) {
+func (s *APIKeyService) GenerateAPIKey(userID uint64, name string, expiresAt *time.Time, permissions string) (*models.APIKey, string, error) {
 	// 生成随机的API Key（32字节 = 256位）
 	keyBytes := make([]byte, 32)
 	if _, err := rand.Read(keyBytes); err != nil {
@@ -66,7 +65,7 @@ func (s *APIKeyService) GenerateAPIKey(userID uuid.UUID, name string, expiresAt 
 }
 
 // ListAPIKeys 获取用户的API Key列表
-func (s *APIKeyService) ListAPIKeys(userID uuid.UUID) ([]models.APIKey, error) {
+func (s *APIKeyService) ListAPIKeys(userID uint64) ([]models.APIKey, error) {
 	var apiKeys []models.APIKey
 
 	err := s.db.Where("user_id = ?", userID).
@@ -80,7 +79,7 @@ func (s *APIKeyService) ListAPIKeys(userID uuid.UUID) ([]models.APIKey, error) {
 }
 
 // GetAPIKey 根据ID获取API Key
-func (s *APIKeyService) GetAPIKey(id uuid.UUID, userID uuid.UUID) (*models.APIKey, error) {
+func (s *APIKeyService) GetAPIKey(id uint64, userID uint64) (*models.APIKey, error) {
 	var apiKey models.APIKey
 
 	err := s.db.Where("id = ? AND user_id = ?", id, userID).
@@ -96,7 +95,7 @@ func (s *APIKeyService) GetAPIKey(id uuid.UUID, userID uuid.UUID) (*models.APIKe
 }
 
 // DeleteAPIKey 删除API Key
-func (s *APIKeyService) DeleteAPIKey(id uuid.UUID, userID uuid.UUID) error {
+func (s *APIKeyService) DeleteAPIKey(id uint64, userID uint64) error {
 	result := s.db.Where("id = ? AND user_id = ?", id, userID).
 		Delete(&models.APIKey{})
 
@@ -118,7 +117,7 @@ func (s *APIKeyService) ValidateAPIKey(rawKey string) (*models.APIKey, error) {
 	hashedKey := base64.URLEncoding.EncodeToString(hash[:])
 
 	var apiKey models.APIKey
-	err := s.db.Where("key = ? AND is_active = ?", hashedKey, true).
+	err := s.db.Where("`key` = ? AND is_active = ?", hashedKey, true).
 		Preload("User").
 		First(&apiKey).Error
 	if err != nil {
@@ -142,7 +141,7 @@ func (s *APIKeyService) ValidateAPIKey(rawKey string) (*models.APIKey, error) {
 }
 
 // UpdateAPIKeyStatus 更新API Key状态
-func (s *APIKeyService) UpdateAPIKeyStatus(id uuid.UUID, userID uuid.UUID, isActive bool) error {
+func (s *APIKeyService) UpdateAPIKeyStatus(id uint64, userID uint64, isActive bool) error {
 	result := s.db.Model(&models.APIKey{}).
 		Where("id = ? AND user_id = ?", id, userID).
 		Update("is_active", isActive)

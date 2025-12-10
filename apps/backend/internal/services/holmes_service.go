@@ -14,7 +14,6 @@ import (
 	"robusta-web/backend/internal/models"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/datatypes"
 )
@@ -91,7 +90,7 @@ func NewHolmesService(database *db.Database, cfg *config.Config, storage Payload
 }
 
 // TriggerAnalysis 触发HolmesGPT分析
-func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID string) (*models.RCARun, error) {
+func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID uint64) (*models.RCARun, error) {
 	// 获取告警信息
 	alert, err := s.getAlertByID(alertID)
 	if err != nil {
@@ -109,10 +108,7 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID string) (*m
 
 	// 创建RCA运行记录
 	rcaRun := &models.RCARun{
-		BaseModel: models.BaseModel{
-			ID: uuid.New(),
-		},
-		AlertID:         uuid.MustParse(alertID),
+		AlertID:         alert.ID,
 		Status:          string(models.RCAStatusPending),
 		StartedAt:       time.Now(),
 		Suspects:        datatypes.JSON([]byte(`{}`)),
@@ -195,8 +191,8 @@ func (s *HolmesService) handleAnalysisError(rcaRun *models.RCARun, err error) {
 	rcaRun.CompletedAt = &now
 
 	if dbErr := s.db.Save(rcaRun).Error; dbErr != nil {
-		logger.L().Error("保存RCA错误状态失败", zap.Error(dbErr), zap.String("rca_run_id", rcaRun.ID.String()))
+		logger.L().Error("保存RCA错误状态失败", zap.Error(dbErr), zap.Uint64("rca_run_id", rcaRun.ID))
 	}
 
-	logger.L().Error("RCA分析失败", zap.String("rca_run_id", rcaRun.ID.String()), zap.Error(err))
+	logger.L().Error("RCA分析失败", zap.Uint64("rca_run_id", rcaRun.ID), zap.Error(err))
 }

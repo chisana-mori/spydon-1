@@ -136,7 +136,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("environment", "development")
 	v.SetDefault("port", strconv.Itoa(constants.DefaultPort))
 
-	v.SetDefault("database_url", "postgres://postgres:password@localhost:5432/robusta_hub?sslmode=disable")
+	v.SetDefault("database_url", "root:password@tcp(localhost:3306)/robusta_hub?charset=utf8mb4&parseTime=True&loc=Local")
 
 	v.SetDefault("jwt_secret", "your-jwt-secret-key")
 	v.SetDefault("hmac_secret", "your-hmac-secret-key")

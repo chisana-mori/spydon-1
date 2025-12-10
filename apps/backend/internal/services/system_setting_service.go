@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -32,7 +33,7 @@ func NewSystemSettingService(database *db.Database) *SystemSettingService {
 // GetSetting 获取指定Key的设置
 func (s *SystemSettingService) GetSetting(key string) (*models.SystemSetting, error) {
 	var setting models.SystemSetting
-	if err := s.db.Where("key = ?", key).First(&setting).Error; err != nil {
+	if err := s.db.Where("setting_key = ?", key).First(&setting).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -48,31 +49,17 @@ func (s *SystemSettingService) SetSetting(key string, value interface{}, descrip
 		return nil, fmt.Errorf("序列化设置值失败: %w", err)
 	}
 
-	var setting models.SystemSetting
-	err = s.db.Where("key = ?", key).First(&setting).Error
+	setting := models.SystemSetting{
+		SettingKey:  key,
+		Value:       datatypes.JSON(jsonBytes),
+		Description: description,
+	}
 
-	switch {
-	case err == nil:
-		// 更新
-		setting.Value = datatypes.JSON(jsonBytes)
-		if description != "" {
-			setting.Description = description
-		}
-		if saveErr := s.db.Save(&setting).Error; saveErr != nil {
-			return nil, fmt.Errorf("更新设置失败: %w", saveErr)
-		}
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		// 创建
-		setting = models.SystemSetting{
-			Key:         key,
-			Value:       datatypes.JSON(jsonBytes),
-			Description: description,
-		}
-		if createErr := s.db.Create(&setting).Error; createErr != nil {
-			return nil, fmt.Errorf("创建设置失败: %w", createErr)
-		}
-	default:
-		return nil, fmt.Errorf("查询设置失败: %w", err)
+	if err := s.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "setting_key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "description", "updated_at"}),
+	}).Create(&setting).Error; err != nil {
+		return nil, fmt.Errorf("更新设置失败: %w", err)
 	}
 
 	return &setting, nil

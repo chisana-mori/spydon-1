@@ -20,7 +20,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	cas "gopkg.in/cas.v2"
 	"gorm.io/gorm"
 )
@@ -134,7 +133,7 @@ func (s *AuthService) HandleCallback(code, state string) (*LoginResponse, error)
 	}
 
 	// 生成refresh token
-	refreshToken, err := s.generateRefreshToken(user.ID.String())
+	refreshToken, err := s.generateRefreshToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("生成refresh token失败: %w", err)
 	}
@@ -144,7 +143,7 @@ func (s *AuthService) HandleCallback(code, state string) (*LoginResponse, error)
 		RefreshToken: refreshToken,
 		ExpiresAt:    time.Now().Add(24 * time.Hour),
 		User: UserInfo{
-			ID:       user.ID.String(),
+			ID:       models.FormatID(user.ID),
 			Username: user.Username,
 			Email:    user.Email,
 			Name:     user.Name,
@@ -170,7 +169,7 @@ func (s *AuthService) LoginWithCAS(username string, attributes cas.UserAttribute
 		return nil, fmt.Errorf("生成JWT失败: %w", err)
 	}
 
-	refreshToken, err := s.generateRefreshToken(user.ID.String())
+	refreshToken, err := s.generateRefreshToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("生成refresh token失败: %w", err)
 	}
@@ -180,7 +179,7 @@ func (s *AuthService) LoginWithCAS(username string, attributes cas.UserAttribute
 		RefreshToken: refreshToken,
 		ExpiresAt:    time.Now().Add(24 * time.Hour),
 		User: UserInfo{
-			ID:       user.ID.String(),
+			ID:       models.FormatID(user.ID),
 			Username: user.Username,
 			Email:    user.Email,
 			Name:     user.Name,
@@ -211,7 +210,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 	}
 
 	// 生成新的refresh token
-	newRefreshToken, err := s.generateRefreshToken(user.ID.String())
+	newRefreshToken, err := s.generateRefreshToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("生成refresh token失败: %w", err)
 	}
@@ -221,7 +220,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		RefreshToken: newRefreshToken,
 		ExpiresAt:    time.Now().Add(24 * time.Hour),
 		User: UserInfo{
-			ID:       user.ID.String(),
+			ID:       models.FormatID(user.ID),
 			Username: user.Username,
 			Email:    user.Email,
 			Name:     user.Name,
@@ -238,7 +237,7 @@ func (s *AuthService) Logout(refreshToken string) error {
 }
 
 // GetUserByID 根据ID获取用户信息（用于获取最新的用户状态）
-func (s *AuthService) GetUserByID(userID string) (*models.User, error) {
+func (s *AuthService) GetUserByID(userID uint64) (*models.User, error) {
 	var user models.User
 	if err := s.db.DB.Where("id = ?", userID).First(&user).Error; err != nil {
 		return nil, err
@@ -324,9 +323,6 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 		}
 
 		user = models.User{
-			BaseModel: models.BaseModel{
-				ID: uuid.New(),
-			},
 			Username:      s.generateUsername(oidcUser.Email),
 			Email:         oidcUser.Email,
 			Name:          oidcUser.Name,
@@ -379,9 +375,6 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 		}
 
 		user = models.User{
-			BaseModel: models.BaseModel{
-				ID: uuid.New(),
-			},
 			Username:      username,
 			Email:         email,
 			Name:          nameAttr,
@@ -505,7 +498,7 @@ func (s *AuthService) deriveCASEmail(username, candidate string) string {
 
 func (s *AuthService) generateJWT(user *models.User) (string, error) {
 	claims := jwt.MapClaims{
-		"sub":      user.ID.String(),
+		"sub":      models.FormatID(user.ID),
 		"email":    user.Email,
 		"name":     user.Name,
 		"is_admin": user.IsAdmin,
@@ -518,7 +511,7 @@ func (s *AuthService) generateJWT(user *models.User) (string, error) {
 	return token.SignedString([]byte(s.config.JWTSecret))
 }
 
-func (s *AuthService) generateRefreshToken(userID string) (string, error) {
+func (s *AuthService) generateRefreshToken(userID uint64) (string, error) {
 	// 生成随机refresh token
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
@@ -530,10 +523,7 @@ func (s *AuthService) generateRefreshToken(userID string) (string, error) {
 
 	// 存储refresh token到数据库
 	token := models.RefreshToken{
-		BaseModel: models.BaseModel{
-			ID: uuid.New(),
-		},
-		UserID:    uuid.MustParse(userID),
+		UserID:    userID,
 		TokenHash: hashed,
 		ExpiresAt: time.Now().Add(30 * 24 * time.Hour), // 30天过期
 	}
@@ -545,7 +535,7 @@ func (s *AuthService) generateRefreshToken(userID string) (string, error) {
 	return refreshToken, nil
 }
 
-func (s *AuthService) validateRefreshToken(refreshToken string) (string, error) {
+func (s *AuthService) validateRefreshToken(refreshToken string) (uint64, error) {
 	var token models.RefreshToken
 	hashed := hashRefreshToken(refreshToken)
 	now := time.Now()
@@ -556,22 +546,22 @@ func (s *AuthService) validateRefreshToken(refreshToken string) (string, error) 
 			// 兼容旧数据：尝试使用明文查询并升级为哈希存储
 			legacyErr := s.db.DB.Where("token = ? AND expires_at > ?", refreshToken, now).First(&token).Error
 			if legacyErr != nil {
-				return "", legacyErr
+				return 0, legacyErr
 			}
 			if updateErr := s.db.DB.Model(&models.RefreshToken{}).Where("id = ?", token.ID).Update("token", hashed).Error; updateErr != nil {
-				return "", updateErr
+				return 0, updateErr
 			}
 			token.TokenHash = hashed
 		} else {
-			return "", err
+			return 0, err
 		}
 	}
 
 	if subtle.ConstantTimeCompare([]byte(token.TokenHash), []byte(hashed)) != 1 {
-		return "", gorm.ErrRecordNotFound
+		return 0, gorm.ErrRecordNotFound
 	}
 
-	return token.UserID.String(), nil
+	return token.UserID, nil
 }
 
 func (s *AuthService) revokeRefreshToken(refreshToken string) error {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-resty/resty/v2"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -37,7 +36,7 @@ func NewHolmesProxyHandler(cfg *config.Config, holmesService *services.HolmesSer
 }
 
 type streamInvestigateRequest struct {
-	AlertID          string `json:"alert_id"`
+	AlertID          uint64 `json:"alert_id" binding:"required,gt=0"`
 	ForceRefresh     bool   `json:"force_refresh"`
 	PreferCache      bool   `json:"prefer_cache"`
 	Language         string `json:"language"`
@@ -84,21 +83,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 		return
 	}
 
-	alertID := strings.TrimSpace(reqBody.AlertID)
-	if alertID == "" {
-		if writeErr := ws.WriteJSON(gin.H{"error": "告警ID不能为空"}); writeErr != nil {
-			logger.L().Warn("写入 WebSocket 错误消息失败", zap.Error(writeErr))
-		}
-		return
-	}
-
-	// 验证告警ID格式
-	if _, parseErr := uuid.Parse(alertID); parseErr != nil {
-		if writeErr := ws.WriteJSON(gin.H{"error": "无效的告警ID"}); writeErr != nil {
-			logger.L().Warn("写入 WebSocket 错误消息失败", zap.Error(writeErr))
-		}
-		return
-	}
+	alertID := reqBody.AlertID
 
 	language := reqBody.Language
 	if language == "" {
@@ -149,7 +134,7 @@ func (h *HolmesProxyHandler) StreamInvestigate(c *gin.Context) {
 			return
 		}
 
-		logger.L().Error("HolmesGPT 分析失败", zap.Error(err), zap.String("alert_id", alertID))
+		logger.L().Error("HolmesGPT 分析失败", zap.Error(err), zap.Uint64("alert_id", alertID))
 		if writeErr := ws.WriteJSON(gin.H{"error": "HolmesGPT 分析失败", "details": err.Error()}); writeErr != nil {
 			logger.L().Warn("写入 WebSocket 错误消息失败", zap.Error(writeErr))
 		}

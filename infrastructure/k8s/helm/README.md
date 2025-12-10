@@ -6,7 +6,7 @@ Spydon 应用的 Helm Chart，包含后端、前端和所有依赖服务的完�
 
 ## 特性
 
-- ✅ 完整的应用栈部署（Backend + Frontend + PostgreSQL + Redis + MinIO）
+- ✅ 完整的应用栈部署（Backend + Frontend + MySQL + Redis + MinIO）
 - ✅ 配置文件模板化（config.yaml 和 runtime.json）
 - ✅ 多环境支持（development, staging, production）
 - ✅ 自动配置管理
@@ -43,7 +43,7 @@ backend:
 
   config:
     # 数据库配置（必需）
-    databaseUrl: "postgres://user:password@postgres:5432/spydon?sslmode=disable"
+    databaseUrl: "root:CHANGE_ME@tcp(mysql:3306)/spydon?charset=utf8mb4&parseTime=True&loc=Local"
 
     # 安全密钥（必需）
     jwtSecret: "your-secure-jwt-secret-here"
@@ -117,17 +117,9 @@ ingress:
       hosts:
         - spydon.example.com
 
-# PostgreSQL 配置
+# 数据库（使用外部 MySQL，关闭内置 PostgreSQL）
 postgresql:
-  enabled: true
-  auth:
-    username: spydon
-    password: your-postgres-password
-    database: spydon
-  primary:
-    persistence:
-      enabled: true
-      size: 20Gi
+  enabled: false
 
 # Redis 配置
 redis:
@@ -195,7 +187,7 @@ helm uninstall spydon --namespace production
 
 后端配置通过 ConfigMap 挂载到 `/app/config/config.yaml`，包含：
 
-- **数据库连接**：PostgreSQL 连接字符串
+- **数据库连接**：MySQL 连接字符串
 - **认证配置**：JWT、HMAC、OIDC、CAS
 - **外部服务**：HolmesGPT、MinIO、Email
 - **应用设置**：日志级别、限流等

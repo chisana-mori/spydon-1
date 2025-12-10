@@ -3,11 +3,12 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"gorm.io/driver/postgres"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
@@ -26,7 +27,7 @@ func Initialize(databaseURL string) (*Database, error) {
 	}
 
 	// 连接数据库
-	db, err := gorm.Open(postgres.Open(databaseURL), gormConfig)
+	db, err := gorm.Open(mysql.Open(databaseURL), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
@@ -51,6 +52,13 @@ func Initialize(databaseURL string) (*Database, error) {
 }
 
 func (d *Database) AutoMigrate() error {
+	// 预清理：移除可能存在的PostgreSQL旧索引名称
+	// 必须在AutoMigrate之前执行，以避免GORM误将索引识别为外键
+	if err := d.cleanupLegacyIndexes(); err != nil {
+		logger.S().Warnw("清理旧索引时出现警告", "error", err)
+		// 不返回错误，继续迁移
+	}
+
 	err := d.DB.AutoMigrate(
 		&models.Cluster{},
 		&models.Alert{},
@@ -64,63 +72,65 @@ func (d *Database) AutoMigrate() error {
 		&models.SystemSetting{},
 	)
 	if err != nil {
+		// 在二次迁移时，如果旧的 PostgreSQL 索引名不存在，MySQL 会报 Can't DROP ... FOREIGN KEY 1091，跳过此类告警
+		if strings.Contains(err.Error(), "uni_users_username") && strings.Contains(err.Error(), "Can't DROP") {
+			logger.S().Warnw("忽略重复迁移时的旧索引清理错误", "error", err)
+		} else {
+			return err
+		}
+	}
+
+	if err := d.ensureForeignKeys(); err != nil {
 		return err
 	}
 
-	logger.S().Infow("数据库表结构迁移完成，正在移除外键约束")
+	logger.S().Infow("数据库表结构迁移完成")
+	return nil
+}
 
-	// 移除 alerts -> clusters 外键约束（如果存在）
-	// 这样可以避免在数据库层面显示外键错误，由应用层保证数据完整性
-	if d.Migrator().HasConstraint("alerts", "fk_alerts_cluster") {
-		err = d.Migrator().DropConstraint(&models.Alert{}, "fk_alerts_cluster")
-		if err != nil {
-			logger.S().Warnw("移除alerts -> clusters外键失败", "error", err)
-		} else {
-			logger.S().Infow("已移除alerts -> clusters外键约束")
+// cleanupLegacyIndexes 清理从PostgreSQL迁移可能遗留的旧索引
+func (d *Database) cleanupLegacyIndexes() error {
+	// 这些索引名称是GORM在PostgreSQL中自动创建的
+	// 在MySQL中，GORM可能会误将它们识别为外键约束
+	legacyIndexes := []struct {
+		table string
+		index string
+	}{
+		{"users", "uni_users_username"},
+		{"users", "uni_users_email"},
+		{"refresh_tokens", "uni_refresh_tokens_token"},
+		{"system_settings", "uni_system_settings_key"},
+	}
+
+	for _, idx := range legacyIndexes {
+		// 首先检查表是否存在
+		if !d.Migrator().HasTable(idx.table) {
+			continue
+		}
+
+		// 检查索引是否存在
+		var count int64
+		query := fmt.Sprintf(
+			"SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = '%s' AND index_name = '%s'",
+			idx.table, idx.index,
+		)
+		if err := d.Raw(query).Count(&count).Error; err != nil {
+			logger.S().Warnw("检查索引失败", "table", idx.table, "index", idx.index, "error", err)
+			continue
+		}
+
+		if count > 0 {
+			// 索引存在，删除它
+			sql := fmt.Sprintf("ALTER TABLE `%s` DROP INDEX `%s`", idx.table, idx.index)
+			if err := d.Exec(sql).Error; err != nil {
+				logger.S().Warnw("删除旧索引失败", "table", idx.table, "index", idx.index, "error", err)
+			} else {
+				logger.S().Infow("已删除旧索引", "table", idx.table, "index", idx.index)
+			}
 		}
 	}
 
-	// 移除 rca_runs -> alerts 外键约束（如果存在）
-	if d.Migrator().HasConstraint("rca_runs", "fk_rca_runs_alert") {
-		err = d.Migrator().DropConstraint(&models.RCARun{}, "fk_rca_runs_alert")
-		if err != nil {
-			logger.S().Warnw("移除rca_runs -> alerts外键失败", "error", err)
-		} else {
-			logger.S().Infow("已移除rca_runs -> alerts外键约束")
-		}
-	}
-
-	// Manually create foreign key for: refresh_tokens -> users
-	if !d.Migrator().HasConstraint("refresh_tokens", "fk_refresh_tokens_user") {
-		err = d.Exec(`
-			ALTER TABLE "refresh_tokens"
-			ADD CONSTRAINT "fk_refresh_tokens_user"
-			FOREIGN KEY ("user_id")
-			REFERENCES "users"("id")
-			ON UPDATE CASCADE
-			ON DELETE CASCADE;
-		`).Error
-		if err != nil {
-			return fmt.Errorf("手动创建refresh_tokens -> users外键失败: %w", err)
-		}
-	}
-
-	// Manually create foreign key for: api_keys -> users
-	if !d.Migrator().HasConstraint("api_keys", "fk_api_keys_user") {
-		err = d.Exec(`
-			ALTER TABLE "api_keys"
-			ADD CONSTRAINT "fk_api_keys_user"
-			FOREIGN KEY ("user_id")
-			REFERENCES "users"("id")
-			ON UPDATE CASCADE
-			ON DELETE CASCADE;
-		`).Error
-		if err != nil {
-			return fmt.Errorf("手动创建api_keys -> users外键失败: %w", err)
-		}
-	}
-
-	logger.S().Infow("外键约束处理完成")
+	logger.S().Infow("旧索引清理完成")
 	return nil
 }
 
@@ -141,93 +151,82 @@ func (d *Database) WithContext(ctx context.Context) *gorm.DB {
 	return d.DB.WithContext(ctx)
 }
 
-// CreateIndexes 创建数据库索引
-func (d *Database) CreateIndexes() error {
-	// 为alerts表创建复合唯一索引
-	if err := d.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_fingerprint_cluster
-		ON alerts(fingerprint, cluster_id)
-	`).Error; err != nil {
-		return fmt.Errorf("创建alerts复合索引失败: %w", err)
+func (d *Database) ensureForeignKeys() error {
+	// 仅为需要的表创建外键，保持其余关系由应用层控制
+	if !d.Migrator().HasConstraint(&models.RefreshToken{}, "User") {
+		if err := d.Migrator().CreateConstraint(&models.RefreshToken{}, "User"); err != nil {
+			return fmt.Errorf("创建refresh_tokens -> users外键失败: %w", err)
+		}
 	}
 
-	// 为alerts表创建查询索引
-	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_alerts_cluster_severity
-		ON alerts(cluster_id, severity)
-	`).Error; err != nil {
-		return fmt.Errorf("创建alerts查询索引失败: %w", err)
+	if !d.Migrator().HasConstraint(&models.APIKey{}, "User") {
+		if err := d.Migrator().CreateConstraint(&models.APIKey{}, "User"); err != nil {
+			return fmt.Errorf("创建api_keys -> users外键失败: %w", err)
+		}
 	}
 
-	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_alerts_status_created
-		ON alerts(status, created_at DESC)
-	`).Error; err != nil {
-		return fmt.Errorf("创建alerts状态索引失败: %w", err)
-	}
-
-	// 为rca_runs表创建索引
-	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_rca_runs_alert_status
-		ON rca_runs(alert_id, status)
-	`).Error; err != nil {
-		return fmt.Errorf("创建rca_runs索引失败: %w", err)
-	}
-
-	// 为audit_logs表创建索引
-	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_audit_logs_user_action
-		ON audit_logs(user_id, action, created_at DESC)
-	`).Error; err != nil {
-		return fmt.Errorf("创建audit_logs索引失败: %w", err)
-	}
-
-	// 为api_keys表创建索引
-	if err := d.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_api_keys_user_id
-		ON api_keys(user_id)
-	`).Error; err != nil {
-		return fmt.Errorf("创建api_keys用户索引失败: %w", err)
-	}
-
-	if err := d.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix
-        ON api_keys(key_prefix)
-    `).Error; err != nil {
-		return fmt.Errorf("创建api_keys前缀索引失败: %w", err)
-	}
-
-	// knowledge 索引
-	if err := d.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_kb_rule_norm_status
-        ON knowledge_articles(alert_rule_name_normalized, status)
-    `).Error; err != nil {
-		return fmt.Errorf("创建knowledge_articles索引失败: %w", err)
-	}
-
-	if err := d.Exec(`
-        CREATE INDEX IF NOT EXISTS idx_kb_tags_gin
-        ON knowledge_articles USING GIN (tags)
-    `).Error; err != nil {
-		return fmt.Errorf("创建knowledge_articles GIN索引失败: %w", err)
-	}
-
-	logger.S().Infow("数据库索引创建完成")
+	logger.S().Infow("外键约束处理完成（按需）")
 	return nil
 }
 
-// EnableExtensions 启用PostgreSQL扩展
-func (d *Database) EnableExtensions() error {
-	// 启用UUID扩展
-	if err := d.Exec(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`).Error; err != nil {
-		return fmt.Errorf("启用uuid-ossp扩展失败: %w", err)
+// CreateIndexes 创建数据库索引
+func (d *Database) CreateIndexes() error {
+	indexes := []struct {
+		name   string
+		model  interface{}
+		create string
+	}{
+		{
+			name:   "idx_alerts_fingerprint_cluster",
+			model:  &models.Alert{},
+			create: "CREATE UNIQUE INDEX idx_alerts_fingerprint_cluster ON alerts(fingerprint, cluster_id)",
+		},
+		{
+			name:   "idx_alerts_cluster_severity",
+			model:  &models.Alert{},
+			create: "CREATE INDEX idx_alerts_cluster_severity ON alerts(cluster_id, severity)",
+		},
+		{
+			name:   "idx_alerts_status_created",
+			model:  &models.Alert{},
+			create: "CREATE INDEX idx_alerts_status_created ON alerts(status, created_at DESC)",
+		},
+		{
+			name:   "idx_rca_runs_alert_status",
+			model:  &models.RCARun{},
+			create: "CREATE INDEX idx_rca_runs_alert_status ON rca_runs(alert_id, status)",
+		},
+		{
+			name:   "idx_audit_logs_user_action",
+			model:  &models.AuditLog{},
+			create: "CREATE INDEX idx_audit_logs_user_action ON audit_logs(user_id, action, created_at DESC)",
+		},
+		{
+			name:   "idx_api_keys_user_id",
+			model:  &models.APIKey{},
+			create: "CREATE INDEX idx_api_keys_user_id ON api_keys(user_id)",
+		},
+		{
+			name:   "idx_api_keys_key_prefix",
+			model:  &models.APIKey{},
+			create: "CREATE INDEX idx_api_keys_key_prefix ON api_keys(key_prefix)",
+		},
+		{
+			name:   "idx_kb_rule_norm_status",
+			model:  &models.KnowledgeArticle{},
+			create: "CREATE INDEX idx_kb_rule_norm_status ON knowledge_articles(alert_rule_name_normalized, status)",
+		},
 	}
 
-	// 启用pgcrypto扩展（用于gen_random_uuid）
-	if err := d.Exec(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`).Error; err != nil {
-		return fmt.Errorf("启用pgcrypto扩展失败: %w", err)
+	for _, idx := range indexes {
+		if d.Migrator().HasIndex(idx.model, idx.name) {
+			continue
+		}
+		if err := d.Exec(idx.create).Error; err != nil {
+			return fmt.Errorf("创建索引 %s 失败: %w", idx.name, err)
+		}
 	}
 
-	logger.S().Infow("PostgreSQL扩展启用完成")
+	logger.S().Infow("数据库索引创建完成")
 	return nil
 }

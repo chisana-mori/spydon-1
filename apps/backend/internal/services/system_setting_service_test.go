@@ -16,7 +16,7 @@ func TestSystemSettingService_GetSet(t *testing.T) {
 	setting, err := service.SetSetting("test_key", map[string]string{"foo": "bar"}, "test description")
 	assert.NoError(t, err)
 	assert.NotNil(t, setting)
-	assert.Equal(t, "test_key", setting.Key)
+	assert.Equal(t, "test_key", setting.SettingKey)
 	assert.Equal(t, "test description", setting.Description)
 
 	// 2. Test GetSetting

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -74,8 +74,8 @@ func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 	}
 
 	SuccessWithMessage(c, "RCA分析已触发", gin.H{
-		"id":         rcaRun.ID,
-		"alert_id":   rcaRun.AlertID,
+		"id":         models.FormatID(rcaRun.ID),
+		"alert_id":   models.FormatID(rcaRun.AlertID),
 		"status":     rcaRun.Status,
 		"started_at": rcaRun.StartedAt,
 	})
@@ -83,19 +83,21 @@ func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 
 // GetRCAByAlertID 根据告警ID获取RCA结果
 func (h *RCAHandler) GetRCAByAlertID(c *gin.Context) {
-	alertID := c.Param("alert_id")
-	if alertID == "" {
-		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
+	var path struct {
+		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
-	rcaRuns, err := h.holmesService.GetAnalysisByAlertID(alertID)
+	rcaRuns, err := h.holmesService.GetAnalysisByAlertID(path.AlertID)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_FAILED", "获取RCA结果失败", err.Error())
 		return
 	}
 
-	cacheResult, cacheErr := h.holmesService.GetCachedResult(c.Request.Context(), alertID)
+	cacheResult, cacheErr := h.holmesService.GetCachedResult(c.Request.Context(), path.AlertID)
 
 	extras := gin.H{
 		"cache_hit": cacheResult != nil,
@@ -113,9 +115,11 @@ func (h *RCAHandler) GetRCAByAlertID(c *gin.Context) {
 
 // GetRCACacheByAlertID 获取告警的RCA缓存结果（用于前端回放）
 func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
-	alertID := c.Param("alert_id")
-	if alertID == "" {
-		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
+	var path struct {
+		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
@@ -128,7 +132,8 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 	)
 
 	if runID != "" {
-		if _, parseErr := uuid.Parse(runID); parseErr != nil {
+		parsedRunID, parseErr := strconv.ParseUint(runID, 10, 64)
+		if parseErr != nil {
 			domainErr := apperrors.Validation(
 				"无效的运行ID",
 				map[string]string{"run_id": "格式不正确"},
@@ -139,7 +144,7 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 			return
 		}
 
-		cacheResult, err = h.holmesService.GetCachedResultByRunID(c.Request.Context(), runID)
+		cacheResult, err = h.holmesService.GetCachedResultByRunID(c.Request.Context(), parsedRunID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				NotFound(c, "RCA_RUN_NOT_FOUND", "运行记录不存在或尚未产生缓存")
@@ -154,12 +159,12 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 			return
 		}
 
-		if cacheResult.AlertID != "" && cacheResult.AlertID != alertID {
+		if cacheResult.AlertID != path.AlertID {
 			NotFound(c, "RCA_CACHE_MISMATCH", "缓存记录不属于该告警")
 			return
 		}
 	} else {
-		cacheResult, err = h.holmesService.GetCachedResult(c.Request.Context(), alertID)
+		cacheResult, err = h.holmesService.GetCachedResult(c.Request.Context(), path.AlertID)
 	}
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_CACHE_FAILED", "获取RCA缓存失败", err.Error())
@@ -199,22 +204,24 @@ func (h *RCAHandler) GetRCAStats(c *gin.Context) {
 
 // TriggerRCAByAlertID 根据告警ID触发RCA分析
 func (h *RCAHandler) TriggerRCAByAlertID(c *gin.Context) {
-	alertID := c.Param("alert_id")
-	if alertID == "" {
-		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
+	var path struct {
+		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
+		BadRequest(c, "INVALID_ALERT_ID", "无效的告警ID")
 		return
 	}
 
 	// 触发分析
-	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), alertID)
+	rcaRun, err := h.holmesService.TriggerAnalysis(c.Request.Context(), path.AlertID)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "TRIGGER_RCA_FAILED", "触发RCA分析失败", err.Error())
 		return
 	}
 
 	SuccessWithMessage(c, "RCA分析已触发", gin.H{
-		"id":         rcaRun.ID,
-		"alert_id":   rcaRun.AlertID,
+		"id":         models.FormatID(rcaRun.ID),
+		"alert_id":   models.FormatID(rcaRun.AlertID),
 		"status":     rcaRun.Status,
 		"started_at": rcaRun.StartedAt,
 	})
@@ -262,15 +269,15 @@ func (h *RCAHandler) ListRCARuns(c *gin.Context) {
 // 辅助方法
 
 func (h *RCAHandler) findAlertByFingerprint(fingerprint, clusterID string) (*struct {
-	ID string `json:"id"`
+	ID uint64 `json:"id"`
 }, error,
 ) {
 	// 这里应该调用AlertService来查找告警
 	// 暂时返回模拟数据
 	return &struct {
-		ID string `json:"id"`
+		ID uint64 `json:"id"`
 	}{
-		ID: "mock-alert-id",
+		ID: 1,
 	}, nil
 }
 
@@ -309,11 +316,14 @@ func (h *RCAHandler) listRCARuns(page, limit int, clusterID, status string) ([]i
 
 // StreamRCA 获取RCA分析流
 func (h *RCAHandler) StreamRCA(c *gin.Context) {
-	alertID := c.Param("alert_id")
-	if alertID == "" {
+	var uri struct {
+		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&uri); err != nil {
 		BadRequest(c, "MISSING_ALERT_ID", "告警ID不能为空")
 		return
 	}
+	alertIDStr := models.FormatID(uri.AlertID)
 
 	// 设置 SSE headers（必须在任何写入之前）
 	c.Header("Content-Type", "text/event-stream")
@@ -335,11 +345,11 @@ func (h *RCAHandler) StreamRCA(c *gin.Context) {
 	}
 
 	// 1. 订阅广播（先订阅，避免错过状态更新）
-	ch, unsubscribe := h.rcaService.Subscribe(alertID)
+	ch, unsubscribe := h.rcaService.Subscribe(alertIDStr)
 	defer unsubscribe()
 
 	// 2. 检查RCA状态（订阅后再查询，确保不会错过更新）
-	rcaRuns, err := h.rcaService.GetRCARunsByAlertID(uuid.MustParse(alertID))
+	rcaRuns, err := h.rcaService.GetRCARunsByAlertID(uri.AlertID)
 	if err != nil {
 		c.SSEvent("error", gin.H{"error": "获取RCA状态失败", "details": err.Error()})
 		return
@@ -354,7 +364,7 @@ func (h *RCAHandler) StreamRCA(c *gin.Context) {
 	if latestRun != nil {
 		c.SSEvent("status", gin.H{
 			"status": latestRun.Status,
-			"run_id": latestRun.ID.String(),
+			"run_id": models.FormatID(latestRun.ID),
 		})
 		c.Writer.Flush()
 

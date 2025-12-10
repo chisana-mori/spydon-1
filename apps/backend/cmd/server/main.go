@@ -42,11 +42,6 @@ func main() {
 		logger.L().Fatal("数据库初始化失败", zap.Error(err))
 	}
 
-	// 启用PostgreSQL扩展
-	if err := database.EnableExtensions(); err != nil {
-		logger.L().Fatal("启用数据库扩展失败", zap.Error(err))
-	}
-
 	// 运行自动迁移
 	if err := database.AutoMigrate(); err != nil {
 		logger.L().Fatal("数据库自动迁移失败", zap.Error(err))

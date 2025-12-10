@@ -5,6 +5,7 @@ import (
 
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/constants"
+	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -139,14 +140,14 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	// 从数据库获取最新的用户信息（而不是从JWT token中获取）
-	// 这样可以确保获取到最新的is_admin状态
-	uidStr, ok := userID.(string)
-	if !ok {
-		BadRequest(c, "INVALID_USER_ID", "无效的用户ID类型")
+	uid, err := toUint64(userID)
+	if err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
 		return
 	}
-	user, err := h.authService.GetUserByID(uidStr)
+
+	// 从数据库获取最新的用户信息
+	user, err := h.authService.GetUserByID(uid)
 	if err != nil {
 		InternalError(c, "GET_USER_FAILED", "获取用户信息失败")
 		return
@@ -154,7 +155,7 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 
 	Success(c, gin.H{
 		"user": gin.H{
-			"id":       user.ID.String(),
+			"id":       models.FormatID(user.ID),
 			"email":    user.Email,
 			"username": user.Username,
 			"name":     user.Name,
@@ -172,6 +173,12 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
+	uid, err := toUint64(userID)
+	if err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
+		return
+	}
+
 	var req struct {
 		Name    string `json:"name"`
 		Picture string `json:"picture"`
@@ -186,7 +193,7 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 	// 简化实现
 	SuccessWithMessage(c, "资料更新成功", gin.H{
 		"user": gin.H{
-			"id":      userID,
+			"id":      models.FormatID(uid),
 			"name":    req.Name,
 			"picture": req.Picture,
 		},
@@ -232,6 +239,12 @@ func (h *AuthHandler) GetUserSessions(c *gin.Context) {
 		return
 	}
 
+	uid, err := toUint64(userID)
+	if err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
+		return
+	}
+
 	// 这里应该从数据库获取用户的活跃会话
 	// 简化实现
 	sessions := []gin.H{
@@ -248,7 +261,7 @@ func (h *AuthHandler) GetUserSessions(c *gin.Context) {
 
 	Success(c, gin.H{
 		"sessions": sessions,
-		"user_id":  userID,
+		"user_id":  models.FormatID(uid),
 	})
 }
 
@@ -267,10 +280,16 @@ func (h *AuthHandler) RevokeSession(c *gin.Context) {
 		return
 	}
 
+	uid, err := toUint64(userID)
+	if err != nil {
+		BadRequest(c, "INVALID_USER_ID", "无效的用户ID")
+		return
+	}
+
 	// 这里应该撤销指定的会话
 	// 简化实现
 	SuccessWithMessage(c, "会话已撤销", gin.H{
 		"session_id": sessionID,
-		"user_id":    userID,
+		"user_id":    models.FormatID(uid),
 	})
 }

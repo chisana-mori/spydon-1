@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,34 @@ type knowledgePresignRequest struct {
 	ContentType string `json:"content_type" binding:"required"`
 }
 
+type knowledgeURI struct {
+	ID uint64 `uri:"id" binding:"required,gt=0"`
+}
+
+func formatKnowledgeArticle(art models.KnowledgeArticle) gin.H {
+	return gin.H{
+		"id":                         models.FormatID(art.ID),
+		"alert_rule_name":            art.AlertRuleName,
+		"alert_rule_name_normalized": art.AlertRuleNameNormalized,
+		"tags":                       art.Tags,
+		"status":                     art.Status,
+		"object_key":                 art.ObjectKey,
+		"version":                    art.Version,
+		"created_by":                 art.CreatedBy,
+		"updated_by":                 art.UpdatedBy,
+		"created_at":                 art.CreatedAt,
+		"updated_at":                 art.UpdatedAt,
+	}
+}
+
+func formatKnowledgeArticles(items []models.KnowledgeArticle) []gin.H {
+	formatted := make([]gin.H, len(items))
+	for i, item := range items {
+		formatted[i] = formatKnowledgeArticle(item)
+	}
+	return formatted
+}
+
 // 列表查询（支持分页和可选的规则名过滤）
 func (h *KnowledgeHandler) List(c *gin.Context) {
 	rule := strings.TrimSpace(c.Query("alert_rule_name"))
@@ -54,7 +83,7 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 		}
 		pagination := NewPagination(params.Page, params.PageSize, int64(len(items)))
 		pagination.Sort = params.Sort
-		SuccessPaginated(c, items, pagination)
+		SuccessPaginated(c, formatKnowledgeArticles(items), pagination)
 		return
 	}
 
@@ -67,7 +96,7 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 
 	pagination := NewPagination(params.Page, params.PageSize, total)
 	pagination.Sort = params.Sort
-	SuccessPaginated(c, items, pagination)
+	SuccessPaginated(c, formatKnowledgeArticles(items), pagination)
 }
 
 // 查询（按规则名）- 保留向后兼容
@@ -85,21 +114,25 @@ func (h *KnowledgeHandler) QueryByRule(c *gin.Context) {
 		return
 	}
 	pagination := NewPagination(1, limit, int64(len(items)))
-	SuccessPaginated(c, items, pagination)
+	SuccessPaginated(c, formatKnowledgeArticles(items), pagination)
 }
 
 // 获取单条（包含manifest，可选）
 func (h *KnowledgeHandler) GetByID(c *gin.Context) {
-	id := c.Param("id")
+	var uri knowledgeURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		BadRequest(c, "INVALID_ID", "无效的ID")
+		return
+	}
 	include := c.DefaultQuery("include_manifest", "false") == "true"
 
-	art, err := h.svc.GetByID(id)
+	art, err := h.svc.GetByID(uri.ID)
 	if err != nil {
 		NotFound(c, "ARTICLE_NOT_FOUND", "未找到")
 		return
 	}
 	if !include {
-		Success(c, art)
+		Success(c, formatKnowledgeArticle(*art))
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
@@ -111,7 +144,7 @@ func (h *KnowledgeHandler) GetByID(c *gin.Context) {
 	}
 	var m map[string]interface{}
 	_ = json.Unmarshal(raw, &m)
-	Success(c, gin.H{"article": art, "manifest": m})
+	Success(c, gin.H{"article": formatKnowledgeArticle(*art), "manifest": m})
 }
 
 // 创建
@@ -135,12 +168,16 @@ func (h *KnowledgeHandler) Create(c *gin.Context) {
 		InternalError(c, "CREATE_FAILED", err.Error())
 		return
 	}
-	Created(c, art)
+	Created(c, formatKnowledgeArticle(*art))
 }
 
 // 更新（写manifest）
 func (h *KnowledgeHandler) Update(c *gin.Context) {
-	id := c.Param("id")
+	var uri knowledgeURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		BadRequest(c, "INVALID_ID", "无效的ID")
+		return
+	}
 	var payload services.Manifest
 	if err := bindJSON(c, &payload); err != nil {
 		AbortWithDomainError(c, err)
@@ -155,17 +192,21 @@ func (h *KnowledgeHandler) Update(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
-	art, err := h.svc.Update(ctx, id, payload, user)
+	art, err := h.svc.Update(ctx, uri.ID, payload, user)
 	if err != nil {
 		InternalError(c, "UPDATE_FAILED", err.Error())
 		return
 	}
-	Success(c, art)
+	Success(c, formatKnowledgeArticle(*art))
 }
 
 // 发布
 func (h *KnowledgeHandler) Publish(c *gin.Context) {
-	id := c.Param("id")
+	var uri knowledgeURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		BadRequest(c, "INVALID_ID", "无效的ID")
+		return
+	}
 	var req knowledgePublishRequest
 	if err := bindJSON(c, &req); err != nil {
 		AbortWithDomainError(c, err)
@@ -180,7 +221,7 @@ func (h *KnowledgeHandler) Publish(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
-	if err := h.svc.Publish(ctx, id, req.ChangeSummary, user); err != nil {
+	if err := h.svc.Publish(ctx, uri.ID, req.ChangeSummary, user); err != nil {
 		InternalError(c, "PUBLISH_FAILED", err.Error())
 		return
 	}
@@ -206,12 +247,16 @@ func (h *KnowledgeHandler) PresignUpload(c *gin.Context) {
 
 // Delete 删除知识条目
 func (h *KnowledgeHandler) Delete(c *gin.Context) {
-	id := c.Param("id")
+	var uri knowledgeURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		BadRequest(c, "INVALID_ID", "无效的ID")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	if err := h.svc.Delete(ctx, id); err != nil {
+	if err := h.svc.Delete(ctx, uri.ID); err != nil {
 		InternalError(c, "DELETE_FAILED", err.Error())
 		return
 	}

@@ -7,8 +7,8 @@ import (
 // SystemSetting 系统设置模型
 type SystemSetting struct {
 	BaseModel
-	Key         string         `json:"key" gorm:"uniqueIndex;not null"`
-	Value       datatypes.JSON `json:"value"`
+	SettingKey  string         `json:"key" gorm:"column:setting_key;type:varchar(191);uniqueIndex;not null"`
+	Value       datatypes.JSON `json:"value" gorm:"type:json"`
 	Description string         `json:"description"`
 }
 

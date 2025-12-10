@@ -41,8 +41,8 @@ func APIKeyMiddleware(cfg *config.Config, apiKeyService *services.APIKeyService)
 			apiKey, err := apiKeyService.ValidateAPIKey(key)
 			if err == nil && apiKey != nil {
 				// 验证成功，将用户信息存入上下文
-				c.Set("user_id", apiKey.UserID.String())
-				c.Set("api_key_id", apiKey.ID.String())
+				c.Set("user_id", apiKey.UserID)
+				c.Set("api_key_id", apiKey.ID)
 				c.Set("api_key_permissions", apiKey.Permissions)
 				c.Next()
 				return
