@@ -33,7 +33,7 @@ async function globalSetup(config: FullConfig) {
   }
 }
 
-async function setupTestData(page) {
+async function setupTestData(page: any) {
   // 创建测试用户和数据
   console.log('🔧 Setting up test data...')
 
@@ -51,7 +51,7 @@ async function setupTestData(page) {
     if (response.status() === 200) {
       console.log('✅ Test data created successfully')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.warn('⚠️ Could not create test data:', error.message)
   }
 }

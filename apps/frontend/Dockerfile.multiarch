@@ -1,0 +1,111 @@
+# 多阶段构建：前端 Dockerfile (支持 amd64/arm64)
+# 使用 buildx 进行多架构构建
+
+# ============== 阶段 1: 基础依赖层 ==============
+FROM --platform=$BUILDPLATFORM node:24-alpine AS base
+
+# 可配置的 NPM 镜像源 (国内可设置为 https://registry.npmmirror.com)
+ARG NPM_REGISTRY=https://registry.npmjs.org
+
+WORKDIR /app
+# 安装依赖工具和 bun
+RUN apk add --no-cache libc6-compat bash curl && \
+    npm install -g bun && \
+    npm config set registry ${NPM_REGISTRY}
+
+# ============== 阶段 2: 依赖安装 ==============
+FROM base AS deps
+
+# 继承 NPM 镜像源配置
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN npm config set registry ${NPM_REGISTRY}
+
+COPY package.json bun.lock ./
+# 使用 bun 安装依赖
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
+
+# ============== 阶段 3: 构建阶段 ==============
+FROM base AS builder
+
+# 继承 NPM 镜像源配置
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN npm config set registry ${NPM_REGISTRY}
+
+# 构建参数
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+ARG BUILD_TIME=unknown
+
+# 构建时环境变量 (可在构建时覆盖)
+ARG NEXT_PUBLIC_BACKEND_BASE_URL=http://localhost:8080
+ARG NEXT_PUBLIC_CAS_LOGIN_PATH=/auth/cas/login
+ARG NEXT_PUBLIC_CAS_LOGOUT_PATH=/auth/cas/logout
+ARG NEXT_PUBLIC_BASE_PATH=
+
+# 设置 Next.js 构建环境
+ENV NEXT_PUBLIC_VERSION=${VERSION}
+ENV NEXT_PUBLIC_COMMIT_SHA=${COMMIT_SHA}
+ENV NEXT_PUBLIC_BUILD_TIME=${BUILD_TIME}
+ENV NEXT_PUBLIC_BACKEND_BASE_URL=${NEXT_PUBLIC_BACKEND_BASE_URL}
+ENV NEXT_PUBLIC_CAS_LOGIN_PATH=${NEXT_PUBLIC_CAS_LOGIN_PATH}
+ENV NEXT_PUBLIC_CAS_LOGOUT_PATH=${NEXT_PUBLIC_CAS_LOGOUT_PATH}
+ENV NEXT_PUBLIC_BASE_PATH=${NEXT_PUBLIC_BASE_PATH}
+ENV NODE_ENV=production
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# 生成构建信息
+RUN echo "{\"version\":\"${VERSION}\",\"commit\":\"${COMMIT_SHA}\",\"build_time\":\"${BUILD_TIME}\"}" > public/buildinfo.json
+
+# 构建 Next.js 应用
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun run build
+
+# ============== 阶段 4: 运行阶段 ==============
+FROM node:24-alpine AS runtime
+
+# 安装运行时工具
+RUN apk add --no-cache curl bash && \
+    addgroup -g 1001 -S nodejs && \
+    adduser -u 1001 -S nextjs -G nodejs
+
+WORKDIR /app
+
+# 创建配置目录 (用于 ConfigMap 挂载)
+RUN mkdir -p /app/config && \
+    chown -R nextjs:nodejs /app
+
+# 复制 Next.js standalone 输出
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# 复制默认运行时配置 (可被 ConfigMap 覆盖)
+COPY --from=builder --chown=nextjs:nodejs /app/config/runtime.json /app/config/runtime.json
+
+# 复制启动脚本
+COPY --chown=nextjs:nodejs docker/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# 切换到非 root 用户
+USER nextjs
+
+# 环境变量
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+# 运行时配置路径 (支持 ConfigMap 挂载)
+ENV RUNTIME_CONFIG_PATH=/app/config/runtime.json
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
+
+# 暴露端口
+EXPOSE 3000
+
+# 启动应用
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["node", "server.js"]

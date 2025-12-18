@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"time"
 
@@ -67,12 +66,20 @@ func formatKnowledgeArticles(items []models.KnowledgeArticle) []gin.H {
 
 // 列表查询（支持分页和可选的规则名过滤）
 func (h *KnowledgeHandler) List(c *gin.Context) {
-	rule := strings.TrimSpace(c.Query("alert_rule_name"))
-	params, derr := ParsePaginationParams(c)
-	if derr != nil {
+	var query struct {
+		PaginationQuery
+		AlertRuleName string `form:"alert_rule_name"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
 		return
 	}
+	if derr := query.PaginationQuery.validate(); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	params := query.PaginationQuery.ToParams()
+	rule := strings.TrimSpace(query.AlertRuleName)
 
 	// 如果有规则名，使用规则名查询
 	if rule != "" {
@@ -101,13 +108,26 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 
 // 查询（按规则名）- 保留向后兼容
 func (h *KnowledgeHandler) QueryByRule(c *gin.Context) {
-	rule := strings.TrimSpace(c.Query("alert_rule_name"))
-	limitStr := c.DefaultQuery("limit", "1")
-	limit, _ := strconv.Atoi(limitStr)
+	var query struct {
+		AlertRuleName string `form:"alert_rule_name" binding:"required"`
+		Limit         *int   `form:"limit" binding:"omitempty,gt=0"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+
+	rule := strings.TrimSpace(query.AlertRuleName)
 	if rule == "" {
 		BadRequest(c, "MISSING_RULE_NAME", "alert_rule_name 不能为空")
 		return
 	}
+
+	limit := 1
+	if query.Limit != nil {
+		limit = *query.Limit
+	}
+
 	items, err := h.svc.GetByRule(rule, limit)
 	if err != nil {
 		InternalError(c, "GET_BY_RULE_FAILED", err.Error())
@@ -124,7 +144,14 @@ func (h *KnowledgeHandler) GetByID(c *gin.Context) {
 		BadRequest(c, "INVALID_ID", "无效的ID")
 		return
 	}
-	include := c.DefaultQuery("include_manifest", "false") == "true"
+	var query struct {
+		IncludeManifest bool `form:"include_manifest"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	include := query.IncludeManifest
 
 	art, err := h.svc.GetByID(uri.ID)
 	if err != nil {

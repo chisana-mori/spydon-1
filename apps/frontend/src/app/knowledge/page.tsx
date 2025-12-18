@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { resolveAppPath } from '@/config'
@@ -41,7 +41,16 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
+// 包装组件以支持 Suspense 边界
 export default function KnowledgeHomePage() {
+  return (
+    <Suspense fallback={<div className="p-6">加载中...</div>}>
+      <KnowledgeHomePageContent />
+    </Suspense>
+  )
+}
+
+function KnowledgeHomePageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()

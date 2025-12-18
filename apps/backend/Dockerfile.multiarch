@@ -1,0 +1,105 @@
+# 多阶段构建：后端 Dockerfile (支持 amd64/arm64)
+# 使用 buildx 进行多架构构建
+
+# ============== 阶段 1: 基础依赖层 ==============
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS base
+
+# 可配置的 Go 代理 (国内可设置为 https://goproxy.cn,direct)
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+WORKDIR /app
+RUN apk add --no-cache git ca-certificates tzdata curl
+
+# ============== 阶段 2: 依赖下载 ==============
+FROM base AS deps
+
+# 继承 GOPROXY 配置
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download && go mod verify
+
+# ============== 阶段 3: 构建阶段 ==============
+FROM --platform=$BUILDPLATFORM base AS builder
+
+# 目标架构参数
+ARG TARGETOS
+ARG TARGETARCH
+
+# 继承 GOPROXY 配置
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+# 构建元信息
+ARG VERSION=dev
+ARG COMMIT_SHA=unknown
+ARG BUILD_TIME=unknown
+
+COPY . .
+
+# 生成构建信息文件
+RUN echo "{\"version\":\"${VERSION}\",\"commit\":\"${COMMIT_SHA}\",\"build_time\":\"${BUILD_TIME}\"}" > /tmp/buildinfo.json
+
+# 交叉编译支持多架构
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
+    -ldflags="-w -s -X main.version=${VERSION} -X main.commit=${COMMIT_SHA} -X main.buildTime=${BUILD_TIME}" \
+    -a -installsuffix cgo \
+    -o main ./cmd/server
+
+# ============== 阶段 4: 运行阶段 ==============
+FROM alpine:3.20 AS runtime
+
+# 安装运行时依赖
+RUN apk --no-cache add ca-certificates tzdata curl && \
+    addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup && \
+    rm -rf /var/cache/apk/*
+
+# 设置时区
+ENV TZ=UTC
+
+# 创建配置目录 (用于 ConfigMap 挂载)
+RUN mkdir -p /app/config && \
+    chown -R appuser:appgroup /app
+
+# 复制 CA 证书和时区信息
+COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=base /usr/share/zoneinfo /usr/share/zoneinfo
+
+# 复制构建产物
+COPY --from=builder /app/main /app/main
+COPY --from=builder /app/migrations /app/migrations
+COPY --from=builder /tmp/buildinfo.json /app/buildinfo.json
+
+# 复制默认配置 (可被 ConfigMap 覆盖)
+COPY --from=builder /app/config/config.yaml /app/config/config.yaml
+
+# 设置权限
+RUN chmod +x /app/main && \
+    chown -R appuser:appgroup /app
+
+# 切换到非 root 用户
+USER appuser
+WORKDIR /app
+
+# 环境变量 - 配置文件路径 (支持 ConfigMap 挂载)
+# 可以通过环境变量或直接挂载 ConfigMap 到 /app/config/config.yaml
+ENV CONFIG_FILE=/app/config/config.yaml
+ENV ENVIRONMENT=production
+ENV GIN_MODE=release
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# 暴露端口
+EXPOSE 8080
+
+# 运行应用
+ENTRYPOINT ["/app/main"]

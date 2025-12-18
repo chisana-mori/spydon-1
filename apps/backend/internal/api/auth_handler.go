@@ -267,8 +267,10 @@ func (h *AuthHandler) GetUserSessions(c *gin.Context) {
 
 // RevokeSession 撤销会话
 func (h *AuthHandler) RevokeSession(c *gin.Context) {
-	sessionID := c.Param("session_id")
-	if sessionID == "" {
+	var path struct {
+		SessionID string `uri:"session_id" binding:"required"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
 		BadRequest(c, "MISSING_SESSION_ID", "会话ID不能为空")
 		return
 	}
@@ -289,7 +291,7 @@ func (h *AuthHandler) RevokeSession(c *gin.Context) {
 	// 这里应该撤销指定的会话
 	// 简化实现
 	SuccessWithMessage(c, "会话已撤销", gin.H{
-		"session_id": sessionID,
+		"session_id": path.SessionID,
 		"user_id":    models.FormatID(uid),
 	})
 }

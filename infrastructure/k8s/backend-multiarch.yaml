@@ -1,0 +1,178 @@
+# ============================================
+# Robusta 后端 - 配置文件 ConfigMap
+# 用于挂载到容器的 /app/config/config.yaml
+# ============================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: robusta-backend-config
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-backend
+    component: config
+data:
+  config.yaml: |
+    environment: production
+    port: "8080"
+
+    # 数据库配置
+    database_url: root:password@tcp(mysql:3306)/robusta_hub?charset=utf8mb4&parseTime=True&loc=Local
+
+    # 安全配置 (敏感信息建议使用 Secret)
+    jwt_secret: your-jwt-secret-key-change-in-production
+    hmac_secret: your-hmac-secret-key-change-in-production
+    ingest_api_key: ""
+
+    # OIDC 配置
+    oidc_issuer: https://your-oidc-provider.com
+    oidc_client_id: your-client-id
+    oidc_client_secret: your-client-secret
+    oidc_redirect_url: http://localhost:3000/auth/callback
+
+    # HolmesGPT 配置
+    holmes_gpt:
+      url: http://holmesgpt:8081
+      api_key: your-holmes-api-key
+      timeout_seconds: 300
+      enabled: true
+      default_depth: standard
+      model: deepseek-reasoner
+      proxy_auth_token: ""
+
+    # CAS 配置
+    cas:
+      enabled: false
+      server_url: https://cas.example.com/cas
+      callback_path: /auth/cas/callback
+      redirect_url: http://localhost:3000
+      default_email_domain: example.com
+      email_attribute: mail
+      name_attribute: displayName
+      roles_attribute: roles
+
+    # MinIO 配置
+    minio:
+      endpoint: minio:9000
+      access_key: minioadmin
+      secret_key: minioadmin
+      bucket_name: robusta-artifacts
+      use_ssl: false
+
+    # 其他配置
+    rate_limit_rps: 100
+    log_level: info
+    log_file: ""
+
+    # 邮件配置
+    email:
+      smtp_host: ""
+      smtp_port: 587
+      smtp_user: ""
+      smtp_pass: ""
+      from: ""
+      rca_to: ""
+      enabled: false
+
+---
+# ============================================
+# Robusta 后端 - Deployment (使用 ConfigMap 挂载)
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: robusta-backend
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: robusta-backend
+  template:
+    metadata:
+      labels:
+        app: robusta-backend
+      annotations:
+        # 配置更新时自动滚动更新
+        checksum/config: "{{ .Values.configChecksum }}"
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: backend
+        image: robusta-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+
+        # 环境变量指向配置文件路径
+        env:
+        - name: CONFIG_FILE
+          value: /app/config/config.yaml
+        - name: GIN_MODE
+          value: release
+
+        # 挂载 ConfigMap 到容器
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+
+        # 健康检查
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+
+        # 资源限制
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+      # 定义 ConfigMap 卷
+      volumes:
+      - name: config-volume
+        configMap:
+          name: robusta-backend-config
+          items:
+          - key: config.yaml
+            path: config.yaml
+
+---
+# ============================================
+# Robusta 后端 - Service
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: robusta-backend
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: robusta-backend

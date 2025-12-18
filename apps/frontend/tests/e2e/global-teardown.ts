@@ -21,7 +21,7 @@ async function globalTeardown(config: FullConfig) {
   }
 }
 
-async function cleanupTestData(page) {
+async function cleanupTestData(page: any) {
   console.log('🧹 Cleaning up test data...')
 
   try {
@@ -34,7 +34,7 @@ async function cleanupTestData(page) {
     if (response.status() === 200) {
       console.log('✅ Test data cleaned up successfully')
     }
-  } catch (error) {
+  } catch (error: any) {
     console.warn('⚠️ Could not cleanup test data:', error.message)
   }
 }

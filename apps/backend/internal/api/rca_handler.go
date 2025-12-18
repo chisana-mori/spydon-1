@@ -123,7 +123,13 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 		return
 	}
 
-	runID := c.Query("run_id")
+	var query struct {
+		RunID string `form:"run_id"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 
 	// 获取缓存结果
 	var (
@@ -131,8 +137,8 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 		err         error
 	)
 
-	if runID != "" {
-		parsedRunID, parseErr := strconv.ParseUint(runID, 10, 64)
+	if query.RunID != "" {
+		parsedRunID, parseErr := strconv.ParseUint(query.RunID, 10, 64)
 		if parseErr != nil {
 			domainErr := apperrors.Validation(
 				"无效的运行ID",
@@ -191,9 +197,15 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 
 // GetRCAStats 获取RCA统计信息
 func (h *RCAHandler) GetRCAStats(c *gin.Context) {
-	clusterID := c.Query("cluster_id")
+	var query struct {
+		ClusterID string `form:"cluster_id"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 
-	stats, err := h.holmesService.GetAnalysisStats(clusterID)
+	stats, err := h.holmesService.GetAnalysisStats(query.ClusterID)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_STATS_FAILED", "获取RCA统计失败", err.Error())
 		return
@@ -229,13 +241,15 @@ func (h *RCAHandler) TriggerRCAByAlertID(c *gin.Context) {
 
 // GetRCARunStatus 获取RCA运行状态
 func (h *RCAHandler) GetRCARunStatus(c *gin.Context) {
-	runID := c.Param("run_id")
-	if runID == "" {
+	var uri struct {
+		RunID string `uri:"run_id" binding:"required"`
+	}
+	if err := c.ShouldBindUri(&uri); err != nil {
 		BadRequest(c, "MISSING_RUN_ID", "运行ID不能为空")
 		return
 	}
 
-	rcaRun, err := h.getRCARunByID(runID)
+	rcaRun, err := h.getRCARunByID(uri.RunID)
 	if err != nil {
 		NotFound(c, "RCA_RUN_NOT_FOUND", "未找到RCA运行记录")
 		return
@@ -246,16 +260,22 @@ func (h *RCAHandler) GetRCARunStatus(c *gin.Context) {
 
 // ListRCARuns 列出RCA运行记录
 func (h *RCAHandler) ListRCARuns(c *gin.Context) {
-	params, derr := ParsePaginationParams(c)
-	if derr != nil {
+	var query struct {
+		PaginationQuery
+		ClusterID string `form:"cluster_id"`
+		Status    string `form:"status"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
 		return
 	}
+	if derr := query.PaginationQuery.validate(); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	params := query.PaginationQuery.ToParams()
 
-	clusterID := c.Query("cluster_id")
-	status := c.Query("status")
-
-	rcaRuns, total, err := h.listRCARuns(params.Page, params.PageSize, clusterID, status)
+	rcaRuns, total, err := h.listRCARuns(params.Page, params.PageSize, query.ClusterID, query.Status)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "LIST_RCA_RUNS_FAILED", "获取RCA运行列表失败", err.Error())
 		return

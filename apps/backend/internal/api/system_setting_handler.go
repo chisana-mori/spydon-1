@@ -40,8 +40,10 @@ type UpdateSettingRequest struct {
 
 // UpdateSetting 更新指定设置
 func (h *SystemSettingHandler) UpdateSetting(c *gin.Context) {
-	key := c.Param("key")
-	if key == "" {
+	var path struct {
+		Key string `uri:"key" binding:"required"`
+	}
+	if err := c.ShouldBindUri(&path); err != nil {
 		BadRequest(c, "MISSING_KEY", "设置Key不能为空")
 		return
 	}
@@ -52,14 +54,14 @@ func (h *SystemSettingHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	setting, err := h.service.SetSetting(key, req.Value, req.Description)
+	setting, err := h.service.SetSetting(path.Key, req.Value, req.Description)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "UPDATE_SETTING_FAILED", "更新设置失败", err.Error())
 		return
 	}
 
 	// 如果更新的是 Auto-RCA 配置，刷新 RCA 服务配置
-	if h.rcaService != nil && key == services.SettingKeyAutoRCA {
+	if h.rcaService != nil && path.Key == services.SettingKeyAutoRCA {
 		h.rcaService.RefreshAutoRCAConfig()
 	}
 

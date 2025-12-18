@@ -20,7 +20,15 @@ func (h *AuthHandler) CASLogin(c *gin.Context) {
 		return
 	}
 
-	redirectTarget := strings.TrimSpace(c.Query("service"))
+	var query struct {
+		Service string `form:"service"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+
+	redirectTarget := strings.TrimSpace(query.Service)
 	if redirectTarget == "" {
 		redirectTarget = h.cfg.CAS.RedirectURL
 	}
@@ -59,7 +67,14 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 		return
 	}
 
-	ticket := strings.TrimSpace(c.Query("ticket"))
+	var query struct {
+		Ticket string `form:"ticket"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	ticket := strings.TrimSpace(query.Ticket)
 	if ticket == "" {
 		h.casClient.RedirectToLogin(c.Writer, c.Request)
 		return
@@ -109,7 +124,15 @@ func (h *AuthHandler) CASValidate(c *gin.Context) {
 
 // CASLogout 注销CAS并清理本地会话
 func (h *AuthHandler) CASLogout(c *gin.Context) {
-	redirectTarget := c.Query("redirect")
+	var query struct {
+		Redirect string `form:"redirect"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+
+	redirectTarget := strings.TrimSpace(query.Redirect)
 	if redirectTarget == "" && h.cfg != nil {
 		redirectTarget = h.cfg.CAS.RedirectURL
 	}

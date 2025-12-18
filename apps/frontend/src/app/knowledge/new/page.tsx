@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import KnowledgeEditor, { type KnowledgeEditorValue } from '@/components/knowledge/KnowledgeEditor'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -8,7 +8,16 @@ import { Button } from '@/components/ui/button'
 import { RobustaAPI } from '@/lib/api'
 import { toast } from 'sonner'
 
+// 包装组件以支持 Suspense 边界
 export default function KnowledgeCreatePage() {
+  return (
+    <Suspense fallback={<div className="p-6">加载中...</div>}>
+      <KnowledgeCreatePageContent />
+    </Suspense>
+  )
+}
+
+function KnowledgeCreatePageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const editorRef = React.useRef<any>(null)

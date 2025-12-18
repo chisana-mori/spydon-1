@@ -186,7 +186,7 @@ export interface KnowledgeManifest {
   status: string
   version: number
   excerpt?: string
-  content: { tiptap?: any }
+  content: { tiptap?: any; markdown?: string }
   markdown?: string
   assets?: Array<{ name?: string; key: string; mime?: string; size?: number }>
   scopes?: Record<string, any>

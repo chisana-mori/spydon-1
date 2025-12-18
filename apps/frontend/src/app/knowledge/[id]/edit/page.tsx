@@ -40,7 +40,6 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
         schema: 'kb-manifest@v1',
         articleId: manifest?.articleId || '',
         alertRuleName: value.alertRuleName,
-        title: value.title,
         status: article?.status || 'draft',
         version: article?.version || 1,
         content: {
@@ -105,7 +104,6 @@ export default function KnowledgeEditPage({ params }: { params: Promise<{ id: st
             onChange={(v) => setLatestEditorValue(v)}
             articleId={id}
             value={{
-              title: article?.title,
               alertRuleName: article?.alert_rule_name,
               tags: Array.isArray(article?.tags) ? (article?.tags as string[]) : undefined,
               tiptap: manifest?.content?.tiptap || { type: 'doc', content: [] },

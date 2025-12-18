@@ -24,15 +24,21 @@ func NewUserHandler(userService *services.UserService) *UserHandler {
 
 // GetUsers 获取用户列表（管理员功能）
 func (h *UserHandler) GetUsers(c *gin.Context) {
-	// 解析查询参数
-	params, err := ParsePaginationParams(c)
-	if err != nil {
-		AbortWithDomainError(c, err)
+	var query struct {
+		PaginationQuery
+		Keyword string `form:"keyword"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
 		return
 	}
-	keyword := c.Query("keyword")
+	if derr := query.PaginationQuery.validate(); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	params := query.PaginationQuery.ToParams()
 
-	users, total, svcErr := h.userService.GetUsers(params.Page, params.PageSize, keyword)
+	users, total, svcErr := h.userService.GetUsers(params.Page, params.PageSize, query.Keyword)
 	if svcErr != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "GET_USERS_FAILED", "获取用户列表失败", svcErr.Error())
 		return

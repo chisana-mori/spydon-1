@@ -85,7 +85,7 @@ function filterUndefined<T extends Record<string, any>>(input: Partial<T>): Part
   const output: Partial<T> = {}
   Object.entries(input).forEach(([key, value]) => {
     if (value !== undefined) {
-      ;(output as any)[key] = value
+      ; (output as any)[key] = value
     }
   })
   return output
@@ -103,7 +103,7 @@ const isAbsoluteUrl = (input: string) => /^https?:\/\//i.test(input)
 
 const BASE_PATH_MANAGED_BY_NEXT = process.env.NEXT_MANAGED_BASE_PATH === 'true'
 
-export function resolveAppPath(target: string, options?: { includeBasePath?: boolean }): string {
+export function resolveAppPath(target: string, options?: { includeBasePath?: boolean }): any {
   const input = (target || '').trim()
   if (!input) {
     if (options?.includeBasePath || (!BASE_PATH_MANAGED_BY_NEXT && appConfig.basePath)) {

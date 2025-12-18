@@ -33,4 +33,4 @@ echo "  CAS_LOGOUT_PATH: $NEXT_PUBLIC_CAS_LOGOUT_PATH"
 echo "  BASE_PATH: $NEXT_PUBLIC_BASE_PATH"
 
 # 执行构建
-npm run build
+bun run next build

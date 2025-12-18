@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { 
-  Server, 
-  Search, 
+import {
+  Server,
+  Search,
   RefreshCw,
   Clock,
   CheckCircle,
@@ -41,30 +41,30 @@ export default function Clusters() {
   const getStatusConfig = (status: string) => {
     switch (status) {
       case 'active':
-        return { 
-          variant: 'secondary' as const, 
-          label: '活跃', 
+        return {
+          variant: 'secondary' as const,
+          label: '活跃',
           icon: CheckCircle,
           color: 'text-green-600'
         }
       case 'inactive':
-        return { 
-          variant: 'destructive' as const, 
-          label: '离线', 
+        return {
+          variant: 'destructive' as const,
+          label: '离线',
           icon: XCircle,
           color: 'text-red-600'
         }
       case 'maintenance':
-        return { 
-          variant: 'default' as const, 
-          label: '维护中', 
+        return {
+          variant: 'default' as const,
+          label: '维护中',
           icon: Activity,
           color: 'text-yellow-600'
         }
       default:
-        return { 
-          variant: 'outline' as const, 
-          label: status, 
+        return {
+          variant: 'outline' as const,
+          label: status,
           icon: Server,
           color: 'text-muted-foreground'
         }
@@ -73,10 +73,10 @@ export default function Clusters() {
 
   // 过滤集群
   const filteredClusters = clusters.filter(cluster => {
-    const matchesSearch = !searchTerm || 
+    const matchesSearch = !searchTerm ||
       cluster.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       cluster.cluster_id.toLowerCase().includes(searchTerm.toLowerCase())
-    
+
     return matchesSearch
   })
 
@@ -160,7 +160,7 @@ export default function Clusters() {
           filteredClusters.map((cluster) => {
             const statusConfig = getStatusConfig(cluster.status)
             const StatusIcon = statusConfig.icon
-            
+
             return (
               <Card key={cluster.id} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
@@ -177,40 +177,40 @@ export default function Clusters() {
                     ID: {cluster.cluster_id}
                   </CardDescription>
                 </CardHeader>
-                
+
                 <CardContent className="space-y-4">
                   {cluster.description && (
                     <p className="text-sm text-muted-foreground line-clamp-2">
                       {cluster.description}
                     </p>
                   )}
-                  
+
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">最后心跳:</span>
                       <span className="flex items-center">
                         <Clock className="h-3 w-3 mr-1" />
-                        {cluster.last_heartbeat 
-                          ? formatDistanceToNow(new Date(cluster.last_heartbeat), { 
-                              addSuffix: true, 
-                              locale: zhCN 
-                            })
+                        {cluster.last_heartbeat
+                          ? formatDistanceToNow(new Date(cluster.last_heartbeat), {
+                            addSuffix: true,
+                            locale: zhCN
+                          })
                           : '无数据'
                         }
                       </span>
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">创建时间:</span>
                       <span>
-                        {formatDistanceToNow(new Date(cluster.created_at), { 
-                          addSuffix: true, 
-                          locale: zhCN 
+                        {formatDistanceToNow(new Date(cluster.created_at), {
+                          addSuffix: true,
+                          locale: zhCN
                         })}
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="pt-2">
                     <Button asChild variant="outline" className="w-full">
                       <Link href={resolveAppPath(`/clusters/${cluster.cluster_id}`)}>
@@ -226,10 +226,10 @@ export default function Clusters() {
       </div>
 
       {/* 分页 */}
-      {pagination && pagination.total > pagination.limit && (
+      {pagination && pagination.total > pagination.page_size && (
         <div className="flex items-center justify-between">
           <div className="text-sm text-muted-foreground">
-            显示 {((pagination.page - 1) * pagination.limit) + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)} 
+            显示 {((pagination.page - 1) * pagination.page_size) + 1} - {Math.min(pagination.page * pagination.page_size, pagination.total)}
             条，共 {pagination.total} 条
           </div>
           <div className="flex space-x-2">
@@ -245,7 +245,7 @@ export default function Clusters() {
               variant="outline"
               size="sm"
               onClick={() => setPage(page + 1)}
-              disabled={page >= Math.ceil(pagination.total / pagination.limit)}
+              disabled={page >= Math.ceil(pagination.total / pagination.page_size)}
             >
               下一页
             </Button>

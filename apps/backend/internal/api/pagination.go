@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"robusta-web/backend/internal/apperrors"
@@ -26,6 +25,14 @@ type PaginationParams struct {
 	Page     int
 	PageSize int
 	Sort     string
+}
+
+// PaginationQuery 查询参数绑定体
+type PaginationQuery struct {
+	Page     int    `form:"page" binding:"omitempty,gte=1"`
+	PageSize *int   `form:"page_size" binding:"omitempty,gte=1"`
+	Limit    *int   `form:"limit" binding:"omitempty,gte=1"`
+	Sort     string `form:"sort"`
 }
 
 // NewPagination 创建分页信息
@@ -55,52 +62,15 @@ func NewPagination(page, pageSize int, total int64) *Pagination {
 
 // ParsePaginationParams 从请求中解析分页参数
 func ParsePaginationParams(c *gin.Context) (PaginationParams, apperrors.DomainError) {
-	pageStr := c.DefaultQuery("page", strconv.Itoa(constants.PaginationDefaultPage))
-	page, err := strconv.Atoi(pageStr)
-	if err != nil {
-		return PaginationParams{}, newPaginationError("page", "必须为整数", err)
+	var query PaginationQuery
+	if err := bindQuery(c, &query); err != nil {
+		return PaginationParams{}, err
+	}
+	if err := query.validate(); err != nil {
+		return PaginationParams{}, err
 	}
 
-	pageSizeParam, hasPageSize := c.GetQuery("page_size")
-	pageSizeStr := pageSizeParam
-	if pageSizeStr == "" {
-		pageSizeStr = strconv.Itoa(constants.PaginationDefaultPageSize)
-	}
-
-	pageSize, err := strconv.Atoi(pageSizeStr)
-	if err != nil {
-		return PaginationParams{}, newPaginationError("page_size", "必须为整数", err)
-	}
-
-	// 兼容 limit，page_size 显式提供时优先
-	if !hasPageSize {
-		if limitStr, hasLimit := c.GetQuery("limit"); hasLimit && limitStr != "" {
-			if parsedLimit, convErr := strconv.Atoi(limitStr); convErr == nil {
-				pageSize = parsedLimit
-			} else {
-				return PaginationParams{}, newPaginationError("limit", "必须为整数", convErr)
-			}
-		}
-	}
-
-	sortField := strings.TrimSpace(c.DefaultQuery("sort", ""))
-
-	if page < 1 {
-		return PaginationParams{}, newPaginationError("page", "必须大于等于1", nil)
-	}
-	if pageSize < 1 {
-		return PaginationParams{}, newPaginationError("page_size", "必须大于等于1", nil)
-	}
-	if pageSize > constants.PaginationMaxPageSize {
-		return PaginationParams{}, newPaginationError("page_size",
-			fmt.Sprintf("不能超过%d", constants.PaginationMaxPageSize), nil)
-	}
-
-	return PaginationParams{
-		Page:     page,
-		PageSize: pageSize,
-		Sort:     sortField,
-	}, nil
+	return query.ToParams(), nil
 }
 
 // GetOffset 计算数据库查询的偏移量
@@ -113,18 +83,47 @@ func (p PaginationParams) GetLimit() int {
 	return p.PageSize
 }
 
-func newPaginationError(field, message string, cause error) apperrors.DomainError {
+func (q PaginationQuery) validate() apperrors.DomainError {
+	if q.PageSize != nil && *q.PageSize > constants.PaginationMaxPageSize {
+		return newPaginationError("page_size",
+			fmt.Sprintf("不能超过%d", constants.PaginationMaxPageSize))
+	}
+	if q.Limit != nil && *q.Limit > constants.PaginationMaxPageSize {
+		return newPaginationError("limit",
+			fmt.Sprintf("不能超过%d", constants.PaginationMaxPageSize))
+	}
+	return nil
+}
+
+func (q PaginationQuery) ToParams() PaginationParams {
+	pageSize := constants.PaginationDefaultPageSize
+	switch {
+	case q.PageSize != nil:
+		pageSize = *q.PageSize
+	case q.Limit != nil:
+		pageSize = *q.Limit
+	}
+
+	page := q.Page
+	if page == 0 {
+		page = constants.PaginationDefaultPage
+	}
+
+	return PaginationParams{
+		Page:     page,
+		PageSize: pageSize,
+		Sort:     strings.TrimSpace(q.Sort),
+	}
+}
+
+func newPaginationError(field, message string) apperrors.DomainError {
 	details := map[string]string{
 		field: message,
-	}
-	options := []apperrors.Option{apperrors.WithDetails(details)}
-	if cause != nil {
-		options = append(options, apperrors.WithCause(cause))
 	}
 	return apperrors.New(
 		http.StatusBadRequest,
 		constants.ErrorCodeValidationFailed,
 		"分页参数不合法",
-		options...,
+		apperrors.WithDetails(details),
 	)
 }

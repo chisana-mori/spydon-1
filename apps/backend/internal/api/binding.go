@@ -19,6 +19,22 @@ func bindJSON(c *gin.Context, target any) apperrors.DomainError {
 	return nil
 }
 
+// bindQuery 绑定并校验查询参数
+func bindQuery(c *gin.Context, target any) apperrors.DomainError {
+	if err := c.ShouldBindQuery(target); err != nil {
+		return translateBindingError(err)
+	}
+	return nil
+}
+
+// bindURI 绑定并校验路径参数
+func bindURI(c *gin.Context, target any) apperrors.DomainError {
+	if err := c.ShouldBindUri(target); err != nil {
+		return translateBindingError(err)
+	}
+	return nil
+}
+
 func translateBindingError(err error) apperrors.DomainError {
 	var validationErrs validator.ValidationErrors
 	if errors.As(err, &validationErrs) {

@@ -64,7 +64,7 @@ function RawPayloadViewerComponent({
 
     // 优先检测 JSON（最常见的格式）
     if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
       try {
         JSON.parse(trimmed);
         return 'json';
@@ -75,19 +75,19 @@ function RawPayloadViewerComponent({
 
     // 检测 XML
     if (trimmed.startsWith('<') && trimmed.endsWith('>') &&
-        trimmed.includes('</')) {
+      trimmed.includes('</')) {
       return 'xml';
     }
 
     // 检测 YAML（在 Markdown 之前检测，因为 YAML 更结构化）
     if (trimmed.includes('---\n') ||
-        (trimmed.match(/^[a-zA-Z_][a-zA-Z0-9_]*:\s+/m) && !trimmed.includes('# '))) {
+      (trimmed.match(/^[a-zA-Z_][a-zA-Z0-9_]*:\s+/m) && !trimmed.includes('# '))) {
       return 'yaml';
     }
 
     // 检测 Markdown（放在最后，因为它的特征可能与其他格式重叠）
     if (trimmed.includes('# ') || trimmed.includes('## ') ||
-        trimmed.includes('### ') || trimmed.includes('```')) {
+      trimmed.includes('### ') || trimmed.includes('```')) {
       return 'markdown';
     }
 
@@ -234,30 +234,31 @@ function RawPayloadViewerComponent({
 
   const renderMarkdownContent = (content: string): React.ReactNode => {
     return (
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        className="prose prose-sm max-w-none break-words"
-        components={{
-          code: ({ inline, children, ...props }) =>
-            inline ? (
-              <code
-                {...props}
-                className="rounded bg-muted px-1 text-sm font-mono text-foreground"
-              >
-                {children}
-              </code>
-            ) : (
-              <pre
-                {...props}
-                className="bg-slate-900 text-white rounded-md p-3 text-sm font-mono overflow-x-auto whitespace-pre-wrap"
-              >
-                {children}
-              </pre>
-            )
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+      <div className="prose prose-sm max-w-none break-words">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code: ({ inline, children, ...props }: any) =>
+              inline ? (
+                <code
+                  {...props}
+                  className="rounded bg-muted px-1 text-sm font-mono text-foreground"
+                >
+                  {children}
+                </code>
+              ) : (
+                <pre
+                  {...props}
+                  className="bg-slate-900 text-white rounded-md p-3 text-sm font-mono overflow-x-auto whitespace-pre-wrap"
+                >
+                  {children}
+                </pre>
+              )
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
     );
   };
 
@@ -375,11 +376,10 @@ function RawPayloadViewerComponent({
                   variant="outline"
                   size="sm"
                   onClick={copyToClipboard}
-                  className={`flex items-center gap-2 transition-all ${
-                    copied
+                  className={`flex items-center gap-2 transition-all ${copied
                       ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-950 dark:border-green-800 dark:text-green-300'
                       : 'hover:bg-blue-50 hover:border-blue-200 dark:hover:bg-blue-950 dark:hover:border-blue-800'
-                  }`}
+                    }`}
                 >
                   {copied ? (
                     <>
@@ -421,11 +421,10 @@ function RawPayloadViewerComponent({
                   variant={showRawData ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setShowRawData(!showRawData)}
-                  className={`flex items-center gap-2 ${
-                    showRawData
+                  className={`flex items-center gap-2 ${showRawData
                       ? 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700'
                       : 'hover:bg-slate-50 hover:border-slate-300 dark:hover:bg-slate-900 dark:hover:border-slate-700'
-                  }`}
+                    }`}
                 >
                   <Code className="h-4 w-4" />
                   原始数据

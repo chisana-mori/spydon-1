@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"robusta-web/backend/internal/services"
@@ -46,15 +45,21 @@ func (h *QueryHandler) GetClustersSummary(c *gin.Context) {
 
 // GetClusters 获取集群列表
 func (h *QueryHandler) GetClusters(c *gin.Context) {
-	// 解析查询参数
-	params, derr := ParsePaginationParams(c)
-	if derr != nil {
+	var query struct {
+		PaginationQuery
+		Status string `form:"status"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
 		return
 	}
-	status := c.Query("status")
+	if derr := query.PaginationQuery.validate(); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	params := query.PaginationQuery.ToParams()
 
-	clusters, total, err := h.clusterService.GetClusters(params.Page, params.PageSize, status)
+	clusters, total, err := h.clusterService.GetClusters(params.Page, params.PageSize, query.Status)
 	if err != nil {
 		InternalError(c, "GET_CLUSTERS_ERROR", "获取集群列表失败")
 		return
@@ -67,9 +72,15 @@ func (h *QueryHandler) GetClusters(c *gin.Context) {
 
 // GetCluster 获取单个集群详情
 func (h *QueryHandler) GetCluster(c *gin.Context) {
-	clusterID := c.Param("id")
+	var path struct {
+		ID string `uri:"id" binding:"required"`
+	}
+	if derr := bindURI(c, &path); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 
-	cluster, err := h.clusterService.GetClusterByID(clusterID)
+	cluster, err := h.clusterService.GetClusterByID(path.ID)
 	if err != nil {
 		NotFound(c, "CLUSTER_NOT_FOUND", "集群不存在")
 		return
@@ -80,30 +91,36 @@ func (h *QueryHandler) GetCluster(c *gin.Context) {
 
 // GetAlerts 获取告警列表
 func (h *QueryHandler) GetAlerts(c *gin.Context) {
-	// 解析查询参数
-	params, derr := ParsePaginationParams(c)
-	if derr != nil {
+	var query struct {
+		PaginationQuery
+		ClusterID string `form:"cluster_id"`
+		Severity  string `form:"severity"`
+		Status    string `form:"status"`
+		Keyword   string `form:"keyword"`
+		Since     string `form:"since"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
 		return
 	}
-	clusterID := c.Query("cluster_id")
-	severity := c.Query("severity")
-	status := c.Query("status")
-	keyword := c.Query("keyword")
+	if derr := query.PaginationQuery.validate(); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	params := query.PaginationQuery.ToParams()
 
-	// 解析时间范围
 	var since *time.Time
-	if sinceStr := c.Query("since"); sinceStr != "" {
-		if parsedTime, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+	if query.Since != "" {
+		if parsedTime, err := time.Parse(time.RFC3339, query.Since); err == nil {
 			since = &parsedTime
 		}
 	}
 
 	filters := services.AlertFilters{
-		ClusterID: clusterID,
-		Severity:  severity,
-		Status:    status,
-		Keyword:   keyword,
+		ClusterID: query.ClusterID,
+		Severity:  query.Severity,
+		Status:    query.Status,
+		Keyword:   query.Keyword,
 		Since:     since,
 	}
 
@@ -120,9 +137,15 @@ func (h *QueryHandler) GetAlerts(c *gin.Context) {
 
 // GetAlertTrend 获取告警趋势数据
 func (h *QueryHandler) GetAlertTrend(c *gin.Context) {
-	daysStr := c.DefaultQuery("days", "30")
-	days, err := strconv.Atoi(daysStr)
-	if err != nil {
+	var query struct {
+		Days int `form:"days" binding:"omitempty,gte=1"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	days := query.Days
+	if days == 0 {
 		days = 30
 	}
 
@@ -294,20 +317,27 @@ func (h *QueryHandler) EventStream(c *gin.Context) {
 
 // GetAuditLogs 获取审计日志（管理员功能）
 func (h *QueryHandler) GetAuditLogs(c *gin.Context) {
-	params, derr := ParsePaginationParams(c)
-	if derr != nil {
+	var query struct {
+		PaginationQuery
+		UserID string `form:"user_id"`
+		Action string `form:"action"`
+	}
+	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
 		return
 	}
-	userID := c.Query("user_id")
-	action := c.Query("action")
+	if derr := query.PaginationQuery.validate(); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+	params := query.PaginationQuery.ToParams()
 
 	filters := gin.H{}
-	if userID != "" {
-		filters["user_id"] = userID
+	if query.UserID != "" {
+		filters["user_id"] = query.UserID
 	}
-	if action != "" {
-		filters["action"] = action
+	if query.Action != "" {
+		filters["action"] = query.Action
 	}
 
 	// 这里应该调用审计服务获取日志
@@ -318,9 +348,15 @@ func (h *QueryHandler) GetAuditLogs(c *gin.Context) {
 
 // DeleteCluster 删除集群（管理员功能）
 func (h *QueryHandler) DeleteCluster(c *gin.Context) {
-	clusterID := c.Param("id")
+	var path struct {
+		ID string `uri:"id" binding:"required"`
+	}
+	if derr := bindURI(c, &path); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
 
-	if err := h.clusterService.DeleteCluster(clusterID); err != nil {
+	if err := h.clusterService.DeleteCluster(path.ID); err != nil {
 		InternalError(c, "DELETE_CLUSTER_ERROR", "删除集群失败")
 		return
 	}

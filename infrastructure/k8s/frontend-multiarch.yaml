@@ -1,0 +1,180 @@
+# ============================================
+# Robusta 前端 - 配置文件 ConfigMap
+# 用于挂载到容器的 /app/config/runtime.json
+# ============================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: robusta-frontend-config
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-frontend
+    component: config
+data:
+  runtime.json: |
+    {
+      "backendBaseUrl": "http://robusta-backend:8080",
+      "casLoginPath": "/auth/cas/login",
+      "casLogoutPath": "/auth/cas/logout",
+      "basePath": ""
+    }
+
+---
+# ============================================
+# Robusta 前端 - Deployment (使用 ConfigMap 挂载)
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: robusta-frontend
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: robusta-frontend
+  template:
+    metadata:
+      labels:
+        app: robusta-frontend
+      annotations:
+        # 配置更新时自动滚动更新
+        checksum/config: "{{ .Values.configChecksum }}"
+    spec:
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: frontend
+        image: robusta-frontend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+
+        # 环境变量
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: PORT
+          value: "3000"
+        - name: HOSTNAME
+          value: "0.0.0.0"
+        # 运行时配置路径
+        - name: RUNTIME_CONFIG_PATH
+          value: /app/config/runtime.json
+        # 可选：环境变量覆盖
+        # - name: OVERRIDE_BACKEND_URL
+        #   value: "http://api.example.com"
+        # - name: OVERRIDE_BASE_PATH
+        #   value: "/spydon"
+
+        # 挂载 ConfigMap 到容器
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+
+        # 健康检查
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+
+        # 资源限制
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+      # 定义 ConfigMap 卷
+      volumes:
+      - name: config-volume
+        configMap:
+          name: robusta-frontend-config
+          items:
+          - key: runtime.json
+            path: runtime.json
+
+---
+# ============================================
+# Robusta 前端 - Service
+# ============================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: robusta-frontend
+  namespace: robusta-central-hub
+  labels:
+    app: robusta-frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http
+  selector:
+    app: robusta-frontend
+
+---
+# ============================================
+# Robusta 前端 - Ingress (可选)
+# ============================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: robusta-frontend-ingress
+  namespace: robusta-central-hub
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - robusta.example.com
+    secretName: robusta-frontend-tls
+  rules:
+  - host: robusta.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: robusta-frontend
+            port:
+              number: 3000
+      # 代理后端 API 请求
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: robusta-backend
+            port:
+              number: 8080
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: robusta-backend
+            port:
+              number: 8080
