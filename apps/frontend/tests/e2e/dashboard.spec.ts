@@ -51,7 +51,7 @@ test.describe('Dashboard', () => {
     }
   })
 
-  test('should navigate to alert details', async ({ page }) -> Promise<void> => {
+  test('should navigate to alert details', async ({ page }): Promise<void> => {
     // 等待告警表格加载
     await page.waitForSelector('[data-testid="recent-alerts-table"] tbody tr', { timeout: 15000 })
 

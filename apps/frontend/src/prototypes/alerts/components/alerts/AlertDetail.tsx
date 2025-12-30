@@ -354,14 +354,24 @@ export function AlertDetail({ alert, className }: AlertDetailProps) {
                 创建时间: {new Date(alert.created_at).toLocaleString()}
               </span>
             </div>
-            {alert.cluster && (
-              <div className="flex items-center gap-2">
-                <Server className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">
-                  集群: {alert.cluster.name}
-                </span>
-              </div>
-            )}
+            {/* 集群信息 - 支持从 labels 中提取 */}
+            {(() => {
+              const clusterDisplayName = alert.cluster?.name ||
+                alert.cluster_name ||
+                alert.labels?.cluster_name ||
+                alert.labels?.cluster ||
+                alert.labels?.kubernetes_cluster ||
+                alert.labels?.robusta_cluster ||
+                '未知';
+              return clusterDisplayName && clusterDisplayName !== '未知' ? (
+                <div className="flex items-center gap-2">
+                  <Server className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">
+                    集群: {clusterDisplayName}
+                  </span>
+                </div>
+              ) : null;
+            })()}
           </div>
 
           {/* 来源信息 */}

@@ -4,7 +4,7 @@ package constants
 const (
 	DBFieldID            = "id"
 	DBFieldName          = "name"
-	DBFieldClusterID     = "cluster_id"
+	DBFieldClusterName   = "cluster_name"
 	DBFieldAlertID       = "alert_id"
 	DBFieldUserID        = "user_id"
 	DBFieldRCAID         = "rca_id"

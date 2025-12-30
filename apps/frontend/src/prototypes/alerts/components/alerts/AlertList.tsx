@@ -139,7 +139,7 @@ function AlertItem({ alert, onClick }: AlertItemProps) {
                   <Clock className="h-3 w-3" />
                   <span>{new Date(alert.created_at).toLocaleString()}</span>
                 </div>
-                <div>集群: {alert.cluster?.name || alert.cluster_id || '未知'}</div>
+                <div>集群: {alert.cluster?.name || alert.cluster_name || '未知'}</div>
               </div>
               <ChevronRight className="h-4 w-4" />
             </div>

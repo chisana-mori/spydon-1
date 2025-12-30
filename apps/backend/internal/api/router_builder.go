@@ -245,6 +245,8 @@ func (r *routeRegistrar) registerAdminRoutes(v1 *gin.RouterGroup) {
 	adminGroup.Use(middleware.AuditLogMiddleware())
 
 	adminGroup.GET("/audit-logs", r.handlers.query.GetAuditLogs)
+	adminGroup.POST("/clusters", r.handlers.query.CreateCluster)
+	adminGroup.PUT("/clusters/:id", r.handlers.query.UpdateCluster)
 	adminGroup.DELETE("/clusters/:id", r.handlers.query.DeleteCluster)
 
 	adminGroup.GET("/users", r.handlers.user.GetUsers)

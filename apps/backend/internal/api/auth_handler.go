@@ -84,6 +84,7 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	secure := isSecureRequest(c.Request)
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true) // 30天
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
+	h.setKiteCookie(c, loginResp.User, loginResp.RefreshToken, loginResp.ExpiresAt)
 
 	Success(c, gin.H{
 		"access_token": loginResp.AccessToken,
@@ -115,6 +116,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	secure := isSecureRequest(c.Request)
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true)
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
+	h.setKiteCookie(c, loginResp.User, loginResp.RefreshToken, loginResp.ExpiresAt)
 
 	Success(c, gin.H{
 		"access_token": loginResp.AccessToken,

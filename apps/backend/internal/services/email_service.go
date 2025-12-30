@@ -43,7 +43,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 		return nil
 	}
 
-	subject := fmt.Sprintf("[RCA完成] %s | 集群: %s | 严重级别: %s", alert.Title, alert.ClusterID, alert.Severity)
+	subject := fmt.Sprintf("[RCA完成] %s | 集群: %s | 严重级别: %s", alert.Title, alert.ClusterName, alert.Severity)
 	// 组装简要文本内容（避免外部模板依赖）
 	var summary string
 	if rca.Summary != nil {
@@ -57,7 +57,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	body := strings.Builder{}
 	body.WriteString("RCA分析已完成\n\n")
 	body.WriteString(fmt.Sprintf("告警标题: %s\n", alert.Title))
-	body.WriteString(fmt.Sprintf("集群: %s\n", alert.ClusterID))
+	body.WriteString(fmt.Sprintf("集群: %s\n", alert.ClusterName))
 	body.WriteString(fmt.Sprintf("严重级别: %s\n", alert.Severity))
 	body.WriteString(fmt.Sprintf("开始时间: %s\n", started))
 	if completed != "" {

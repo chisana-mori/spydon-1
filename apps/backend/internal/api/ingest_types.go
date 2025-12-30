@@ -10,7 +10,7 @@ import (
 // IngestAlertRequest 接收告警请求结构
 type IngestAlertRequest struct {
 	Fingerprint string                 `json:"fingerprint" binding:"required"`
-	ClusterID   string                 `json:"cluster_id" binding:"required"`
+	ClusterName string                 `json:"cluster_name" binding:"required"`
 	Title       string                 `json:"title" binding:"required"`
 	Description string                 `json:"description"`
 	Severity    string                 `json:"severity" binding:"required,oneof=low medium high critical"`

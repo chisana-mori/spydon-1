@@ -14,7 +14,7 @@ func TestRCAService_TriggerAndRateLimit(t *testing.T) {
 	database := setupTestDB()
 
 	// Create required cluster
-	cluster := &models.Cluster{ClusterID: "cluster-1", Name: "Test Cluster"}
+	cluster := &models.Cluster{Name: "cluster-1"}
 	assert.NoError(t, database.Create(cluster).Error)
 	settingService := NewSystemSettingService(database)
 	rcaService := NewRCAService(database, nil, nil, settingService, nil, nil)
@@ -33,7 +33,7 @@ func TestRCAService_TriggerAndRateLimit(t *testing.T) {
 	createAlert := func(i int) *models.Alert {
 		alert := &models.Alert{
 			Fingerprint: fmt.Sprintf("fp-%d", i),
-			ClusterID:   "cluster-1",
+			ClusterName: "cluster-1",
 			Title:       fmt.Sprintf("Alert %d", i),
 			Status:      "firing",
 			Severity:    string(models.AlertSeverityHigh),
@@ -74,7 +74,7 @@ func TestRCAService_QueueProcessing(t *testing.T) {
 	database := setupTestDB()
 
 	// Create required cluster
-	cluster := &models.Cluster{ClusterID: "cluster-1", Name: "Test Cluster"}
+	cluster := &models.Cluster{Name: "cluster-1"}
 	assert.NoError(t, database.Create(cluster).Error)
 	settingService := NewSystemSettingService(database)
 	rcaService := NewRCAService(database, nil, nil, settingService, nil, nil)
@@ -88,7 +88,7 @@ func TestRCAService_QueueProcessing(t *testing.T) {
 	// 2. Manually insert a Queued RCA
 	alert := &models.Alert{
 		Fingerprint: "fp-queued",
-		ClusterID:   "cluster-1",
+		ClusterName: "cluster-1",
 		Title:       "Queued Alert",
 		Severity:    string(models.AlertSeverityHigh),
 	}
@@ -157,7 +157,7 @@ func TestRCAService_SeverityFilter(t *testing.T) {
 	database := setupTestDB()
 
 	// Create required cluster
-	cluster := &models.Cluster{ClusterID: "cluster-1", Name: "Test Cluster"}
+	cluster := &models.Cluster{Name: "cluster-1"}
 	assert.NoError(t, database.Create(cluster).Error)
 	settingService := NewSystemSettingService(database)
 	config := AutoRCAConfig{
@@ -174,7 +174,7 @@ func TestRCAService_SeverityFilter(t *testing.T) {
 
 	warningAlert := &models.Alert{
 		Fingerprint: "fp-warning",
-		ClusterID:   "cluster-1",
+		ClusterName: "cluster-1",
 		Title:       "Warning Alert",
 		Status:      "firing",
 		Severity:    string(models.AlertSeverityWarning),
@@ -186,7 +186,7 @@ func TestRCAService_SeverityFilter(t *testing.T) {
 
 	criticalAlert := &models.Alert{
 		Fingerprint: "fp-critical",
-		ClusterID:   "cluster-1",
+		ClusterName: "cluster-1",
 		Title:       "Critical Alert",
 		Status:      "firing",
 		Severity:    string(models.AlertSeverityCritical),

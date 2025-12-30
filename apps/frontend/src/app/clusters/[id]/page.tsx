@@ -7,10 +7,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { 
-  ArrowLeft, 
-  Clock, 
-  Server, 
+import {
+  ArrowLeft,
+  Clock,
+  Server,
   AlertTriangle,
   CheckCircle,
   XCircle,
@@ -20,6 +20,7 @@ import {
 import RobustaAPI from '@/lib/api'
 import { formatDistanceToNow, format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import { KiteLink } from '@/components/kite'
 
 interface ClusterDetailPageProps {
   params: Promise<{
@@ -40,7 +41,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
   // 获取集群的告警
   const { data: alertsData, isLoading: alertsLoading } = useQuery({
     queryKey: ['cluster-alerts', id],
-    queryFn: () => RobustaAPI.getAlerts(1, 20, { cluster_id: id }),
+    queryFn: () => RobustaAPI.getAlerts(1, 20, { cluster_name: id }),
     enabled: !!id,
   })
 
@@ -109,30 +110,30 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
   const getStatusConfig = (status: string) => {
     switch (status) {
       case 'active':
-        return { 
-          variant: 'secondary' as const, 
-          label: '活跃', 
+        return {
+          variant: 'secondary' as const,
+          label: '活跃',
           icon: CheckCircle,
           color: 'text-green-600'
         }
       case 'inactive':
-        return { 
-          variant: 'destructive' as const, 
-          label: '离线', 
+        return {
+          variant: 'destructive' as const,
+          label: '离线',
           icon: XCircle,
           color: 'text-red-600'
         }
       case 'maintenance':
-        return { 
-          variant: 'default' as const, 
-          label: '维护中', 
+        return {
+          variant: 'default' as const,
+          label: '维护中',
           icon: Activity,
           color: 'text-yellow-600'
         }
       default:
-        return { 
-          variant: 'outline' as const, 
-          label: status, 
+        return {
+          variant: 'outline' as const,
+          label: status,
           icon: Server,
           color: 'text-muted-foreground'
         }
@@ -168,6 +169,11 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
             返回集群列表
           </Link>
         </Button>
+        <KiteLink
+          clusterName={cluster.name}
+          variant="button"
+          size="default"
+        />
       </div>
 
       {/* 集群基本信息 - 精美设计 */}
@@ -176,11 +182,10 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
         <div className="bg-white border-b border-gray-100 px-8 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                cluster.status === 'active'
-                  ? 'bg-green-100 text-green-600'
-                  : 'bg-gray-100 text-gray-600'
-              }`}>
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${cluster.status === 'active'
+                ? 'bg-green-100 text-green-600'
+                : 'bg-gray-100 text-gray-600'
+                }`}>
                 <StatusIcon className="h-6 w-6" />
               </div>
               <div>
@@ -188,17 +193,16 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
                   <h1 className="text-2xl font-bold text-gray-900">{cluster.name}</h1>
                   <Badge
                     variant={statusConfig.variant}
-                    className={`px-3 py-1 text-sm font-medium ${
-                      cluster.status === 'active'
-                        ? 'bg-green-100 text-green-800 border-green-200'
-                        : 'bg-gray-100 text-gray-800 border-gray-200'
-                    }`}
+                    className={`px-3 py-1 text-sm font-medium ${cluster.status === 'active'
+                      ? 'bg-green-100 text-green-800 border-green-200'
+                      : 'bg-gray-100 text-gray-800 border-gray-200'
+                      }`}
                   >
                     {statusConfig.label}
                   </Badge>
                 </div>
                 <p className="text-gray-600 font-mono text-sm">
-                  集群ID: {cluster.cluster_id}
+                  {cluster.cluster_id && `Cluster ID: ${cluster.cluster_id}`}
                 </p>
               </div>
             </div>
@@ -398,7 +402,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
               asChild
               className="bg-black text-white hover:bg-gray-800 px-6 py-2 rounded-lg font-medium"
             >
-              <Link href={resolveAppPath(`/alerts?cluster_id=${cluster.cluster_id}`)}>
+              <Link href={resolveAppPath(`/alerts?cluster_name=${cluster.name}`)}>
                 查看全部
               </Link>
             </Button>
@@ -433,12 +437,11 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
                         {/* 严重级别指示器 */}
-                        <div className={`w-3 h-3 rounded-full ${
-                          alert.severity === 'critical' ? 'bg-red-500' :
+                        <div className={`w-3 h-3 rounded-full ${alert.severity === 'critical' ? 'bg-red-500' :
                           alert.severity === 'high' ? 'bg-orange-500' :
-                          alert.severity === 'medium' ? 'bg-yellow-500' :
-                          'bg-blue-500'
-                        }`}></div>
+                            alert.severity === 'medium' ? 'bg-yellow-500' :
+                              'bg-blue-500'
+                          }`}></div>
 
                         <div className="flex-1">
                           <Link
@@ -450,12 +453,11 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
                           <div className="flex items-center space-x-4 mt-2">
                             <Badge
                               variant={severityConfig.variant}
-                              className={`px-3 py-1 text-xs font-medium ${
-                                alert.severity === 'critical' ? 'bg-red-100 text-red-800 border-red-200' :
+                              className={`px-3 py-1 text-xs font-medium ${alert.severity === 'critical' ? 'bg-red-100 text-red-800 border-red-200' :
                                 alert.severity === 'high' ? 'bg-orange-100 text-orange-800 border-orange-200' :
-                                alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                                'bg-blue-100 text-blue-800 border-blue-200'
-                              }`}
+                                  alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                                    'bg-blue-100 text-blue-800 border-blue-200'
+                                }`}
                             >
                               {severityConfig.label}
                             </Badge>

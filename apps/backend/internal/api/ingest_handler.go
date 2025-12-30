@@ -81,7 +81,7 @@ func (h *IngestHandler) IngestAlert(c *gin.Context) {
 	// 调用 Service 处理告警
 	alertID, err := h.alertService.ProcessAlert(c.Request.Context(), services.ProcessAlertRequest{
 		Fingerprint: req.Fingerprint,
-		ClusterID:   req.ClusterID,
+		ClusterName: req.ClusterName,
 		Title:       req.Title,
 		Description: req.Description,
 		Severity:    req.Severity,
@@ -185,7 +185,7 @@ func (h *IngestHandler) IngestAlertmanagerWebhook(c *gin.Context) {
 		// 创建Alert模型
 		alert := &models.Alert{
 			Fingerprint: alertData.Fingerprint,
-			ClusterID:   alertData.ClusterID,
+			ClusterName: alertData.ClusterName,
 			Title:       alertData.Title,
 			Description: alertData.Description,
 			Severity:    alertData.Severity,
@@ -204,10 +204,10 @@ func (h *IngestHandler) IngestAlertmanagerWebhook(c *gin.Context) {
 
 		// 添加到响应列表
 		ingested = append(ingested, map[string]interface{}{
-			"alert_id":    alert.ID,
-			"fingerprint": alertData.Fingerprint,
-			"cluster_id":  alertData.ClusterID,
-			"status":      alertData.Status,
+			"alert_id":     alert.ID,
+			"fingerprint":  alertData.Fingerprint,
+			"cluster_name": alertData.ClusterName,
+			"status":       alertData.Status,
 		})
 	}
 

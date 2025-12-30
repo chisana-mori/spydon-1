@@ -33,7 +33,7 @@ func NewRCAHandler(holmesService *services.HolmesService, rcaService *services.R
 // TriggerRCARequest 触发RCA分析请求
 type TriggerRCARequest struct {
 	AlertFingerprint string                 `json:"alert_fingerprint" binding:"required"`
-	ClusterID        string                 `json:"cluster_id" binding:"required"`
+	ClusterName      string                 `json:"cluster_name" binding:"required"`
 	TimeoutSeconds   int                    `json:"timeout_seconds,omitempty"`
 	Context          map[string]interface{} `json:"context,omitempty"`
 }
@@ -46,7 +46,7 @@ func (h *RCAHandler) TriggerRCA(c *gin.Context) {
 		return
 	}
 
-	alert, err := h.findAlertByFingerprint(req.AlertFingerprint, req.ClusterID)
+	alert, err := h.findAlertByFingerprint(req.AlertFingerprint, req.ClusterName)
 	if err != nil {
 		domainErr := apperrors.NotFound(
 			"",
@@ -198,14 +198,14 @@ func (h *RCAHandler) GetRCACacheByAlertID(c *gin.Context) {
 // GetRCAStats 获取RCA统计信息
 func (h *RCAHandler) GetRCAStats(c *gin.Context) {
 	var query struct {
-		ClusterID string `form:"cluster_id"`
+		ClusterName string `form:"cluster_name"`
 	}
 	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
 		return
 	}
 
-	stats, err := h.holmesService.GetAnalysisStats(query.ClusterID)
+	stats, err := h.holmesService.GetAnalysisStats(query.ClusterName)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "GET_RCA_STATS_FAILED", "获取RCA统计失败", err.Error())
 		return
@@ -262,8 +262,8 @@ func (h *RCAHandler) GetRCARunStatus(c *gin.Context) {
 func (h *RCAHandler) ListRCARuns(c *gin.Context) {
 	var query struct {
 		PaginationQuery
-		ClusterID string `form:"cluster_id"`
-		Status    string `form:"status"`
+		ClusterName string `form:"cluster_name"`
+		Status      string `form:"status"`
 	}
 	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
@@ -275,7 +275,7 @@ func (h *RCAHandler) ListRCARuns(c *gin.Context) {
 	}
 	params := query.PaginationQuery.ToParams()
 
-	rcaRuns, total, err := h.listRCARuns(params.Page, params.PageSize, query.ClusterID, query.Status)
+	rcaRuns, total, err := h.listRCARuns(params.Page, params.PageSize, query.ClusterName, query.Status)
 	if err != nil {
 		ErrorWithDetails(c, http.StatusInternalServerError, "LIST_RCA_RUNS_FAILED", "获取RCA运行列表失败", err.Error())
 		return
@@ -288,7 +288,7 @@ func (h *RCAHandler) ListRCARuns(c *gin.Context) {
 
 // 辅助方法
 
-func (h *RCAHandler) findAlertByFingerprint(fingerprint, clusterID string) (*struct {
+func (h *RCAHandler) findAlertByFingerprint(fingerprint, clusterName string) (*struct {
 	ID uint64 `json:"id"`
 }, error,
 ) {
@@ -312,7 +312,7 @@ func (h *RCAHandler) getRCARunByID(runID string) (interface{}, error) {
 	}, nil
 }
 
-func (h *RCAHandler) listRCARuns(page, limit int, clusterID, status string) ([]interface{}, int64, error) {
+func (h *RCAHandler) listRCARuns(page, limit int, clusterName, status string) ([]interface{}, int64, error) {
 	// 这里应该从数据库查询RCA运行记录列表
 	// 暂时返回模拟数据
 	runs := []interface{}{

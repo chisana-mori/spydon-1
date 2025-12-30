@@ -13,7 +13,7 @@ oidc_client_secret: your-client-secret
 oidc_redirect_url: http://localhost:3000/auth/callback
 
 holmes_gpt:
-  url: http://localhost:8081
+  url: localhost:8081
   api_key: your-holmes-api-key
   timeout_seconds: 300
   enabled: true

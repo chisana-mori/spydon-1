@@ -7,14 +7,14 @@ import (
 )
 
 // GetRCAStats 获取RCA统计信息
-func (s *RCAService) GetRCAStats(clusterID string) (map[string]interface{}, error) {
+func (s *RCAService) GetRCAStats(clusterName string) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
 	// 构建基础查询
 	baseQuery := s.db.Model(&models.RCARun{})
-	if clusterID != "" {
+	if clusterName != "" {
 		baseQuery = baseQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_id = ?", clusterID)
+			Where("alerts.cluster_name = ?", clusterName)
 	}
 
 	// 按状态统计
@@ -24,11 +24,11 @@ func (s *RCAService) GetRCAStats(clusterID string) (map[string]interface{}, erro
 	}
 
 	query := baseQuery
-	if clusterID != "" {
+	if clusterName != "" {
 		query = s.db.Table("rca_runs").
 			Select("rca_runs.status, count(*) as count").
 			Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_id = ?", clusterID).
+			Where("alerts.cluster_name = ?", clusterName).
 			Group("rca_runs.status")
 	} else {
 		query = s.db.Model(&models.RCARun{}).
@@ -69,16 +69,16 @@ func (s *RCAService) GetRCAStats(clusterID string) (map[string]interface{}, erro
 		WHERE status = 'completed' AND completed_at IS NOT NULL
 	`
 
-	if clusterID != "" {
+	if clusterName != "" {
 		durationQuery = `
 			SELECT AVG(EXTRACT(EPOCH FROM (rca_runs.completed_at - rca_runs.started_at))) as avg_duration
 			FROM rca_runs
 			JOIN alerts ON rca_runs.alert_id = alerts.id
 			WHERE rca_runs.status = 'completed'
 				AND rca_runs.completed_at IS NOT NULL
-				AND alerts.cluster_id = ?
+				AND alerts.cluster_name = ?
 		`
-		if err := s.db.Raw(durationQuery, clusterID).Scan(&avgDuration).Error; err != nil {
+		if err := s.db.Raw(durationQuery, clusterName).Scan(&avgDuration).Error; err != nil {
 			return nil, fmt.Errorf("获取平均执行时间失败: %w", err)
 		}
 	} else {

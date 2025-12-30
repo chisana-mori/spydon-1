@@ -22,7 +22,7 @@ type FindingToAlertConverter struct {
 	finding        *RobustaFinding
 	rawPayload     []byte
 	enrichmentProc *EnrichmentProcessor
-	clusterID      string
+	clusterName    string
 	title          string
 	description    string
 	severity       string
@@ -64,7 +64,7 @@ func NewFindingToAlertConverterWithContext(ctx context.Context, handler *IngestH
 
 // Convert 执行转换
 func (c *FindingToAlertConverter) Convert() (*models.Alert, error) {
-	c.extractClusterID()
+	c.extractClusterName()
 	c.buildTitle()
 	c.buildDescription()
 	c.normalizeSeverity()
@@ -89,7 +89,7 @@ func (c *FindingToAlertConverter) Convert() (*models.Alert, error) {
 
 	alert := &models.Alert{
 		Fingerprint:   c.fingerprint,
-		ClusterID:     c.clusterID,
+		ClusterName:   c.clusterName,
 		Title:         c.title,
 		Description:   c.description,
 		Severity:      c.severity,
@@ -104,9 +104,9 @@ func (c *FindingToAlertConverter) Convert() (*models.Alert, error) {
 	return alert, nil
 }
 
-// extractClusterID 提取cluster_id
-func (c *FindingToAlertConverter) extractClusterID() {
-	c.clusterID = extractClusterID(c.ginCtx, c.finding)
+// extractClusterName 提取cluster_name
+func (c *FindingToAlertConverter) extractClusterName() {
+	c.clusterName = extractClusterName(c.ginCtx, c.finding)
 }
 
 // buildTitle 构建标题
@@ -224,7 +224,7 @@ func (c *FindingToAlertConverter) saveRawPayload() (string, error) {
 
 	key, err := c.handler.storageService.Save(
 		c.ctx,
-		fmt.Sprintf("alerts/%s", c.clusterID),
+		fmt.Sprintf("alerts/%s", c.clusterName),
 		c.rawPayload,
 		"application/json",
 	)
@@ -238,7 +238,7 @@ func (c *FindingToAlertConverter) saveRawPayload() (string, error) {
 func (c *FindingToAlertConverter) processEnrichments() map[string]string {
 	return c.enrichmentProc.ProcessEnrichments(
 		c.ctx,
-		c.clusterID,
+		c.clusterName,
 		c.fingerprint,
 		c.finding.Enrichments,
 	)

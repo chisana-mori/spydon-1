@@ -245,7 +245,7 @@ export const EnhancedHolmesGPTChat: React.FC<EnhancedHolmesGPTChatProps> = ({
     lines.push('# HolmesGPT 分析报告')
     lines.push(`- 告警标题：${alert.title}`)
     lines.push(`- 告警指纹：${alert.fingerprint || '未知'}`)
-    lines.push(`- 集群：${alert.cluster_id || '未知'}`)
+    lines.push(`- 集群：${alert.cluster_name || '未知'}`)
     lines.push(`- 严重程度：${alert.severity || '未知'}`)
     lines.push(`- 导出时间：${format(new Date(), 'yyyy-MM-dd HH:mm:ss', { locale: zhCN })}`)
 

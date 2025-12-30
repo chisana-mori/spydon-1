@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"robusta-web/backend/internal/models"
 
 	"go.uber.org/zap"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -43,7 +45,7 @@ func NewAlertService(
 // ProcessAlertRequest 处理告警请求参数
 type ProcessAlertRequest struct {
 	Fingerprint string
-	ClusterID   string
+	ClusterName string
 	Title       string
 	Description string
 	Severity    string
@@ -67,10 +69,10 @@ func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest
 	// 保存原始payload（可选）
 	var payloadKey string
 	if s.payloadStorage != nil && len(req.RawBody) > 0 {
-		key, err := s.savePayload(ctx, fmt.Sprintf("alerts/%s", req.ClusterID), req.RawBody, "application/json")
+		key, err := s.savePayload(ctx, fmt.Sprintf("alerts/%s", req.ClusterName), req.RawBody, "application/json")
 		if err != nil {
 			// 记录错误但不中断流程
-			logger.L().Warn("保存原始告警数据失败", zap.Error(err), zap.String("cluster_id", req.ClusterID))
+			logger.L().Warn("保存原始告警数据失败", zap.Error(err), zap.String("cluster_name", req.ClusterName))
 		} else {
 			payloadKey = key
 		}
@@ -78,7 +80,7 @@ func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest
 
 	alert := &models.Alert{
 		Fingerprint:   req.Fingerprint,
-		ClusterID:     req.ClusterID,
+		ClusterName:   req.ClusterName,
 		Title:         req.Title,
 		Description:   req.Description,
 		Severity:      req.Severity,
@@ -101,12 +103,20 @@ func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest
 // IngestConvertedAlert 处理已转换的告警（保存、心跳、审计）
 func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.Alert, clientIP, userAgent string) error {
 	// 确保集群存在
+	// 更新集群心跳（如果集群存在）
 	if s.clusterService != nil {
-		_ = s.clusterService.UpdateHeartbeat(ctx, &models.Cluster{
+		if err := s.clusterService.UpdateHeartbeat(ctx, &models.Cluster{
+			Name:      alert.ClusterName,
 			ClusterID: alert.ClusterID,
-			Name:      alert.ClusterID,
 			Status:    string(models.ClusterStatusActive),
-		})
+		}); err != nil {
+			// 仅记录日志，不中断告警处理流程
+			// 这种情况通常发生在收到未注册集群的告警时
+			logger.L().Warn("failed to update cluster heartbeat",
+				zap.String("cluster_name", alert.ClusterName),
+				zap.Error(err),
+			)
+		}
 	}
 
 	// 保存告警
@@ -117,10 +127,10 @@ func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.A
 	// 记录审计日志
 	if s.auditService != nil {
 		_ = s.auditService.LogAction(0, "alert_ingested", "alert", &alert.ID, map[string]interface{}{
-			"cluster_id":  alert.ClusterID,
-			"fingerprint": alert.Fingerprint,
-			"severity":    alert.Severity,
-			"source":      "api",
+			"cluster_name": alert.ClusterName,
+			"fingerprint":  alert.Fingerprint,
+			"severity":     alert.Severity,
+			"source":       "api",
 		}, clientIP, userAgent)
 	}
 
@@ -177,13 +187,57 @@ func isValidSeverity(severity string) bool {
 	}
 }
 
+// extractClusterNameFromLabels 从 labels JSON 中提取集群名称
+func (s *AlertService) extractClusterNameFromLabels(labelsJSON datatypes.JSON) string {
+	if len(labelsJSON) == 0 {
+		return "default"
+	}
+
+	var labels map[string]interface{}
+	if err := json.Unmarshal(labelsJSON, &labels); err != nil {
+		return "default"
+	}
+
+	// 按优先级搜索 cluster 相关的 key
+	for _, key := range []string{"cluster_name", "cluster", "kubernetes_cluster", "robusta_cluster"} {
+		if v, ok := labels[key]; ok {
+			if str, isStr := v.(string); isStr && str != "" {
+				return str
+			}
+		}
+	}
+
+	return "default"
+}
+
+// extractClusterIDFromLabels 从 labels JSON 中提取集群 ID
+func (s *AlertService) extractClusterIDFromLabels(labelsJSON datatypes.JSON) string {
+	if len(labelsJSON) == 0 {
+		return ""
+	}
+
+	var labels map[string]interface{}
+	if err := json.Unmarshal(labelsJSON, &labels); err != nil {
+		return ""
+	}
+
+	// 搜索 cluster_id
+	if v, ok := labels["cluster_id"]; ok {
+		if str, isStr := v.(string); isStr && str != "" {
+			return str
+		}
+	}
+
+	return ""
+}
+
 // AlertFilters 告警过滤条件
 type AlertFilters struct {
-	ClusterID string
-	Severity  string
-	Status    string
-	Keyword   string
-	Since     *time.Time
+	ClusterName string
+	Severity    string
+	Status      string
+	Keyword     string
+	Since       *time.Time
 }
 
 // AlertTrendPoint 告警趋势点
@@ -196,9 +250,19 @@ type AlertTrendPoint struct {
 func (s *AlertService) CreateOrUpdateAlert(ctx context.Context, alert *models.Alert) error {
 	db := s.dbWithContext(ctx)
 
-	// 使用fingerprint和cluster_id作为唯一标识
+	// 确保 cluster_name 不为空
+	if alert.ClusterName == "" {
+		alert.ClusterName = s.extractClusterNameFromLabels(alert.Labels)
+	}
+
+	// 提取 cluster_id（如果为空）
+	if alert.ClusterID == "" {
+		alert.ClusterID = s.extractClusterIDFromLabels(alert.Labels)
+	}
+
+	// 使用fingerprint和cluster_name作为唯一标识
 	var existingAlert models.Alert
-	result := db.Where("fingerprint = ? AND cluster_id = ?", alert.Fingerprint, alert.ClusterID).First(&existingAlert)
+	result := db.Where("fingerprint = ? AND cluster_name = ?", alert.Fingerprint, alert.ClusterName).First(&existingAlert)
 
 	if result.Error == nil {
 		// 告警已存在，更新
@@ -223,8 +287,8 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 	query := s.db.Model(&models.Alert{}).Preload("Cluster")
 
 	// 应用过滤条件
-	if filters.ClusterID != "" {
-		query = query.Where("cluster_id = ?", filters.ClusterID)
+	if filters.ClusterName != "" {
+		query = query.Where("cluster_name = ?", filters.ClusterName)
 	}
 	if filters.Severity != "" {
 		query = query.Where("severity = ?", filters.Severity)
@@ -266,9 +330,9 @@ func (s *AlertService) GetAlertByID(id uint64) (*models.Alert, error) {
 }
 
 // GetAlertByFingerprint 根据指纹获取告警
-func (s *AlertService) GetAlertByFingerprint(fingerprint, clusterID string) (*models.Alert, error) {
+func (s *AlertService) GetAlertByFingerprint(fingerprint, clusterName string) (*models.Alert, error) {
 	var alert models.Alert
-	if err := s.db.Where("fingerprint = ? AND cluster_id = ?", fingerprint, clusterID).First(&alert).Error; err != nil {
+	if err := s.db.Where("fingerprint = ? AND cluster_name = ?", fingerprint, clusterName).First(&alert).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("告警不存在")
 		}
@@ -290,7 +354,7 @@ func (s *AlertService) UpdateAlertStatus(id uint64, status string) error {
 }
 
 // GetAlertStats 获取告警统计信息
-func (s *AlertService) GetAlertStats(clusterID string) (map[string]interface{}, error) {
+func (s *AlertService) GetAlertStats(clusterName string) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
 	// 按严重级别统计
@@ -300,8 +364,8 @@ func (s *AlertService) GetAlertStats(clusterID string) (map[string]interface{}, 
 	}
 
 	query := s.db.Model(&models.Alert{}).Select("severity, count(*) as count").Group("severity")
-	if clusterID != "" {
-		query = query.Where("cluster_id = ?", clusterID)
+	if clusterName != "" {
+		query = query.Where("cluster_name = ?", clusterName)
 	}
 
 	if err := query.Find(&severityStats).Error; err != nil {
@@ -316,8 +380,8 @@ func (s *AlertService) GetAlertStats(clusterID string) (map[string]interface{}, 
 	}
 
 	query = s.db.Model(&models.Alert{}).Select("status, count(*) as count").Group("status")
-	if clusterID != "" {
-		query = query.Where("cluster_id = ?", clusterID)
+	if clusterName != "" {
+		query = query.Where("cluster_name = ?", clusterName)
 	}
 
 	if err := query.Find(&statusStats).Error; err != nil {
@@ -328,8 +392,8 @@ func (s *AlertService) GetAlertStats(clusterID string) (map[string]interface{}, 
 	// 总数统计
 	var totalCount int64
 	query = s.db.Model(&models.Alert{})
-	if clusterID != "" {
-		query = query.Where("cluster_id = ?", clusterID)
+	if clusterName != "" {
+		query = query.Where("cluster_name = ?", clusterName)
 	}
 
 	if err := query.Count(&totalCount).Error; err != nil {
@@ -341,8 +405,8 @@ func (s *AlertService) GetAlertStats(clusterID string) (map[string]interface{}, 
 	var recentCount int64
 	since := time.Now().Add(-24 * time.Hour)
 	query = s.db.Model(&models.Alert{}).Where("created_at >= ?", since)
-	if clusterID != "" {
-		query = query.Where("cluster_id = ?", clusterID)
+	if clusterName != "" {
+		query = query.Where("cluster_name = ?", clusterName)
 	}
 
 	if err := query.Count(&recentCount).Error; err != nil {

@@ -29,21 +29,24 @@ type BaseModel struct {
 // Cluster 集群模型
 type Cluster struct {
 	BaseModel
-	ClusterID     string     `json:"cluster_id" gorm:"type:varchar(255);unique;not null"`
-	Name          string     `json:"name" gorm:"type:varchar(255);not null"`
+	Name          string     `json:"name" gorm:"type:varchar(255);unique;not null"`
+	ClusterID     string     `json:"cluster_id" gorm:"column:cluster_id;type:varchar(255)"`
 	Description   string     `json:"description" gorm:"type:text"`
+	KubeConfig    string     `json:"kube_config" gorm:"type:text"`
+	PrometheusURL string     `json:"prometheus_url" gorm:"type:varchar(255)"`
 	Status        string     `json:"status" gorm:"type:varchar(32);default:active"`
 	LastHeartbeat *time.Time `json:"last_heartbeat"`
 
 	// 关联关系 - 不使用数据库外键约束
-	Alerts []Alert `json:"alerts,omitempty" gorm:"foreignKey:ClusterID;references:ClusterID;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
+	Alerts []Alert `json:"alerts,omitempty" gorm:"foreignKey:ClusterName;references:Name;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
 }
 
 // Alert 告警模型
 type Alert struct {
 	BaseModel
 	Fingerprint   string         `json:"fingerprint" gorm:"type:varchar(191);not null"`
-	ClusterID     string         `json:"cluster_id" gorm:"type:varchar(255);not null"`
+	ClusterName   string         `json:"cluster_name" gorm:"column:cluster_name;type:varchar(255);not null"`
+	ClusterID     string         `json:"cluster_id" gorm:"column:cluster_id;type:varchar(255)"`
 	Title         string         `json:"title" gorm:"type:text;not null"`
 	Description   string         `json:"description" gorm:"type:text"`
 	Severity      string         `json:"severity" gorm:"type:varchar(32);not null"`
@@ -55,7 +58,7 @@ type Alert struct {
 	RawPayloadKey string         `json:"raw_payload_key" gorm:"type:text"`
 
 	// 关联关系 - 不使用数据库外键约束，由应用层保证数据完整性
-	Cluster *Cluster `json:"cluster,omitempty" gorm:"foreignKey:ClusterID;references:ClusterID;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
+	Cluster *Cluster `json:"cluster,omitempty" gorm:"foreignKey:ClusterName;references:Name;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
 	RCARuns []RCARun `json:"rca_runs,omitempty" gorm:"foreignKey:AlertID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE;"`
 }
 
@@ -127,9 +130,8 @@ const (
 type ClusterStatus string
 
 const (
-	ClusterStatusActive      ClusterStatus = "active"
-	ClusterStatusInactive    ClusterStatus = "inactive"
-	ClusterStatusMaintenance ClusterStatus = "maintenance"
+	ClusterStatusActive   ClusterStatus = "active"
+	ClusterStatusInactive ClusterStatus = "inactive"
 )
 
 // TableName 方法用于指定表名

@@ -316,8 +316,8 @@ export default function Dashboard() {
                             >
                               {alert.title}
                             </p>
-                            <p className="text-xs text-muted-foreground truncate" title={alert.cluster?.name || alert.cluster_id}>
-                              {alert.cluster?.name || alert.cluster_id}
+                            <p className="text-xs text-muted-foreground truncate" title={alert.cluster?.name || alert.cluster_name}>
+                              {alert.cluster?.name || alert.cluster_name}
                             </p>
                           </div>
                         </div>

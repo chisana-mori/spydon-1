@@ -73,7 +73,8 @@ func (d *Database) AutoMigrate() error {
 	)
 	if err != nil {
 		// 在二次迁移时，如果旧的 PostgreSQL 索引名不存在，MySQL 会报 Can't DROP ... FOREIGN KEY 1091，跳过此类告警
-		if strings.Contains(err.Error(), "uni_users_username") && strings.Contains(err.Error(), "Can't DROP") {
+		errStr := err.Error()
+		if strings.Contains(errStr, "Can't DROP") && (strings.Contains(errStr, "uni_users") || strings.Contains(errStr, "uni_clusters") || strings.Contains(errStr, "cluster_id")) {
 			logger.S().Warnw("忽略重复迁移时的旧索引清理错误", "error", err)
 		} else {
 			return err
@@ -179,12 +180,12 @@ func (d *Database) CreateIndexes() error {
 		{
 			name:   "idx_alerts_fingerprint_cluster",
 			model:  &models.Alert{},
-			create: "CREATE UNIQUE INDEX idx_alerts_fingerprint_cluster ON alerts(fingerprint, cluster_id)",
+			create: "CREATE UNIQUE INDEX idx_alerts_fingerprint_cluster ON alerts(fingerprint, cluster_name)",
 		},
 		{
 			name:   "idx_alerts_cluster_severity",
 			model:  &models.Alert{},
-			create: "CREATE INDEX idx_alerts_cluster_severity ON alerts(cluster_id, severity)",
+			create: "CREATE INDEX idx_alerts_cluster_severity ON alerts(cluster_name, severity)",
 		},
 		{
 			name:   "idx_alerts_status_created",

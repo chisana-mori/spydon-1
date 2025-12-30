@@ -22,9 +22,11 @@ export interface PaginationResponse<T> {
 // 集群相关类型
 export interface Cluster {
   id: string
-  cluster_id: string
   name: string
+  cluster_id?: string
   description?: string
+  kube_config?: string
+  prometheus_url?: string
   status: 'active' | 'inactive' | 'maintenance'
   last_heartbeat?: string
   created_at: string
@@ -32,8 +34,8 @@ export interface Cluster {
 }
 
 export interface ClusterStats {
-  cluster_id: string
   name: string
+  cluster_id?: string
   status: string
   alert_count: number
   critical_count: number
@@ -58,7 +60,8 @@ export interface AlertTrendData {
 export interface Alert {
   id: string
   fingerprint: string
-  cluster_id: string
+  cluster_name: string
+  cluster_id?: string
   title: string
   description?: string
   severity: 'low' | 'medium' | 'high' | 'critical'
@@ -75,7 +78,7 @@ export interface Alert {
 }
 
 export interface AlertFilters {
-  cluster_id?: string
+  cluster_name?: string
   severity?: string
   status?: string
   keyword?: string

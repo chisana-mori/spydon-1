@@ -7,17 +7,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// extractClusterID 从多个来源提取cluster_id
-func extractClusterID(c *gin.Context, finding *RobustaFinding) string {
+// extractClusterName 从多个来源提取cluster_name
+func extractClusterName(c *gin.Context, finding *RobustaFinding) string {
 	// 如果有gin.Context，尝试从header获取
 	if c != nil {
-		if clusterID := c.GetHeader("X-Robusta-Cluster-ID"); clusterID != "" {
-			return clusterID
+		if clusterName := c.GetHeader("X-Robusta-Cluster-Name"); clusterName != "" {
+			return clusterName
 		}
 	}
 
 	if finding.Subject.Labels != nil {
-		for _, key := range []string{"robusta_cluster", "cluster", "kubernetes_cluster", "cluster_id", "cluster_name"} {
+		for _, key := range []string{"robusta_cluster", "cluster", "kubernetes_cluster", "cluster_name"} {
 			if v, ok := finding.Subject.Labels[key].(string); ok && v != "" {
 				return v
 			}
@@ -25,7 +25,7 @@ func extractClusterID(c *gin.Context, finding *RobustaFinding) string {
 	}
 
 	if finding.SilenceLabels != nil {
-		for _, key := range []string{"robusta_cluster", "cluster", "kubernetes_cluster", "cluster_id", "cluster_name"} {
+		for _, key := range []string{"robusta_cluster", "cluster", "kubernetes_cluster", "cluster_name"} {
 			if v, ok := finding.SilenceLabels[key].(string); ok && v != "" {
 				return v
 			}

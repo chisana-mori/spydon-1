@@ -65,18 +65,18 @@ func (s *HolmesService) buildInvestigatePayload(alert *models.Alert, opts Invest
 // buildSubjectContext 构建告警主体信息，包含完整的告警数据供 AI 分析
 func (s *HolmesService) buildSubjectContext(alert *models.Alert) map[string]interface{} {
 	return map[string]interface{}{
-		"alert_id":    models.FormatID(alert.ID),
-		"fingerprint": alert.Fingerprint,
-		"title":       alert.Title,
-		"description": alert.Description,
-		"cluster_id":  alert.ClusterID,
-		"severity":    alert.Severity,
-		"status":      alert.Status,
-		"labels":      decodeJSONMap(alert.Labels),
-		"annotations": decodeJSONMap(alert.Annotations),
-		"created_at":  alert.CreatedAt.Format(time.RFC3339),
-		"starts_at":   formatTimePtr(alert.StartsAt),
-		"ends_at":     formatTimePtr(alert.EndsAt),
+		"alert_id":     models.FormatID(alert.ID),
+		"fingerprint":  alert.Fingerprint,
+		"title":        alert.Title,
+		"description":  alert.Description,
+		"cluster_name": alert.ClusterName,
+		"severity":     alert.Severity,
+		"status":       alert.Status,
+		"labels":       decodeJSONMap(alert.Labels),
+		"annotations":  decodeJSONMap(alert.Annotations),
+		"created_at":   alert.CreatedAt.Format(time.RFC3339),
+		"starts_at":    formatTimePtr(alert.StartsAt),
+		"ends_at":      formatTimePtr(alert.EndsAt),
 	}
 }
 
@@ -142,4 +142,16 @@ func (s *HolmesService) getRunningAnalysis(alertID uint64) (*models.RCARun, erro
 		return nil, err
 	}
 	return &rcaRun, nil
+}
+
+// NormalizeURL ensures the URL has a protocol scheme
+func NormalizeURL(url string) string {
+	baseURL := strings.TrimRight(url, "/")
+	if baseURL == "" {
+		return ""
+	}
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		return "http://" + baseURL
+	}
+	return baseURL
 }

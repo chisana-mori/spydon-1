@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { 
-  Download, 
-  Eye, 
-  FileText, 
-  Loader2, 
+import {
+  Download,
+  Eye,
+  FileText,
+  Loader2,
   AlertCircle,
   Copy,
   Check,
@@ -22,6 +22,7 @@ import { Finding } from '@prototypes/alerts/types/enrichment';
 import { parseFinding } from '@prototypes/alerts/lib/enrichment-parser';
 import { EnrichmentRenderer } from '@prototypes/alerts/components/enrichment/EnrichmentRenderer';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { appConfig } from '@/config';
 
 interface RawPayloadViewerProps {
   rawPayloadKey: string;
@@ -30,10 +31,10 @@ interface RawPayloadViewerProps {
   className?: string;
 }
 
-export function RawPayloadViewer({ 
-  rawPayloadKey, 
-  alertId, 
-  className 
+export function RawPayloadViewer({
+  rawPayloadKey,
+  alertId,
+  className
 }: RawPayloadViewerProps) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RawPayloadData | null>(null);
@@ -54,8 +55,7 @@ export function RawPayloadViewer({
 
       if (alertId) {
         // 优先使用告警 ID 直接从后端 API 获取
-        const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080/api/v1';
-        const response = await fetch(`${apiBaseUrl}/alerts/${alertId}/raw-payload`);
+        const response = await fetch(`${appConfig.apiBaseUrl}/alerts/${alertId}/raw-payload`);
 
         if (response.ok) {
           const contentType = response.headers.get('content-type') || 'application/json';
@@ -84,7 +84,7 @@ export function RawPayloadViewer({
 
       if (rawData) {
         setData(rawData);
-        
+
         // 尝试解析为 Finding
         try {
           console.log('Raw data:', rawData.data);
@@ -125,11 +125,11 @@ export function RawPayloadViewer({
   // 下载原始数据
   const downloadRawData = () => {
     if (!data) return;
-    
-    const content = typeof data.data === 'string' 
-      ? data.data 
+
+    const content = typeof data.data === 'string'
+      ? data.data
       : JSON.stringify(data.data, null, 2);
-    
+
     const blob = new Blob([content], { type: data.contentType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -154,7 +154,7 @@ export function RawPayloadViewer({
     if (typeof data === 'string') {
       return data;
     }
-    
+
     switch (mode) {
       case 'json':
         return JSON.stringify(data, null, 2);
@@ -198,7 +198,7 @@ export function RawPayloadViewer({
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent>
         {loading && (
           <div className="flex items-center justify-center py-8">
@@ -227,7 +227,7 @@ export function RawPayloadViewer({
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? '已复制' : '复制'}
               </Button>
-              
+
               <Button
                 variant="outline"
                 size="sm"
@@ -237,7 +237,7 @@ export function RawPayloadViewer({
                 <Download className="h-4 w-4" />
                 下载
               </Button>
-              
+
               <Button
                 variant="outline"
                 size="sm"
@@ -260,7 +260,7 @@ export function RawPayloadViewer({
                 <TabsTrigger value="yaml">YAML</TabsTrigger>
                 <TabsTrigger value="raw">原始</TabsTrigger>
               </TabsList>
-              
+
               {/* 美化视图 - 仅显示解析后的 Enrichments */}
               <TabsContent value="formatted" className="mt-4">
                 {/* 调试信息 */}
@@ -272,7 +272,7 @@ export function RawPayloadViewer({
                     <div>First enrichment title: {finding.enrichments[0].title}</div>
                   )}
                 </div>
-                
+
                 {finding && finding.enrichments && finding.enrichments.length > 0 ? (
                   <div className="space-y-4">
                     {/* 仅显示 Enrichments 列表，不显示 Finding 基本信息 */}
@@ -293,7 +293,7 @@ export function RawPayloadViewer({
                   </Alert>
                 )}
               </TabsContent>
-              
+
               {/* JSON 视图 */}
               <TabsContent value="json" className="mt-4">
                 <div className="relative">
@@ -302,7 +302,7 @@ export function RawPayloadViewer({
                   </pre>
                 </div>
               </TabsContent>
-              
+
               {/* YAML 视图 */}
               <TabsContent value="yaml" className="mt-4">
                 <div className="relative">
@@ -311,7 +311,7 @@ export function RawPayloadViewer({
                   </pre>
                 </div>
               </TabsContent>
-              
+
               {/* 原始视图 */}
               <TabsContent value="raw" className="mt-4">
                 <div className="relative">

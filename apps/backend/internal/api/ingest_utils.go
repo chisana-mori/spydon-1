@@ -118,9 +118,9 @@ func normalizeAlertmanagerSeverity(severity string) string {
 	return normalizeSeverityGeneric(severity)
 }
 
-// extractClusterIDFromLabels 从标签中提取集群ID
-func extractClusterIDFromLabels(labels map[string]string) string {
-	for _, key := range []string{"cluster_id", "cluster", "cluster_name", "kubernetes_cluster", "robusta_cluster"} {
+// extractClusterNameFromLabels 从标签中提取集群名称
+func extractClusterNameFromLabels(labels map[string]string) string {
+	for _, key := range []string{"cluster_name", "cluster", "kubernetes_cluster", "robusta_cluster"} {
 		if v := strings.TrimSpace(labels[key]); v != "" {
 			return v
 		}
@@ -136,8 +136,8 @@ func generateFingerprint(parts ...string) string {
 }
 
 // generateAlertmanagerFingerprint 生成Alertmanager告警指纹
-func generateAlertmanagerFingerprint(clusterID string, labels map[string]string, annotations map[string]string) string {
-	parts := []string{strings.TrimSpace(clusterID)}
+func generateAlertmanagerFingerprint(clusterName string, labels map[string]string, annotations map[string]string) string {
+	parts := []string{strings.TrimSpace(clusterName)}
 
 	// 添加排序后的标签
 	if len(labels) > 0 {
@@ -173,7 +173,7 @@ type AlertmanagerAlertConverter struct {
 	alert           AlertmanagerAlert
 	webhookStatus   string
 	index           int
-	clusterID       string
+	clusterName     string
 	title           string
 	description     string
 	severity        string
@@ -196,7 +196,7 @@ func NewAlertmanagerAlertConverter(alert AlertmanagerAlert, webhookStatus string
 
 // Convert 转换为内部Alert模型
 func (c *AlertmanagerAlertConverter) Convert() *AlertData {
-	c.extractClusterID()
+	c.extractClusterName()
 	c.buildTitle()
 	c.buildDescription()
 	c.normalizeSeverity()
@@ -206,7 +206,7 @@ func (c *AlertmanagerAlertConverter) Convert() *AlertData {
 	c.parseTimes()
 
 	return &AlertData{
-		ClusterID:   c.clusterID,
+		ClusterName: c.clusterName,
 		Title:       c.title,
 		Description: c.description,
 		Severity:    c.severity,
@@ -219,9 +219,9 @@ func (c *AlertmanagerAlertConverter) Convert() *AlertData {
 	}
 }
 
-// extractClusterID 提取集群ID
-func (c *AlertmanagerAlertConverter) extractClusterID() {
-	c.clusterID = extractClusterIDFromLabels(c.alert.Labels)
+// extractClusterName 提取集群名称
+func (c *AlertmanagerAlertConverter) extractClusterName() {
+	c.clusterName = extractClusterNameFromLabels(c.alert.Labels)
 }
 
 // buildTitle 构建标题
@@ -264,7 +264,7 @@ func (c *AlertmanagerAlertConverter) buildFingerprint() {
 		c.fingerprint = fp
 		return
 	}
-	c.fingerprint = generateAlertmanagerFingerprint(c.clusterID, c.alert.Labels, c.alert.Annotations)
+	c.fingerprint = generateAlertmanagerFingerprint(c.clusterName, c.alert.Labels, c.alert.Annotations)
 }
 
 // buildMetadata 构建元数据
@@ -289,7 +289,7 @@ func (c *AlertmanagerAlertConverter) parseTimes() {
 
 // AlertData 告警数据结构
 type AlertData struct {
-	ClusterID   string
+	ClusterName string
 	Title       string
 	Description string
 	Severity    string

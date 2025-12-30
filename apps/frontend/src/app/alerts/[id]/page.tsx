@@ -314,7 +314,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-900">集群</p>
                     <p className="text-sm text-gray-600 font-mono">
-                      {alert.cluster?.name || alert.cluster_id}
+                      {alert.cluster?.name || alert.cluster_name}
                     </p>
                   </div>
                 </div>

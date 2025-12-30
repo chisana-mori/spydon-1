@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"robusta-web/backend/internal/config"
@@ -41,7 +40,7 @@ type InvestigateOptions struct {
 // HolmesAnalysisRequest HolmesGPT分析请求
 type HolmesAnalysisRequest struct {
 	AlertFingerprint string                 `json:"alert_fingerprint"`
-	ClusterID        string                 `json:"cluster_id"`
+	ClusterName      string                 `json:"cluster_name"`
 	Context          map[string]interface{} `json:"context"`
 	TimeoutSeconds   int                    `json:"timeout_seconds,omitempty"`
 }
@@ -64,7 +63,7 @@ func NewHolmesService(database *db.Database, cfg *config.Config, storage Payload
 	client := resty.New()
 	client.SetTimeout(time.Duration(cfg.HolmesGPT.TimeoutSeconds) * time.Second)
 	if cfg.HolmesGPT.URL != "" {
-		client.SetBaseURL(strings.TrimRight(cfg.HolmesGPT.URL, "/"))
+		client.SetBaseURL(NormalizeURL(cfg.HolmesGPT.URL))
 	}
 	if cfg.HolmesGPT.APIKey != "" {
 		client.SetAuthToken(cfg.HolmesGPT.APIKey)
@@ -73,7 +72,7 @@ func NewHolmesService(database *db.Database, cfg *config.Config, storage Payload
 	streamClient := resty.New()
 	streamClient.SetTimeout(0)
 	if cfg.HolmesGPT.URL != "" {
-		streamClient.SetBaseURL(strings.TrimRight(cfg.HolmesGPT.URL, "/"))
+		streamClient.SetBaseURL(NormalizeURL(cfg.HolmesGPT.URL))
 	}
 	if cfg.HolmesGPT.APIKey != "" {
 		streamClient.SetAuthToken(cfg.HolmesGPT.APIKey)
@@ -135,7 +134,7 @@ func (s *HolmesService) executeAnalysis(ctx context.Context, rcaRun *models.RCAR
 	// 准备分析请求
 	request := HolmesAnalysisRequest{
 		AlertFingerprint: alert.Fingerprint,
-		ClusterID:        alert.ClusterID,
+		ClusterName:      alert.ClusterName,
 		Context: map[string]interface{}{
 			"title":       alert.Title,
 			"description": alert.Description,

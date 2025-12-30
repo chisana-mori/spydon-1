@@ -8,14 +8,14 @@ import (
 )
 
 // GetAnalysisStats 获取分析统计信息
-func (s *HolmesService) GetAnalysisStats(clusterID string) (*models.RCAStats, error) {
+func (s *HolmesService) GetAnalysisStats(clusterName string) (*models.RCAStats, error) {
 	var stats models.RCAStats
 
 	// 基础查询
 	query := s.db.Model(&models.RCARun{})
-	if clusterID != "" {
+	if clusterName != "" {
 		query = query.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_id = ?", clusterID)
+			Where("alerts.cluster_name = ?", clusterName)
 	}
 
 	// 1. 获取总数
@@ -37,9 +37,9 @@ func (s *HolmesService) GetAnalysisStats(clusterID string) (*models.RCAStats, er
 	// 注意：这里需要重新构建查询，因为 Count() 可能会修改 query 对象或者我们想复用 query
 	// 最好是重新构建或者 clone
 	statusQuery := s.db.Model(&models.RCARun{})
-	if clusterID != "" {
+	if clusterName != "" {
 		statusQuery = statusQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_id = ?", clusterID)
+			Where("alerts.cluster_name = ?", clusterName)
 	}
 
 	if err := statusQuery.Select("rca_runs.status, COUNT(*) as count").
@@ -67,9 +67,9 @@ func (s *HolmesService) GetAnalysisStats(clusterID string) (*models.RCAStats, er
 
 	// 4. 计算平均耗时 (只计算已完成的任务)
 	durationQuery := s.db.Model(&models.RCARun{})
-	if clusterID != "" {
+	if clusterName != "" {
 		durationQuery = durationQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_id = ?", clusterID)
+			Where("alerts.cluster_name = ?", clusterName)
 	}
 
 	var avgDuration float64

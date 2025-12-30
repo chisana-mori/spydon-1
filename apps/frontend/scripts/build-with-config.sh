@@ -25,12 +25,14 @@ export NEXT_PUBLIC_BACKEND_BASE_URL=$(node -p "JSON.parse(require('fs').readFile
 export NEXT_PUBLIC_CAS_LOGIN_PATH=$(node -p "JSON.parse(require('fs').readFileSync('$CONFIG_SOURCE', 'utf-8')).casLoginPath || ''")
 export NEXT_PUBLIC_CAS_LOGOUT_PATH=$(node -p "JSON.parse(require('fs').readFileSync('$CONFIG_SOURCE', 'utf-8')).casLogoutPath || ''")
 export NEXT_PUBLIC_BASE_PATH=$(node -p "JSON.parse(require('fs').readFileSync('$CONFIG_SOURCE', 'utf-8')).basePath || ''")
+export NEXT_PUBLIC_KITE_BASE_URL=$(node -p "JSON.parse(require('fs').readFileSync('$CONFIG_SOURCE', 'utf-8')).kiteBaseUrl || ''")
 
 echo "Configuration loaded:"
 echo "  BACKEND_BASE_URL: $NEXT_PUBLIC_BACKEND_BASE_URL"
 echo "  CAS_LOGIN_PATH: $NEXT_PUBLIC_CAS_LOGIN_PATH"
 echo "  CAS_LOGOUT_PATH: $NEXT_PUBLIC_CAS_LOGOUT_PATH"
 echo "  BASE_PATH: $NEXT_PUBLIC_BASE_PATH"
+echo "  KITE_BASE_URL: $NEXT_PUBLIC_KITE_BASE_URL"
 
 # 执行构建
 bun run next build

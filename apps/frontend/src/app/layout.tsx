@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeInitializer } from "@/components/theme-initializer";
 import { Providers } from './providers'
 import { ConditionalShell } from '@/components/layout/conditional-shell'
+import { RuntimeConfigLoader } from '@/components/runtime-config-loader'
 
 const sourceCodePro = Source_Code_Pro({
   subsets: ["latin"],
@@ -39,9 +40,11 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <body className={`${sourceCodePro.variable} ${dancingScript.variable} font-sans antialiased min-h-screen bg-background`}>
         <ThemeInitializer />
-        <Providers>
-          <ConditionalShell>{children}</ConditionalShell>
-        </Providers>
+        <RuntimeConfigLoader>
+          <Providers>
+            <ConditionalShell>{children}</ConditionalShell>
+          </Providers>
+        </RuntimeConfigLoader>
         <Toaster position="top-right" expand richColors />
       </body>
     </html>

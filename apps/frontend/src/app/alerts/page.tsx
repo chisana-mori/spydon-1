@@ -81,7 +81,7 @@ export default function Alerts() {
     if (!clusterSearch) return clusters;
     return clusters.filter(cluster =>
       cluster.name.toLowerCase().includes(clusterSearch.toLowerCase()) ||
-      cluster.cluster_id.toLowerCase().includes(clusterSearch.toLowerCase())
+      (cluster.cluster_id && cluster.cluster_id.toLowerCase().includes(clusterSearch.toLowerCase()))
     );
   }, [clusters, clusterSearch]);
 
@@ -98,7 +98,7 @@ export default function Alerts() {
       .filter(alert => {
         const alertTime = parseISO(alert.starts_at || alert.created_at)
         const timeMatch = alertTime >= timeRangeStart && alertTime <= timeRangeEnd
-        const clusterMatch = selectedClusters.length === 0 || selectedClusters.includes(alert.cluster_id)
+        const clusterMatch = selectedClusters.length === 0 || selectedClusters.includes(alert.cluster_name)
         return timeMatch && clusterMatch
       })
       .sort((a, b) => {
@@ -271,18 +271,18 @@ export default function Alerts() {
                     <div className="max-h-64 overflow-y-auto space-y-1">
                       {filteredClusters.map((cluster) => (
                         <div
-                          key={cluster.cluster_id}
+                          key={cluster.name}
                           className="flex items-center gap-2 px-2 py-2 rounded hover:bg-gray-100 cursor-pointer"
-                          onClick={() => toggleCluster(cluster.cluster_id)}
+                          onClick={() => toggleCluster(cluster.name)}
                         >
                           <Checkbox
-                            checked={selectedClusters.includes(cluster.cluster_id)}
-                            onCheckedChange={() => toggleCluster(cluster.cluster_id)}
+                            checked={selectedClusters.includes(cluster.name)}
+                            onCheckedChange={() => toggleCluster(cluster.name)}
                             className="pointer-events-none"
                           />
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium truncate">{cluster.name}</div>
-                            {cluster.cluster_id !== cluster.name && (
+                            {cluster.cluster_id && (
                               <div className="text-xs text-gray-500 truncate">{cluster.cluster_id}</div>
                             )}
                           </div>
@@ -302,7 +302,7 @@ export default function Alerts() {
               {selectedClusters.length > 0 && (
                 <div className="flex items-center gap-1 flex-wrap">
                   {selectedClusters.slice(0, 2).map((clusterId) => {
-                    const cluster = clusters.find(c => c.cluster_id === clusterId);
+                    const cluster = clusters.find(c => c.name === clusterId);
                     return (
                       <div
                         key={clusterId}
@@ -501,7 +501,7 @@ export default function Alerts() {
                         <div className="flex items-center gap-3 flex-wrap text-sm">
                           {/* 集群 */}
                           <span className="text-gray-600">
-                            集群: <span className="font-medium">{alert.cluster?.name || alert.cluster_id || 'robusta-kind'}</span>
+                            集群: <span className="font-medium">{alert.cluster?.name || alert.cluster_name || 'robusta-kind'}</span>
                           </span>
 
                           <span className="text-gray-300">•</span>

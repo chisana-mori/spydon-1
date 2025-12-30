@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -93,11 +94,11 @@ func (h *QueryHandler) GetCluster(c *gin.Context) {
 func (h *QueryHandler) GetAlerts(c *gin.Context) {
 	var query struct {
 		PaginationQuery
-		ClusterID string `form:"cluster_id"`
-		Severity  string `form:"severity"`
-		Status    string `form:"status"`
-		Keyword   string `form:"keyword"`
-		Since     string `form:"since"`
+		ClusterName string `form:"cluster_name"`
+		Severity    string `form:"severity"`
+		Status      string `form:"status"`
+		Keyword     string `form:"keyword"`
+		Since       string `form:"since"`
 	}
 	if derr := bindQuery(c, &query); derr != nil {
 		AbortWithDomainError(c, derr)
@@ -117,11 +118,11 @@ func (h *QueryHandler) GetAlerts(c *gin.Context) {
 	}
 
 	filters := services.AlertFilters{
-		ClusterID: query.ClusterID,
-		Severity:  query.Severity,
-		Status:    query.Status,
-		Keyword:   query.Keyword,
-		Since:     since,
+		ClusterName: query.ClusterName,
+		Severity:    query.Severity,
+		Status:      query.Status,
+		Keyword:     query.Keyword,
+		Since:       since,
 	}
 
 	alerts, total, err := h.alertService.GetAlerts(params.Page, params.PageSize, filters)
@@ -362,4 +363,77 @@ func (h *QueryHandler) DeleteCluster(c *gin.Context) {
 	}
 
 	SuccessWithMessage(c, "集群删除成功", nil)
+}
+
+// CreateCluster 创建集群（管理员功能）
+func (h *QueryHandler) CreateCluster(c *gin.Context) {
+	var req struct {
+		Name          string `json:"name" binding:"required"`
+		ClusterID     string `json:"cluster_id"`
+		Description   string `json:"description"`
+		KubeConfig    string `json:"kube_config"`
+		PrometheusURL string `json:"prometheus_url"`
+		Status        string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+
+	cluster := &models.Cluster{
+		Name:          req.Name,
+		ClusterID:     req.ClusterID,
+		Description:   req.Description,
+		KubeConfig:    req.KubeConfig,
+		PrometheusURL: req.PrometheusURL,
+		Status:        req.Status,
+	}
+
+	if cluster.Status == "" {
+		cluster.Status = "active"
+	}
+
+	if err := h.clusterService.CreateCluster(cluster); err != nil {
+		InternalError(c, "CREATE_CLUSTER_ERROR", "创建集群失败: "+err.Error())
+		return
+	}
+
+	SuccessWithMessage(c, "集群创建成功", cluster)
+}
+
+// UpdateCluster 更新集群（管理员功能）
+func (h *QueryHandler) UpdateCluster(c *gin.Context) {
+	var path struct {
+		ID string `uri:"id" binding:"required"`
+	}
+	if derr := bindURI(c, &path); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+
+	var req struct {
+		Description   string `json:"description"`
+		KubeConfig    string `json:"kube_config"`
+		PrometheusURL string `json:"prometheus_url"`
+		Status        string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+
+	cluster := &models.Cluster{
+		Name:          path.ID, // Using Name as ID based on existing logic
+		Description:   req.Description,
+		KubeConfig:    req.KubeConfig,
+		PrometheusURL: req.PrometheusURL,
+		Status:        req.Status,
+	}
+
+	if err := h.clusterService.UpdateCluster(cluster); err != nil {
+		InternalError(c, "UPDATE_CLUSTER_ERROR", "更新集群失败: "+err.Error())
+		return
+	}
+
+	SuccessWithMessage(c, "集群更新成功", cluster)
 }

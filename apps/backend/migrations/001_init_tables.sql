@@ -2,12 +2,14 @@
 -- Robusta 数据库表创建 SQL
 -- 数据库: MySQL 8.0+
 -- 字符集: utf8mb4
--- 生成时间: 2025-12-17
 -- ============================================
 
 -- 创建数据库（如果需要）
 -- CREATE DATABASE IF NOT EXISTS robusta_hub DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- USE robusta_hub;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================
 -- 1. 集群表 (clusters)
@@ -18,15 +20,17 @@ CREATE TABLE `clusters` (
     `created_at`     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
     `updated_at`     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
     `deleted_at`     DATETIME(3)     NULL DEFAULT NULL COMMENT '软删除时间',
-    `cluster_id`     VARCHAR(255)    NOT NULL COMMENT '集群唯一标识符',
     `name`           VARCHAR(255)    NOT NULL COMMENT '集群名称',
+    `cluster_id`     VARCHAR(255)    NULL COMMENT '集群唯一标识符',
     `description`    TEXT            NULL COMMENT '集群描述',
+    `kube_config`    TEXT            NULL COMMENT 'KubeConfig配置',
+    `prometheus_url` VARCHAR(255)    NULL COMMENT 'Prometheus地址',
     `status`         VARCHAR(32)     NOT NULL DEFAULT 'active' COMMENT '集群状态: active/inactive/maintenance',
     `last_heartbeat` DATETIME(3)     NULL COMMENT '最后心跳时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_cluster_id` (`cluster_id`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_status` (`status`)
+    UNIQUE KEY `uk_clusters_name` (`name`),
+    KEY `idx_clusters_deleted_at` (`deleted_at`),
+    KEY `idx_clusters_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='集群信息表';
 
 -- ============================================
@@ -39,7 +43,8 @@ CREATE TABLE `alerts` (
     `updated_at`      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
     `deleted_at`      DATETIME(3)     NULL DEFAULT NULL COMMENT '软删除时间',
     `fingerprint`     VARCHAR(191)    NOT NULL COMMENT '告警指纹（用于去重）',
-    `cluster_id`      VARCHAR(255)    NOT NULL COMMENT '关联集群ID',
+    `cluster_name`    VARCHAR(255)    NOT NULL COMMENT '关联集群名称',
+    `cluster_id`      VARCHAR(255)    NULL COMMENT '关联集群ID',
     `title`           TEXT            NOT NULL COMMENT '告警标题',
     `description`     TEXT            NULL COMMENT '告警详细描述',
     `severity`        VARCHAR(32)     NOT NULL COMMENT '严重级别: info/warning/error/low/medium/high/critical',
@@ -50,12 +55,12 @@ CREATE TABLE `alerts` (
     `ends_at`         DATETIME(3)     NULL COMMENT '告警结束时间',
     `raw_payload_key` TEXT            NULL COMMENT '原始载荷存储键（MinIO）',
     PRIMARY KEY (`id`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_cluster_id` (`cluster_id`),
-    KEY `idx_fingerprint` (`fingerprint`),
-    KEY `idx_severity` (`severity`),
-    KEY `idx_status` (`status`),
-    KEY `idx_starts_at` (`starts_at`)
+    KEY `idx_alerts_deleted_at` (`deleted_at`),
+    KEY `idx_alerts_cluster_name` (`cluster_name`),
+    KEY `idx_alerts_fingerprint` (`fingerprint`),
+    KEY `idx_alerts_severity` (`severity`),
+    KEY `idx_alerts_status` (`status`),
+    KEY `idx_alerts_starts_at` (`starts_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='告警信息表';
 
 -- ============================================
@@ -78,10 +83,10 @@ CREATE TABLE `rca_runs` (
     `error_message`   TEXT            NULL COMMENT '错误信息（失败时）',
     `raw_payload_key` TEXT            NULL COMMENT '原始结果存储键（MinIO）',
     PRIMARY KEY (`id`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_alert_id` (`alert_id`),
-    KEY `idx_status` (`status`),
-    KEY `idx_started_at` (`started_at`)
+    KEY `idx_rca_runs_deleted_at` (`deleted_at`),
+    KEY `idx_rca_runs_alert_id` (`alert_id`),
+    KEY `idx_rca_runs_status` (`status`),
+    KEY `idx_rca_runs_started_at` (`started_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='RCA根因分析运行记录表';
 
 -- ============================================
@@ -98,14 +103,14 @@ CREATE TABLE `audit_logs` (
     `resource_type` VARCHAR(64)     NULL COMMENT '资源类型',
     `resource_id`   BIGINT UNSIGNED NULL COMMENT '资源ID',
     `details`       JSON            NULL COMMENT '操作详情（JSON格式）',
-    `ip_address`    VARCHAR(45)     NULL COMMENT '客户端IP地址',
+    `ip_address`    VARCHAR(255)    NULL COMMENT '客户端IP地址',
     `user_agent`    TEXT            NULL COMMENT '客户端User-Agent',
     PRIMARY KEY (`id`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_user_id` (`user_id`),
-    KEY `idx_action` (`action`),
-    KEY `idx_resource_type` (`resource_type`),
-    KEY `idx_created_at` (`created_at`)
+    KEY `idx_audit_logs_deleted_at` (`deleted_at`),
+    KEY `idx_audit_logs_user_id` (`user_id`),
+    KEY `idx_audit_logs_action` (`action`),
+    KEY `idx_audit_logs_resource_type` (`resource_type`),
+    KEY `idx_audit_logs_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='审计日志表';
 
 -- ============================================
@@ -127,10 +132,10 @@ CREATE TABLE `users` (
     `provider_id`    VARCHAR(191)    NULL COMMENT '第三方提供商用户ID',
     `last_login_at`  DATETIME(3)     NULL COMMENT '最后登录时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_username` (`username`),
-    UNIQUE KEY `uk_email` (`email`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_provider` (`provider`)
+    UNIQUE KEY `uk_users_username` (`username`),
+    UNIQUE KEY `uk_users_email` (`email`),
+    KEY `idx_users_deleted_at` (`deleted_at`),
+    KEY `idx_users_provider` (`provider`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户信息表';
 
 -- ============================================
@@ -146,10 +151,10 @@ CREATE TABLE `refresh_tokens` (
     `token`      VARCHAR(255)    NOT NULL COMMENT '令牌哈希值',
     `expires_at` DATETIME(3)     NOT NULL COMMENT '令牌过期时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_token` (`token`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_user_id` (`user_id`),
-    KEY `idx_expires_at` (`expires_at`)
+    UNIQUE KEY `uk_refresh_tokens_token` (`token`),
+    KEY `idx_refresh_tokens_deleted_at` (`deleted_at`),
+    KEY `idx_refresh_tokens_user_id` (`user_id`),
+    KEY `idx_refresh_tokens_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='刷新令牌表';
 
 -- ============================================
@@ -170,10 +175,10 @@ CREATE TABLE `api_keys` (
     `is_active`    TINYINT(1)      NOT NULL DEFAULT 1 COMMENT '是否激活: 0=否, 1=是',
     `permissions`  VARCHAR(32)     NOT NULL DEFAULT 'read' COMMENT '权限范围: read/write/admin',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_key` (`key`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_user_id` (`user_id`),
-    KEY `idx_is_active` (`is_active`)
+    UNIQUE KEY `uk_api_keys_key` (`key`),
+    KEY `idx_api_keys_deleted_at` (`deleted_at`),
+    KEY `idx_api_keys_user_id` (`user_id`),
+    KEY `idx_api_keys_is_active` (`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='API密钥表';
 
 -- ============================================
@@ -189,8 +194,8 @@ CREATE TABLE `system_settings` (
     `value`       JSON            NULL COMMENT '设置值（JSON格式）',
     `description` TEXT            NULL COMMENT '设置描述',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_setting_key` (`setting_key`),
-    KEY `idx_deleted_at` (`deleted_at`)
+    UNIQUE KEY `uk_system_settings_key` (`setting_key`),
+    KEY `idx_system_settings_deleted_at` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统设置表';
 
 -- ============================================
@@ -211,9 +216,9 @@ CREATE TABLE `knowledge_articles` (
     `created_by`                VARCHAR(128)    NULL COMMENT '创建人',
     `updated_by`                VARCHAR(128)    NULL COMMENT '最后更新人',
     PRIMARY KEY (`id`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_alert_rule_name_normalized` (`alert_rule_name_normalized`),
-    KEY `idx_status` (`status`)
+    KEY `idx_knowledge_articles_deleted_at` (`deleted_at`),
+    KEY `idx_knowledge_articles_normalized` (`alert_rule_name_normalized`),
+    KEY `idx_knowledge_articles_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文章表';
 
 -- ============================================
@@ -231,39 +236,15 @@ CREATE TABLE `knowledge_article_versions` (
     `change_summary` TEXT            NULL COMMENT '变更摘要',
     `created_by`     VARCHAR(128)    NULL COMMENT '创建人',
     PRIMARY KEY (`id`),
-    KEY `idx_deleted_at` (`deleted_at`),
-    KEY `idx_article_id` (`article_id`),
-    KEY `idx_version` (`article_id`, `version`)
+    KEY `idx_knowledge_versions_deleted_at` (`deleted_at`),
+    KEY `idx_knowledge_versions_article_id` (`article_id`),
+    KEY `idx_knowledge_versions_ver` (`article_id`, `version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文章版本历史表';
 
--- ============================================
--- 外键约束（可选，根据需要启用）
--- ============================================
--- 注意：GORM 模型中注释了不使用数据库外键约束
--- 如果需要启用外键，取消以下注释：
-
--- ALTER TABLE `alerts`
---     ADD CONSTRAINT `fk_alerts_cluster` FOREIGN KEY (`cluster_id`) REFERENCES `clusters` (`cluster_id`)
---     ON DELETE SET NULL ON UPDATE CASCADE;
-
--- ALTER TABLE `rca_runs`
---     ADD CONSTRAINT `fk_rca_runs_alert` FOREIGN KEY (`alert_id`) REFERENCES `alerts` (`id`)
---     ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ALTER TABLE `refresh_tokens`
---     ADD CONSTRAINT `fk_refresh_tokens_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
---     ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ALTER TABLE `api_keys`
---     ADD CONSTRAINT `fk_api_keys_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
---     ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ALTER TABLE `knowledge_article_versions`
---     ADD CONSTRAINT `fk_knowledge_versions_article` FOREIGN KEY (`article_id`) REFERENCES `knowledge_articles` (`id`)
---     ON DELETE CASCADE ON UPDATE CASCADE;
+SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================
--- 初始数据（可选）
+-- 初始数据
 -- ============================================
 
 -- 插入默认系统设置
@@ -271,11 +252,3 @@ INSERT INTO `system_settings` (`setting_key`, `value`, `description`) VALUES
 ('auto_rca', '{"enabled": false, "rate_limit": 10, "period": 60, "allowed_severities": ["critical", "high"]}', 'Auto-RCA自动分析配置'),
 ('notification', '{"email_enabled": false, "webhook_enabled": false}', '通知配置')
 ON DUPLICATE KEY UPDATE `updated_at` = CURRENT_TIMESTAMP(3);
-
--- ============================================
--- 索引优化建议
--- ============================================
--- 1. 对于高频查询字段，已创建索引
--- 2. JSON 字段可使用虚拟列 + 索引进行优化（MySQL 5.7+）
--- 3. 大表建议使用分区表优化查询性能
--- 4. 定期清理软删除数据或归档历史数据

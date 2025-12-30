@@ -9,9 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/internal/models"
+	"robusta-web/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 )
 
@@ -35,6 +39,7 @@ func (h *AuthHandler) performLocalLogout(c *gin.Context) {
 	secure := isSecureRequest(c.Request)
 	c.SetCookie("refresh_token", "", -1, "/", "", secure, true)
 	c.SetCookie("access_token", "", -1, "/", "", secure, true)
+	c.SetCookie("auth_token", "", -1, "/", "", secure, true)
 }
 
 func setAccessTokenCookie(c *gin.Context, token string, expiresAt time.Time) {
@@ -108,4 +113,67 @@ func isSecureRequest(r *http.Request) bool {
 		return strings.EqualFold(strings.TrimSpace(parts[0]), "https")
 	}
 	return r.TLS != nil
+}
+
+// KiteClaims represents JWT claims compatible with Kite
+type KiteClaims struct {
+	UserID       uint   `json:"user_id"`
+	Username     string `json:"username"`
+	Provider     string `json:"provider"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	jwt.RegisteredClaims
+}
+
+func generateKiteToken(user services.UserInfo, refreshToken string, cfg *config.Config) (string, error) {
+	uid, err := models.ParseID(user.ID)
+	if err != nil {
+		return "", fmt.Errorf("invalid user id format: %w", err)
+	}
+
+	now := time.Now()
+	// Kite's default expiration is usually 24h as well, aligning with Robusta
+	expirationTime := now.Add(24 * time.Hour)
+
+	claims := KiteClaims{
+		UserID:       uint(uid),
+		Username:     user.Username,
+		Provider:     "robusta", // Set provider to identify source
+		RefreshToken: refreshToken,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    "Kite",
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(cfg.JWTSecret))
+}
+
+func setKiteAuthCookie(c *gin.Context, token string, expiresAt time.Time) {
+	if token == "" {
+		return
+	}
+
+	ttl := int(time.Until(expiresAt).Seconds())
+	if ttl <= 0 {
+		ttl = 3600
+	}
+
+	secure := isSecureRequest(c.Request)
+
+	// Note: We're setting path to "/" and domain to "" (host only)
+	// If Kite is on a different subdomain, Domain needs to be configured.
+	// For now assuming same host or localhost.
+	c.SetCookie("auth_token", token, ttl, "/", "", secure, true)
+}
+
+func (h *AuthHandler) setKiteCookie(c *gin.Context, user services.UserInfo, refreshToken string, expiresAt time.Time) {
+	token, err := generateKiteToken(user, refreshToken, h.cfg)
+	if err != nil {
+		logger.L().Warn("Failed to generate Kite token", zap.Error(err))
+		return
+	}
+	setKiteAuthCookie(c, token, expiresAt)
 }

@@ -4,6 +4,7 @@ export type FrontendConfig = {
   casLoginPath: string
   casLogoutPath: string
   basePath: string
+  kiteBaseUrl: string // Kite Dashboard URL，如 http://localhost:18080
 }
 
 declare global {
@@ -20,6 +21,7 @@ const defaultConfig: FrontendConfig = {
   casLoginPath: '/auth/cas/login',
   casLogoutPath: '/auth/cas/logout',
   basePath: '',
+  kiteBaseUrl: process.env.NEXT_PUBLIC_KITE_BASE_URL || 'http://localhost:18080',
 }
 
 // 从环境变量读取配置
@@ -36,6 +38,7 @@ const envConfig: Partial<FrontendConfig> = {
   casLoginPath: process.env.NEXT_PUBLIC_CAS_LOGIN_PATH || undefined,
   casLogoutPath: process.env.NEXT_PUBLIC_CAS_LOGOUT_PATH || undefined,
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || undefined,
+  kiteBaseUrl: process.env.NEXT_PUBLIC_KITE_BASE_URL || undefined,
 }
 
 const runtimeConfig: Partial<FrontendConfig> =
@@ -93,10 +96,35 @@ function filterUndefined<T extends Record<string, any>>(input: Partial<T>): Part
 
 export function attachRuntimeConfig(config: Partial<FrontendConfig>) {
   if (typeof window === 'undefined') return
+
+  // 更新 window 对象中的运行时配置
   window.__ROBUSTA_RUNTIME_CONFIG__ = {
     ...(window.__ROBUSTA_RUNTIME_CONFIG__ || {}),
     ...filterUndefined(config),
   }
+
+  // 同时更新 appConfig 对象（运行时动态注入）
+  const filteredConfig = filterUndefined(config)
+  Object.keys(filteredConfig).forEach((key) => {
+    const typedKey = key as keyof FrontendConfig
+    if (filteredConfig[typedKey] !== undefined) {
+      ; (appConfig as any)[typedKey] = filteredConfig[typedKey]
+    }
+  })
+
+  // 如果更新了 backendBaseUrl 但没有更新 apiBaseUrl，自动推导
+  if (config.backendBaseUrl && !config.apiBaseUrl) {
+    const apiBaseUrl = `${config.backendBaseUrl.replace(/\/+$/, '')}/api/v1`
+    appConfig.apiBaseUrl = apiBaseUrl
+    window.__ROBUSTA_RUNTIME_CONFIG__.apiBaseUrl = apiBaseUrl
+  }
+
+  // 规范化 basePath
+  if (config.basePath !== undefined) {
+    appConfig.basePath = normalizeBasePath(config.basePath)
+  }
+
+  console.log('[Config] Runtime config updated:', appConfig)
 }
 
 const isAbsoluteUrl = (input: string) => /^https?:\/\//i.test(input)
@@ -147,4 +175,56 @@ export function stripAppBasePath(pathname: string): string {
   const stripped = pathname.slice(appConfig.basePath.length)
   if (!stripped) return '/'
   return stripped.startsWith('/') ? stripped : `/${stripped}`
+}
+
+/**
+ * 生成 Kite Dashboard 的链接
+ * @param clusterName 集群名称（用于 Kite 的集群切换）
+ * @param resource 资源类型，如 'pods', 'deployments', 'services' 等
+ * @param namespace 命名空间（可选）
+ * @param resourceName 资源名称（可选）
+ */
+export function getKiteUrl(options?: {
+  clusterName?: string
+  resource?: string
+  namespace?: string
+  resourceName?: string
+}): string {
+  const baseUrl = appConfig.kiteBaseUrl.replace(/\/+$/, '')
+
+  if (!options) {
+    return baseUrl
+  }
+
+  const { clusterName, resource, namespace, resourceName } = options
+
+  // Kite 的 URL 结构：/{resource}?cluster={cluster}&namespace={namespace}
+  // 或者直接跳转到首页让用户选择集群
+  const params = new URLSearchParams()
+
+  if (clusterName) {
+    params.set('cluster', clusterName)
+  }
+
+  if (namespace) {
+    params.set('namespace', namespace)
+  }
+
+  let path = ''
+  if (resource) {
+    path = `/${resource}`
+    if (resourceName) {
+      path += `/${resourceName}`
+    }
+  }
+
+  const queryString = params.toString()
+  return queryString ? `${baseUrl}${path}?${queryString}` : `${baseUrl}${path}`
+}
+
+/**
+ * 检查 Kite 是否已配置
+ */
+export function isKiteEnabled(): boolean {
+  return !!appConfig.kiteBaseUrl
 }

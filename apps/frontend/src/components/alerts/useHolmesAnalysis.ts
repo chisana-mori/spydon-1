@@ -588,7 +588,7 @@ export const useHolmesAnalysis = (
         dispatch({ type: 'SET_STATUS', payload: 'analyzing' })
 
         try {
-            const backendUrl = appConfig.backendBaseUrl || 'http://localhost:8080'
+            const backendUrl = appConfig.backendBaseUrl
             const wsUrl = backendUrl.replace(/^http/, 'ws')
             const apiPath = `${wsUrl}/api/v1/holmesgpt/stream/investigate`
 
@@ -673,7 +673,7 @@ export const useHolmesAnalysis = (
 
         setIsSubmittingApproval(true)
         try {
-            const backendUrl = appConfig.backendBaseUrl || 'http://localhost:8080'
+            const backendUrl = appConfig.backendBaseUrl
             const apiUrl = `${backendUrl}/api/v1/holmesgpt/stream/investigate/send`
 
             const requestBody = {

@@ -160,7 +160,7 @@ func (h *HolmesProxyHandler) SendApprovalDecision(c *gin.Context) {
 	}
 
 	// 构建转发到 agent 后端的 URL
-	agentURL := strings.TrimRight(h.cfg.HolmesGPT.URL, "/") + "/api/stream/investigate/send"
+	agentURL := services.NormalizeURL(h.cfg.HolmesGPT.URL) + "/api/stream/investigate/send"
 
 	// 使用 resty 转发请求到 agent 后端
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)

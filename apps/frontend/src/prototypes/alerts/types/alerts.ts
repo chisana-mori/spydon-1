@@ -20,6 +20,7 @@ export interface Alert {
 
   // 其他字段
   fingerprint?: string;
+  cluster_name?: string;
   cluster_id?: string;
   generatorURL?: string;
   starts_at?: string | null;
@@ -28,8 +29,8 @@ export interface Alert {
   // 集群信息
   cluster?: {
     id: string;
-    cluster_id: string;
     name: string;
+    cluster_id?: string;
     description: string;
     status: string;
     created_at: string;

@@ -89,7 +89,7 @@ func EnhancedHMACMiddleware(cfg *config.Config) gin.HandlerFunc {
 		// 获取签名头
 		signature := c.GetHeader("X-Robusta-Signature")
 		timestamp := c.GetHeader("X-Robusta-Timestamp")
-		clusterID := c.GetHeader("X-Robusta-Cluster-ID")
+		clusterName := c.GetHeader("X-Robusta-Cluster-Name")
 
 		if signature == "" || timestamp == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -150,9 +150,9 @@ func EnhancedHMACMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 将集群ID和时间戳存储到上下文中
-		if clusterID != "" {
-			c.Set("cluster_id", clusterID)
+		// 将集群名称和时间戳存储到上下文中
+		if clusterName != "" {
+			c.Set("cluster_name", clusterName)
 		}
 		c.Set("request_timestamp", ts)
 

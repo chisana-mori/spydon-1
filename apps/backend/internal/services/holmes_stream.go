@@ -17,8 +17,14 @@ import (
 	"gorm.io/datatypes"
 )
 
-func (s *HolmesService) streamInvestigateURL() string {
-	return strings.TrimRight(s.config.HolmesGPT.URL, "/") + "/api/stream/investigate"
+func (s *HolmesService) streamInvestigateURL(clusterName string) string {
+	// 格式: http://${clusterName}.${holmesGPT.url}/api/stream/investigate
+	// 例如: http://kind.holmesgpt.svc:8081/api/stream/investigate
+	baseURL := s.config.HolmesGPT.URL
+	baseURL = strings.TrimPrefix(baseURL, "http://")
+	baseURL = strings.TrimPrefix(baseURL, "https://")
+	baseURL = strings.TrimRight(baseURL, "/")
+	return fmt.Sprintf("http://%s.%s/api/stream/investigate", clusterName, baseURL)
 }
 
 // StartStreamRun 为流式RCA创建运行记录
@@ -235,7 +241,7 @@ func (s *HolmesService) StreamInvestigateChunks(
 		SetHeader("Cache-Control", "no-cache").
 		SetBody(bytes.NewReader(payload)).
 		SetDoNotParseResponse(true).
-		Post(s.streamInvestigateURL())
+		Post(s.streamInvestigateURL(alert.ClusterName))
 	if err != nil {
 		return nil, fmt.Errorf("HolmesGPT流式请求失败: %w", err)
 	}
