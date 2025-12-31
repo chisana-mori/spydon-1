@@ -97,6 +97,7 @@ func (h *AuthHandler) CASCallback(c *gin.Context) {
 	secure := isSecureRequest(c.Request)
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true)
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
+	h.setKiteCookie(c, loginResp.User, loginResp.RefreshToken, loginResp.ExpiresAt)
 
 	redirectTarget := ""
 	if value, err := c.Cookie(casRedirectCookieName); err == nil && value != "" {

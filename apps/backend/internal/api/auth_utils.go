@@ -54,7 +54,24 @@ func setAccessTokenCookie(c *gin.Context, token string, expiresAt time.Time) {
 
 	secure := isSecureRequest(c.Request)
 
-	c.SetCookie("access_token", token, ttl, "/", "", secure, true)
+	// 使用 http.SetCookie 以支持 SameSite 属性
+	// 跨域场景 (前端3000, 后端8080) 需要 SameSite=None
+	// 注意: SameSite=None 在生产环境需要配合 Secure=true
+	cookie := &http.Cookie{
+		Name:     "access_token",
+		Value:    token,
+		MaxAge:   ttl,
+		Path:     "/",
+		Domain:   "",
+		Secure:   secure,
+		HttpOnly: true,
+		SameSite: http.SameSiteNoneMode,
+	}
+	// 开发环境允许 SameSite=None 在非 HTTPS 下使用
+	if !secure {
+		cookie.SameSite = http.SameSiteLaxMode
+	}
+	http.SetCookie(c.Writer, cookie)
 }
 
 func (h *AuthHandler) clearRedirectCookie(c *gin.Context) {
@@ -121,6 +138,7 @@ type KiteClaims struct {
 	Username     string `json:"username"`
 	Provider     string `json:"provider"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	IsAdmin      bool   `json:"is_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -139,11 +157,13 @@ func generateKiteToken(user services.UserInfo, refreshToken string, cfg *config.
 		Username:     user.Username,
 		Provider:     "robusta", // Set provider to identify source
 		RefreshToken: refreshToken,
+		IsAdmin:      user.IsAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    "Kite",
+			Subject:   fmt.Sprintf("%d", uid),
 		},
 	}
 

@@ -13,8 +13,8 @@ func (s *RCAService) GetRCAStats(clusterName string) (map[string]interface{}, er
 	// 构建基础查询
 	baseQuery := s.db.Model(&models.RCARun{})
 	if clusterName != "" {
-		baseQuery = baseQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_name = ?", clusterName)
+		baseQuery = baseQuery.Joins("JOIN spydon_alerts ON spydon_rca_runs.alert_id = spydon_alerts.id").
+			Where("spydon_alerts.cluster_name = ?", clusterName)
 	}
 
 	// 按状态统计
@@ -25,11 +25,11 @@ func (s *RCAService) GetRCAStats(clusterName string) (map[string]interface{}, er
 
 	query := baseQuery
 	if clusterName != "" {
-		query = s.db.Table("rca_runs").
-			Select("rca_runs.status, count(*) as count").
-			Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_name = ?", clusterName).
-			Group("rca_runs.status")
+		query = s.db.Table("spydon_rca_runs").
+			Select("spydon_rca_runs.status, count(*) as count").
+			Joins("JOIN spydon_alerts ON spydon_rca_runs.alert_id = spydon_alerts.id").
+			Where("spydon_alerts.cluster_name = ?", clusterName).
+			Group("spydon_rca_runs.status")
 	} else {
 		query = s.db.Model(&models.RCARun{}).
 			Select("status, count(*) as count").
@@ -65,18 +65,18 @@ func (s *RCAService) GetRCAStats(clusterName string) (map[string]interface{}, er
 	var avgDuration float64
 	durationQuery := `
 		SELECT AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) as avg_duration
-		FROM rca_runs
+		FROM spydon_rca_runs
 		WHERE status = 'completed' AND completed_at IS NOT NULL
 	`
 
 	if clusterName != "" {
 		durationQuery = `
-			SELECT AVG(EXTRACT(EPOCH FROM (rca_runs.completed_at - rca_runs.started_at))) as avg_duration
-			FROM rca_runs
-			JOIN alerts ON rca_runs.alert_id = alerts.id
-			WHERE rca_runs.status = 'completed'
-				AND rca_runs.completed_at IS NOT NULL
-				AND alerts.cluster_name = ?
+			SELECT AVG(EXTRACT(EPOCH FROM (spydon_rca_runs.completed_at - spydon_rca_runs.started_at))) as avg_duration
+			FROM spydon_rca_runs
+			JOIN spydon_alerts ON spydon_rca_runs.alert_id = spydon_alerts.id
+			WHERE spydon_rca_runs.status = 'completed'
+				AND spydon_rca_runs.completed_at IS NOT NULL
+				AND spydon_alerts.cluster_name = ?
 		`
 		if err := s.db.Raw(durationQuery, clusterName).Scan(&avgDuration).Error; err != nil {
 			return nil, fmt.Errorf("获取平均执行时间失败: %w", err)

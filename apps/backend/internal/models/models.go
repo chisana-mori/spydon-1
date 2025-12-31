@@ -26,22 +26,25 @@ type BaseModel struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// Cluster 集群模型
+// Cluster 集群模型 (与 Kite 兼容的格式)
 type Cluster struct {
-	BaseModel
-	Name          string     `json:"name" gorm:"type:varchar(255);unique;not null"`
+	ID            uint             `json:"id" gorm:"primaryKey;autoIncrement"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+	Name          string           `json:"name" gorm:"type:varchar(100);uniqueIndex;not null"`
+	Description   string           `json:"description" gorm:"type:text"`
+	Config        KiteSecretString `json:"kube_config" gorm:"type:text"` // KubeConfig - 自动加密
+	PrometheusURL string           `json:"prometheus_url" gorm:"type:varchar(255)"`
+	InCluster     bool             `json:"in_cluster" gorm:"type:boolean;default:false"`
+	IsDefault     bool             `json:"is_default" gorm:"type:boolean;default:false"`
+	Enable        bool             `json:"enable" gorm:"type:boolean;default:true"`
+
+	// Spydon 特有字段 (Kite 不使用，但不影响兼容性)
 	ClusterID     string     `json:"cluster_id" gorm:"column:cluster_id;type:varchar(255)"`
-	Description   string     `json:"description" gorm:"type:text"`
-	KubeConfig    string     `json:"kube_config" gorm:"type:text"`
-	PrometheusURL string     `json:"prometheus_url" gorm:"type:varchar(255)"`
 	Status        string     `json:"status" gorm:"type:varchar(32);default:active"`
 	LastHeartbeat *time.Time `json:"last_heartbeat"`
-
-	// 关联关系 - 不使用数据库外键约束
-	Alerts []Alert `json:"alerts,omitempty" gorm:"foreignKey:ClusterName;references:Name;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
 }
 
-// Alert 告警模型
 type Alert struct {
 	BaseModel
 	Fingerprint   string         `json:"fingerprint" gorm:"type:varchar(191);not null"`
@@ -57,8 +60,7 @@ type Alert struct {
 	EndsAt        *time.Time     `json:"ends_at"`
 	RawPayloadKey string         `json:"raw_payload_key" gorm:"type:text"`
 
-	// 关联关系 - 不使用数据库外键约束，由应用层保证数据完整性
-	Cluster *Cluster `json:"cluster,omitempty" gorm:"foreignKey:ClusterName;references:Name;constraint:OnDelete:SET NULL,OnUpdate:CASCADE;"`
+	// 关联关系
 	RCARuns []RCARun `json:"rca_runs,omitempty" gorm:"foreignKey:AlertID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE;"`
 }
 
@@ -135,20 +137,22 @@ const (
 )
 
 // TableName 方法用于指定表名
+// Cluster 与 Kite 共用，不加前缀
 func (Cluster) TableName() string {
 	return "clusters"
 }
 
+// 以下表加 spydon_ 前缀以避免与 Kite 冲突
 func (Alert) TableName() string {
-	return "alerts"
+	return "spydon_alerts"
 }
 
 func (RCARun) TableName() string {
-	return "rca_runs"
+	return "spydon_rca_runs"
 }
 
 func (AuditLog) TableName() string {
-	return "audit_logs"
+	return "spydon_audit_logs"
 }
 
 // RCAStats RCA统计信息
@@ -184,11 +188,11 @@ type RefreshToken struct {
 
 // TableName 指定表名
 func (User) TableName() string {
-	return "users"
+	return "spydon_users"
 }
 
 func (RefreshToken) TableName() string {
-	return "refresh_tokens"
+	return "spydon_refresh_tokens"
 }
 
 // APIKey API密钥模型
@@ -207,5 +211,5 @@ type APIKey struct {
 
 // TableName 指定表名
 func (APIKey) TableName() string {
-	return "api_keys"
+	return "spydon_api_keys"
 }

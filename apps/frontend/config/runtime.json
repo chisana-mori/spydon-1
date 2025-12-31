@@ -1,0 +1,7 @@
+{
+  "backendBaseUrl": "http://localhost:8080",
+  "casLoginPath": "/auth/cas/login",
+  "casLogoutPath": "/auth/cas/logout",
+  "basePath": "",
+  "kiteBaseUrl": "http://spydon.com/kite"
+}

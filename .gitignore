@@ -1,0 +1,34 @@
+lib64/
+parts/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+infrastructure/cas/runtime/
+CAS*
+test-cas*
+
+# Robusta specific
+infrastructure/scripts/robusta-holmesgpt-values.yaml
+test-*.yaml
+test-*.yml
+HolmesGPT-*.md
+
+**.next**
+**node_modules**
+
+# Compressed files
+**.gz
+**.zip
+**.tar.gz
+**.rar
+**.tar
+**gocache**
+var/gomod**%

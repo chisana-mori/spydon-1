@@ -26,6 +26,7 @@ import {
   Key,
   ChevronDown,
   ChevronRight,
+  GitBranch,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { toast } from 'sonner'
@@ -78,6 +79,12 @@ const navigation: NavigationItem[] = [
     href: '/clusters',
     icon: Server,
     description: '集群状态',
+  },
+  {
+    name: '变更管理',
+    href: '/pipelines',
+    icon: GitBranch,
+    description: '流水线与变更执行',
   },
   {
     name: '权限管理',

@@ -183,10 +183,10 @@ func (s *RCAService) processNextInQueue() {
 	// 3. 获取优先级最高的排队任务（严重级别优先，其次按创建时间）
 	var queuedRun models.RCARun
 	if err := s.db.Preload("Alert").
-		Joins("JOIN alerts ON alerts.id = rca_runs.alert_id").
-		Where("rca_runs.status = ?", models.RCAStatusQueued).
+		Joins("JOIN spydon_alerts ON spydon_alerts.id = spydon_rca_runs.alert_id").
+		Where("spydon_rca_runs.status = ?", models.RCAStatusQueued).
 		Order(severityPriorityCaseExpr + " DESC").
-		Order("rca_runs.created_at ASC").
+		Order("spydon_rca_runs.created_at ASC").
 		First(&queuedRun).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			logger.L().Error("获取排队任务失败", zap.Error(err))

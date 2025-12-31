@@ -13,13 +13,14 @@ declare global {
   }
 }
 
-const defaultBackendBaseUrl = 'http://localhost:8080'
+// 开发环境下的后端地址 (用于导航跳转)
+const defaultBackendHost = process.env.NEXT_PUBLIC_BACKEND_HOST || 'http://localhost:8080'
 
 const defaultConfig: FrontendConfig = {
-  backendBaseUrl: defaultBackendBaseUrl,
-  apiBaseUrl: `${defaultBackendBaseUrl}/api/v1`,
-  casLoginPath: '/auth/cas/login',
-  casLogoutPath: '/auth/cas/logout',
+  backendBaseUrl: '', // API 请求使用相对路径，通过 Next.js rewrites 代理
+  apiBaseUrl: '/api/v1', // 相对路径，Next.js 会代理到后端
+  casLoginPath: `${defaultBackendHost}/auth/cas/login`,  // CAS 登录需要直接跳转到后端
+  casLogoutPath: `${defaultBackendHost}/auth/cas/logout`,
   basePath: '',
   kiteBaseUrl: process.env.NEXT_PUBLIC_KITE_BASE_URL || 'http://localhost:18080',
 }
@@ -29,7 +30,7 @@ const backendBaseUrlFromEnv = process.env.NEXT_PUBLIC_BACKEND_BASE_URL
 const apiBaseUrlFromEnv = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.ROBUSTA_API_BASE_URL
 
 // 构建配置：优先使用显式配置，否则自动推导
-const resolvedBackendBaseUrl = backendBaseUrlFromEnv || defaultBackendBaseUrl
+const resolvedBackendBaseUrl = backendBaseUrlFromEnv || defaultBackendHost
 const resolvedApiBaseUrl = apiBaseUrlFromEnv || `${resolvedBackendBaseUrl.replace(/\/+$/, '')}/api/v1`
 
 const envConfig: Partial<FrontendConfig> = {

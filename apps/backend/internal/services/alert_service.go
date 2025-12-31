@@ -284,7 +284,7 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 	var total int64
 
 	// 构建查询
-	query := s.db.Model(&models.Alert{}).Preload("Cluster")
+	query := s.db.Model(&models.Alert{})
 
 	// 应用过滤条件
 	if filters.ClusterName != "" {
@@ -320,7 +320,7 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 // GetAlertByID 根据ID获取告警
 func (s *AlertService) GetAlertByID(id uint64) (*models.Alert, error) {
 	var alert models.Alert
-	if err := s.db.Preload("Cluster").Preload("RCARuns").First(&alert, "id = ?", id).Error; err != nil {
+	if err := s.db.Preload("RCARuns").First(&alert, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("告警不存在")
 		}

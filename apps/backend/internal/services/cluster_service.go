@@ -7,10 +7,8 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/db"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -18,15 +16,13 @@ import (
 
 // ClusterService 集群服务
 type ClusterService struct {
-	db     *db.Database
-	kiteDB *db.KiteDatabase // Kite 数据库连接（可选）
+	db *db.Database
 }
 
 // NewClusterService 创建新的集群服务
-func NewClusterService(database *db.Database, kiteDB *db.KiteDatabase) *ClusterService {
+func NewClusterService(database *db.Database) *ClusterService {
 	return &ClusterService{
-		db:     database,
-		kiteDB: kiteDB,
+		db: database,
 	}
 }
 
@@ -77,7 +73,18 @@ func (s *ClusterService) GetClustersSummary() (*ClusterSummary, error) {
 		return nil, fmt.Errorf("获取活跃集群数失败: %w", err)
 	}
 
-	// ... (Alert counts code)
+	// 获取告警总数 (所有告警，包括已解决的，以匹配 cluster_stats 中的 total_alerts)
+	if err := s.db.Model(&models.Alert{}).
+		Count(&summary.TotalAlerts).Error; err != nil {
+		return nil, fmt.Errorf("获取告警总数失败: %w", err)
+	}
+
+	// 获取严重告警数 (firing & critical)
+	if err := s.db.Model(&models.Alert{}).
+		Where("status = ? AND severity = ?", models.AlertStatusFiring, models.AlertSeverityCritical).
+		Count(&summary.CriticalAlerts).Error; err != nil {
+		return nil, fmt.Errorf("获取严重告警数失败: %w", err)
+	}
 
 	// 获取各集群统计信息
 	clusterStats, err := s.getClusterStats()
@@ -86,7 +93,8 @@ func (s *ClusterService) GetClustersSummary() (*ClusterSummary, error) {
 	}
 	summary.ClusterStats = clusterStats
 
-	// ... (Alert trends code)
+	// 趋势数据由前端单独获取，此处返回空数组
+	summary.AlertTrends = []AlertTrendPoint{}
 
 	return summary, nil
 }
@@ -110,11 +118,10 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 				cluster_name,
 				COUNT(*) as total_alerts,
 				COUNT(CASE WHEN severity = 'critical' AND status = 'firing' THEN 1 END) as critical_alerts
-			FROM alerts
+			FROM spydon_alerts
 			WHERE deleted_at IS NULL
 			GROUP BY cluster_name
 		) alert_counts ON c.name = alert_counts.cluster_name
-		WHERE c.deleted_at IS NULL
 		ORDER BY c.name
 	`
 
@@ -171,10 +178,10 @@ func (s *ClusterService) GetClusterByID(clusterName string) (*models.Cluster, er
 	return &cluster, nil
 }
 
-// DeleteCluster 删除集群
+// DeleteCluster 删除集群（硬删除）
 func (s *ClusterService) DeleteCluster(clusterName string) error {
-	// 软删除集群
-	result := s.db.Where("name = ?", clusterName).Delete(&models.Cluster{})
+	// 硬删除集群
+	result := s.db.Unscoped().Where("name = ?", clusterName).Delete(&models.Cluster{})
 	if result.Error != nil {
 		return fmt.Errorf("删除集群失败: %w", result.Error)
 	}
@@ -182,13 +189,10 @@ func (s *ClusterService) DeleteCluster(clusterName string) error {
 		return fmt.Errorf("集群不存在")
 	}
 
-	// 同时软删除该集群的所有告警
-	if err := s.db.Where("cluster_name = ?", clusterName).Delete(&models.Alert{}).Error; err != nil {
+	// 同时硬删除该集群的所有告警
+	if err := s.db.Unscoped().Where("cluster_name = ?", clusterName).Delete(&models.Alert{}).Error; err != nil {
 		return fmt.Errorf("删除集群告警失败: %w", err)
 	}
-
-	// 同步删除到 Kite 数据库
-	s.syncDeleteToKite(clusterName)
 
 	return nil
 }
@@ -244,7 +248,7 @@ func (s *ClusterService) validateKubeConfig(kubeConfig string) error {
 // CreateCluster 创建新集群
 func (s *ClusterService) CreateCluster(cluster *models.Cluster) error {
 	// 验证 KubeConfig
-	if err := s.validateKubeConfig(cluster.KubeConfig); err != nil {
+	if err := s.validateKubeConfig(string(cluster.Config)); err != nil {
 		return fmt.Errorf("kubeconfig validation failed: %w", err)
 	}
 
@@ -257,24 +261,20 @@ func (s *ClusterService) CreateCluster(cluster *models.Cluster) error {
 		return fmt.Errorf("cluster %s already exists", cluster.Name)
 	}
 
-	if err := s.db.Create(cluster).Error; err != nil {
-		return err
-	}
+	// 设置默认值
+	cluster.Enable = true
 
-	// 同步创建到 Kite 数据库
-	s.syncCreateToKite(cluster)
-
-	return nil
+	return s.db.Create(cluster).Error
 }
 
 // UpdateCluster 更新集群信息
 func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 	// 验证 KubeConfig
-	if err := s.validateKubeConfig(cluster.KubeConfig); err != nil {
+	if err := s.validateKubeConfig(string(cluster.Config)); err != nil {
 		return fmt.Errorf("kubeconfig validation failed: %w", err)
 	}
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
 		var existingCluster models.Cluster
 		if err := tx.Where("name = ?", cluster.Name).First(&existingCluster).Error; err != nil {
 			return fmt.Errorf("cluster not found: %w", err)
@@ -282,74 +282,9 @@ func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 
 		// 只更新允许修改的字段
 		existingCluster.Description = cluster.Description
-		existingCluster.KubeConfig = cluster.KubeConfig
+		existingCluster.Config = cluster.Config
 		existingCluster.PrometheusURL = cluster.PrometheusURL
-		// 注意：通常不建议修改 ClusterID 或 Name，因为可能涉及外键关联或其他逻辑
 
 		return tx.Save(&existingCluster).Error
 	})
-
-	if err != nil {
-		return err
-	}
-
-	// 同步更新到 Kite 数据库
-	s.syncUpdateToKite(cluster)
-
-	return nil
-}
-
-// syncCreateToKite 同步创建集群到 Kite 数据库
-func (s *ClusterService) syncCreateToKite(cluster *models.Cluster) {
-	if s.kiteDB == nil {
-		return
-	}
-
-	kiteCluster := &db.KiteCluster{
-		Name:          cluster.Name,
-		Description:   cluster.Description,
-		Config:        cluster.KubeConfig,
-		PrometheusURL: cluster.PrometheusURL,
-		InCluster:     false,
-		IsDefault:     false,
-		Enable:        true,
-	}
-
-	if err := s.kiteDB.CreateCluster(kiteCluster); err != nil {
-		logger.L().Warn("同步集群到 Kite 失败", zap.String("cluster", cluster.Name), zap.Error(err))
-	} else {
-		logger.L().Info("已同步集群到 Kite", zap.String("cluster", cluster.Name))
-	}
-}
-
-// syncUpdateToKite 同步更新集群到 Kite 数据库
-func (s *ClusterService) syncUpdateToKite(cluster *models.Cluster) {
-	if s.kiteDB == nil {
-		return
-	}
-
-	updates := map[string]interface{}{
-		"description":    cluster.Description,
-		"config":         cluster.KubeConfig,
-		"prometheus_url": cluster.PrometheusURL,
-	}
-
-	if err := s.kiteDB.UpdateClusterByName(cluster.Name, updates); err != nil {
-		logger.L().Warn("同步更新集群到 Kite 失败", zap.String("cluster", cluster.Name), zap.Error(err))
-	} else {
-		logger.L().Info("已同步更新集群到 Kite", zap.String("cluster", cluster.Name))
-	}
-}
-
-// syncDeleteToKite 同步删除集群到 Kite 数据库
-func (s *ClusterService) syncDeleteToKite(clusterName string) {
-	if s.kiteDB == nil {
-		return
-	}
-
-	if err := s.kiteDB.DeleteClusterByName(clusterName); err != nil {
-		logger.L().Warn("同步删除集群到 Kite 失败", zap.String("cluster", clusterName), zap.Error(err))
-	} else {
-		logger.L().Info("已同步删除集群到 Kite", zap.String("cluster", clusterName))
-	}
 }

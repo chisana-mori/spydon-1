@@ -70,6 +70,14 @@ func CookieAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
+			// Fallback: Check auth_token (used by Kite) if access_token is missing
+			// Since we added 'sub' claim to Kite token, it can serve as a valid auth token
+			if kiteToken, err := c.Cookie("auth_token"); err == nil && strings.TrimSpace(kiteToken) != "" {
+				tokenString = strings.TrimSpace(kiteToken)
+			}
+		}
+
+		if tokenString == "" {
 			tokenString = extractBearerToken(c.GetHeader("Authorization"))
 		}
 
@@ -177,13 +185,13 @@ func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
 		if uid, err := models.ParseID(fmt.Sprint(rawSub)); err == nil {
 			c.Set("user_id", uid)
 		} else {
-			// 保持兼容：解析失败时仍然写入原始值
 			c.Set("user_id", rawSub)
 		}
+	} else {
 	}
 	c.Set("user_email", claims["email"])
 	c.Set("user_name", claims["name"])
-	c.Set("user_roles", claims["roles"]) // 保留兼容性
+	c.Set("user_roles", claims["roles"])
 
 	// 设置is_admin字段
 	if isAdmin, ok := claims["is_admin"].(bool); ok {
@@ -312,6 +320,7 @@ func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 从JWT claims中获取is_admin字段
 		isAdmin, exists := c.Get("is_admin")
+
 		if !exists {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": "缺少权限信息",

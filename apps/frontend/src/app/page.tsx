@@ -52,7 +52,7 @@ export default function Dashboard() {
     refetchInterval: 15000, // 15秒刷新一次
   })
 
-  const summaryData = summary?.data
+  const summaryData = summary
   const alertsData = recentAlerts?.data || []
 
   // 获取告警趋势数据
@@ -62,7 +62,7 @@ export default function Dashboard() {
     refetchInterval: 60000,
   })
 
-  const trendData = alertTrend?.data || []
+  const trendData = alertTrend || []
   const trendChartData = trendData.map((point) => ({
     date: format(new Date(point.date), 'MM-dd', { locale: zhCN }),
     count: point.count,

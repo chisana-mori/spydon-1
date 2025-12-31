@@ -55,11 +55,14 @@ type MinIOConfig struct {
 	UseSSL     bool   `mapstructure:"use_ssl" json:"use_ssl" yaml:"use_ssl"`
 }
 
-// KiteConfig Kite 集成配置
-type KiteConfig struct {
-	Enabled     bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
-	DatabaseURL string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
-	DBType      string `mapstructure:"db_type" json:"db_type" yaml:"db_type"` // mysql, postgres, sqlite
+// AWXConfig AWX 集成配置
+type AWXConfig struct {
+	URL      string `mapstructure:"url" json:"url" yaml:"url"`
+	Username string `mapstructure:"username" json:"username" yaml:"username"`
+	Password string `mapstructure:"password" json:"password" yaml:"password"`
+	Token    string `mapstructure:"token" json:"token" yaml:"token"`
+	Timeout  int    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	Insecure bool   `mapstructure:"insecure" json:"insecure" yaml:"insecure"`
 }
 
 // Config 应用配置结构
@@ -83,7 +86,7 @@ type Config struct {
 	CAS       CASConfig       `mapstructure:"cas" json:"cas" yaml:"cas"`
 	Email     EmailConfig     `mapstructure:"email" json:"email" yaml:"email"`
 	MinIO     MinIOConfig     `mapstructure:"minio" json:"minio" yaml:"minio"`
-	Kite      KiteConfig      `mapstructure:"kite" json:"kite" yaml:"kite"`
+	AWX       AWXConfig       `mapstructure:"awx" json:"awx" yaml:"awx"`
 
 	RateLimitRPS int    `mapstructure:"rate_limit_rps" json:"rate_limit_rps" yaml:"rate_limit_rps"`
 	LogLevel     string `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
@@ -193,4 +196,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kite.enabled", false)
 	v.SetDefault("kite.database_url", "")
 	v.SetDefault("kite.db_type", "mysql")
+	v.SetDefault("kite.encrypt_key", "kite-default-encryption-key-change-in-production")
+
+	// AWX defaults
+	v.SetDefault("awx.url", "")
+	v.SetDefault("awx.username", "")
+	v.SetDefault("awx.password", "")
+	v.SetDefault("awx.token", "")
+	v.SetDefault("awx.timeout", 60)
+	v.SetDefault("awx.insecure", false)
 }

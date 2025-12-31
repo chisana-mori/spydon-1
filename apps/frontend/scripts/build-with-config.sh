@@ -16,7 +16,7 @@ elif [ -f "$SAMPLE_CONFIG_FILE" ]; then
   CONFIG_SOURCE="$SAMPLE_CONFIG_FILE"
 else
   echo "⚠ No config file found, using defaults"
-  npm run build
+  next build
   exit 0
 fi
 

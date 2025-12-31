@@ -28,16 +28,11 @@ type handlerSet struct {
 	health        *HealthHandler
 	knowledge     *KnowledgeHandler
 	systemSetting *SystemSettingHandler
+	pipeline      *PipelineHandler
 }
 
 func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, error) {
-	// 初始化 Kite 数据库连接（可选）
-	kiteDB, err := db.InitializeKiteDB(cfg.Kite)
-	if err != nil {
-		return nil, err
-	}
-
-	clusterService := services.NewClusterService(database, kiteDB)
+	clusterService := services.NewClusterService(database)
 	auditService := services.NewAuditService(database)
 
 	objectStorage, err := services.NewObjectStorageService(cfg)
@@ -59,6 +54,13 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 		return nil, err
 	}
 
+	// 创建AWX客户端和流水线引擎 (Pipeline功能)
+	var pipelineEngine *services.PipelineEngine
+	if cfg.AWX.URL != "" {
+		awxClient := services.NewAWXClientFromConfig(cfg)
+		pipelineEngine = services.NewPipelineEngine(database, cfg, awxClient)
+	}
+
 	handlers := &handlerSet{
 		cfg:           cfg,
 		apiKeyService: apiKeyService,
@@ -78,6 +80,7 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 		health:        NewHealthHandler(database),
 		knowledge:     NewKnowledgeHandler(knowledgeService),
 		systemSetting: NewSystemSettingHandler(systemSettingService, rcaService),
+		pipeline:      NewPipelineHandler(pipelineEngine),
 	}
 
 	return handlers, nil
@@ -134,6 +137,7 @@ func (r *routeRegistrar) register() {
 	r.registerAPIKeyRoutes(v1)
 	r.registerAdminRoutes(v1)
 	r.registerKnowledgeRoutes(v1)
+	r.registerPipelineRoutes(v1)
 }
 
 func (r *routeRegistrar) applyGlobalMiddleware() {
@@ -284,4 +288,27 @@ func (r *routeRegistrar) registerKnowledgeRoutes(v1 *gin.RouterGroup) {
 	kbWrite.POST(":id/publish", r.handlers.knowledge.Publish)
 	kbWrite.POST("/upload/presign", r.handlers.knowledge.PresignUpload)
 	kbWrite.DELETE(":id", r.handlers.knowledge.Delete)
+}
+
+func (r *routeRegistrar) registerPipelineRoutes(v1 *gin.RouterGroup) {
+	// Pipeline Templates (管理员)
+	templateGroup := v1.Group("/pipelines/templates")
+	templateGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	templateGroup.Use(middleware.RequireAdmin())
+	templateGroup.Use(middleware.AuditLogMiddleware())
+	templateGroup.GET("", r.handlers.pipeline.ListTemplates)
+	templateGroup.GET("/:id", r.handlers.pipeline.GetTemplate)
+	templateGroup.POST("", r.handlers.pipeline.CreateTemplate)
+
+	// Pipeline Executions (需登录)
+	execGroup := v1.Group("/pipelines/executions")
+	execGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	execGroup.Use(middleware.AuditLogMiddleware())
+	execGroup.GET("", r.handlers.pipeline.GetExecutionHistory)
+	execGroup.POST("", r.handlers.pipeline.StartExecution)
+	execGroup.GET("/:id", r.handlers.pipeline.GetExecution)
+	execGroup.POST("/:id/pause", r.handlers.pipeline.PauseExecution)
+	execGroup.POST("/:id/resume", r.handlers.pipeline.ResumeExecution)
+	execGroup.POST("/:id/cancel", r.handlers.pipeline.CancelExecution)
+	execGroup.POST("/:id/rollback", r.handlers.pipeline.RollbackExecution)
 }

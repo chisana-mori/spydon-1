@@ -371,7 +371,7 @@ func (h *QueryHandler) CreateCluster(c *gin.Context) {
 		Name          string `json:"name" binding:"required"`
 		ClusterID     string `json:"cluster_id"`
 		Description   string `json:"description"`
-		KubeConfig    string `json:"kube_config"`
+		Config        string `json:"kube_config"` // KubeConfig
 		PrometheusURL string `json:"prometheus_url"`
 		Status        string `json:"status"`
 	}
@@ -384,7 +384,7 @@ func (h *QueryHandler) CreateCluster(c *gin.Context) {
 		Name:          req.Name,
 		ClusterID:     req.ClusterID,
 		Description:   req.Description,
-		KubeConfig:    req.KubeConfig,
+		Config:        models.KiteSecretString(req.Config),
 		PrometheusURL: req.PrometheusURL,
 		Status:        req.Status,
 	}
@@ -413,7 +413,7 @@ func (h *QueryHandler) UpdateCluster(c *gin.Context) {
 
 	var req struct {
 		Description   string `json:"description"`
-		KubeConfig    string `json:"kube_config"`
+		Config        string `json:"kube_config"` // KubeConfig
 		PrometheusURL string `json:"prometheus_url"`
 		Status        string `json:"status"`
 	}
@@ -425,7 +425,7 @@ func (h *QueryHandler) UpdateCluster(c *gin.Context) {
 	cluster := &models.Cluster{
 		Name:          path.ID, // Using Name as ID based on existing logic
 		Description:   req.Description,
-		KubeConfig:    req.KubeConfig,
+		Config:        models.KiteSecretString(req.Config),
 		PrometheusURL: req.PrometheusURL,
 		Status:        req.Status,
 	}

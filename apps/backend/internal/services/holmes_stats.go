@@ -14,8 +14,8 @@ func (s *HolmesService) GetAnalysisStats(clusterName string) (*models.RCAStats, 
 	// 基础查询
 	query := s.db.Model(&models.RCARun{})
 	if clusterName != "" {
-		query = query.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_name = ?", clusterName)
+		query = query.Joins("JOIN spydon_alerts ON spydon_rca_runs.alert_id = spydon_alerts.id").
+			Where("spydon_alerts.cluster_name = ?", clusterName)
 	}
 
 	// 1. 获取总数
@@ -38,12 +38,12 @@ func (s *HolmesService) GetAnalysisStats(clusterName string) (*models.RCAStats, 
 	// 最好是重新构建或者 clone
 	statusQuery := s.db.Model(&models.RCARun{})
 	if clusterName != "" {
-		statusQuery = statusQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_name = ?", clusterName)
+		statusQuery = statusQuery.Joins("JOIN spydon_alerts ON spydon_rca_runs.alert_id = spydon_alerts.id").
+			Where("spydon_alerts.cluster_name = ?", clusterName)
 	}
 
-	if err := statusQuery.Select("rca_runs.status, COUNT(*) as count").
-		Group("rca_runs.status").
+	if err := statusQuery.Select("spydon_rca_runs.status, COUNT(*) as count").
+		Group("spydon_rca_runs.status").
 		Scan(&statusCounts).Error; err != nil {
 		return nil, fmt.Errorf("查询状态统计失败: %w", err)
 	}
@@ -68,8 +68,8 @@ func (s *HolmesService) GetAnalysisStats(clusterName string) (*models.RCAStats, 
 	// 4. 计算平均耗时 (只计算已完成的任务)
 	durationQuery := s.db.Model(&models.RCARun{})
 	if clusterName != "" {
-		durationQuery = durationQuery.Joins("JOIN alerts ON rca_runs.alert_id = alerts.id").
-			Where("alerts.cluster_name = ?", clusterName)
+		durationQuery = durationQuery.Joins("JOIN spydon_alerts ON spydon_rca_runs.alert_id = spydon_alerts.id").
+			Where("spydon_alerts.cluster_name = ?", clusterName)
 	}
 
 	var avgDuration float64
@@ -79,8 +79,8 @@ func (s *HolmesService) GetAnalysisStats(clusterName string) (*models.RCAStats, 
 		CompletedAt *time.Time
 	}
 
-	if err := durationQuery.Where("rca_runs.status = ? AND rca_runs.completed_at IS NOT NULL", models.RCAStatusCompleted).
-		Select("rca_runs.started_at, rca_runs.completed_at").
+	if err := durationQuery.Where("spydon_rca_runs.status = ? AND spydon_rca_runs.completed_at IS NOT NULL", models.RCAStatusCompleted).
+		Select("spydon_rca_runs.started_at, spydon_rca_runs.completed_at").
 		Limit(1000).
 		Find(&times).Error; err != nil {
 		return nil, fmt.Errorf("查询耗时统计失败: %w", err)

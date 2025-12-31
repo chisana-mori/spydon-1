@@ -14,5 +14,5 @@ type SystemSetting struct {
 
 // TableName 指定表名
 func (SystemSetting) TableName() string {
-	return "system_settings"
+	return "spydon_system_settings"
 }

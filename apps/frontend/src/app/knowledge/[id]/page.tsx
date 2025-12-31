@@ -22,8 +22,8 @@ export default function KnowledgeViewPage() {
     enabled: !!id,
   })
 
-  const article = data?.data?.article
-  const manifest = data?.data?.manifest
+  const article = (data as any)?.article
+  const manifest = (data as any)?.manifest
 
   if (isLoading) {
     return (

@@ -180,42 +180,42 @@ func (d *Database) CreateIndexes() error {
 		{
 			name:   "idx_alerts_fingerprint_cluster",
 			model:  &models.Alert{},
-			create: "CREATE UNIQUE INDEX idx_alerts_fingerprint_cluster ON alerts(fingerprint, cluster_name)",
+			create: "CREATE UNIQUE INDEX idx_alerts_fingerprint_cluster ON spydon_alerts(fingerprint, cluster_name)",
 		},
 		{
 			name:   "idx_alerts_cluster_severity",
 			model:  &models.Alert{},
-			create: "CREATE INDEX idx_alerts_cluster_severity ON alerts(cluster_name, severity)",
+			create: "CREATE INDEX idx_alerts_cluster_severity ON spydon_alerts(cluster_name, severity)",
 		},
 		{
 			name:   "idx_alerts_status_created",
 			model:  &models.Alert{},
-			create: "CREATE INDEX idx_alerts_status_created ON alerts(status, created_at DESC)",
+			create: "CREATE INDEX idx_alerts_status_created ON spydon_alerts(status, created_at DESC)",
 		},
 		{
 			name:   "idx_rca_runs_alert_status",
 			model:  &models.RCARun{},
-			create: "CREATE INDEX idx_rca_runs_alert_status ON rca_runs(alert_id, status)",
+			create: "CREATE INDEX idx_rca_runs_alert_status ON spydon_rca_runs(alert_id, status)",
 		},
 		{
 			name:   "idx_audit_logs_user_action",
 			model:  &models.AuditLog{},
-			create: "CREATE INDEX idx_audit_logs_user_action ON audit_logs(user_id, action, created_at DESC)",
+			create: "CREATE INDEX idx_audit_logs_user_action ON spydon_audit_logs(user_id, action, created_at DESC)",
 		},
 		{
 			name:   "idx_api_keys_user_id",
 			model:  &models.APIKey{},
-			create: "CREATE INDEX idx_api_keys_user_id ON api_keys(user_id)",
+			create: "CREATE INDEX idx_api_keys_user_id ON spydon_api_keys(user_id)",
 		},
 		{
 			name:   "idx_api_keys_key_prefix",
 			model:  &models.APIKey{},
-			create: "CREATE INDEX idx_api_keys_key_prefix ON api_keys(key_prefix)",
+			create: "CREATE INDEX idx_api_keys_key_prefix ON spydon_api_keys(key_prefix)",
 		},
 		{
 			name:   "idx_kb_rule_norm_status",
 			model:  &models.KnowledgeArticle{},
-			create: "CREATE INDEX idx_kb_rule_norm_status ON knowledge_articles(alert_rule_name_normalized, status)",
+			create: "CREATE INDEX idx_kb_rule_norm_status ON spydon_knowledge_articles(alert_rule_name_normalized, status)",
 		},
 	}
 

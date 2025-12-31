@@ -30,5 +30,5 @@ type KnowledgeArticleVersion struct {
 	CreatedAt     time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
-func (KnowledgeArticle) TableName() string        { return "knowledge_articles" }
-func (KnowledgeArticleVersion) TableName() string { return "knowledge_article_versions" }
+func (KnowledgeArticle) TableName() string        { return "spydon_knowledge_articles" }
+func (KnowledgeArticleVersion) TableName() string { return "spydon_knowledge_article_versions" }

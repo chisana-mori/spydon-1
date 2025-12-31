@@ -59,10 +59,10 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
     enabled: !!id,
   })
 
-  const cluster = clusterData?.data
+  const cluster = clusterData
   const alerts = alertsData?.data || []
-  const alertStats = alertStatsData?.data
-  const rcaStats = rcaStatsData?.data
+  const alertStats = alertStatsData
+  const rcaStats = rcaStatsData
 
   if (isLoading) {
     return (

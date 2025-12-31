@@ -108,7 +108,7 @@ export default function AlertDetailPage({ params }: AlertDetailPageProps) {
 
 
 
-  const alert = alertData?.data
+  const alert = alertData
 
   if (isLoading) {
     return (

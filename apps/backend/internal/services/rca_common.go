@@ -25,7 +25,7 @@ var severityPriorityCaseExpr = buildSeverityPriorityCaseExpr()
 
 func buildSeverityPriorityCaseExpr() string {
 	var builder strings.Builder
-	builder.WriteString("CASE alerts.severity ")
+	builder.WriteString("CASE spydon_alerts.severity ")
 	maxRank := len(severityPriorityOrder)
 	for idx, severity := range severityPriorityOrder {
 		builder.WriteString(fmt.Sprintf("WHEN '%s' THEN %d ", severity, maxRank-idx))
