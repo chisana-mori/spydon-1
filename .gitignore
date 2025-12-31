@@ -31,4 +31,5 @@ HolmesGPT-*.md
 **.rar
 **.tar
 **gocache**
-var/gomod**%
+**var/gomod**
+**.log

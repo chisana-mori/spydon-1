@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "spydon",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "/Users/ny/Documents/robusta-web/apps/backend/cmd/server/main.go",
+            "cwd": "/Users/ny/Documents/robusta-web/apps/backend"
+        }
+    ]
+}
