@@ -34,7 +34,7 @@ function KnowledgeCreatePageContent() {
         alert_rule_name: value.alertRuleName,
         tags: value.tags,
       })
-      const id = created.data?.id
+      const id = created.id
       if (!id) throw new Error('创建失败：缺少ID')
 
       // 2) 保存 manifest（只包含 tiptap 格式）

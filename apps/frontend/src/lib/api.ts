@@ -184,6 +184,7 @@ export class RobustaAPI {
         page_size?: number
         status?: string
         keyword?: string
+        rule_name?: string
     }): Promise<PaginationResponse<KnowledgeArticle>> {
         const response = await apiClient.get('/knowledge', { params })
         return response.data

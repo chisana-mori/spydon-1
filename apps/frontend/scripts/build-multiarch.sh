@@ -53,8 +53,9 @@ if [ "$PUSH" = "true" ]; then
         --file Dockerfile.multiarch \
         --push .
 else
-    # 本地加载（仅当前架构）
+    # 本地加载（强制 linux/arm64 并保存为 frontend.tar）
     docker buildx build \
+        --platform linux/arm64 \
         --build-arg VERSION="${VERSION}" \
         --build-arg COMMIT_SHA="${COMMIT_SHA}" \
         --build-arg BUILD_TIME="${BUILD_TIME}" \
@@ -63,6 +64,9 @@ else
         --tag "${FULL_IMAGE}:latest" \
         --file Dockerfile.multiarch \
         --load .
+
+    echo "💾 Saving image to frontend.tar..."
+    docker save -o frontend.tar "${FULL_IMAGE}:${VERSION}"
 fi
 
 echo "✅ Build completed: ${FULL_IMAGE}:${VERSION}"

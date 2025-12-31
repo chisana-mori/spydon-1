@@ -75,7 +75,7 @@ function KnowledgeHomePageContent() {
     queryFn: () => RobustaAPI.listKnowledge({
       page,
       page_size: pageSize,
-      alert_rule_name: searchKeyword || undefined
+      rule_name: searchKeyword || undefined
     }),
     staleTime: 0,
   })

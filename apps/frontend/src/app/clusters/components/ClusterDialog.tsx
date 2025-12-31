@@ -7,8 +7,6 @@ import * as z from 'zod'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import yaml from 'js-yaml'
-import Editor from '@monaco-editor/react'
-import { useThemeStore } from '@/stores/themeStore'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +35,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
+import { YamlEditor } from '@/components/ui/yaml-editor'
 import RobustaAPI from '@/lib/api'
 import { Cluster } from '@/types/api'
 
@@ -73,11 +72,7 @@ export function ClusterDialog({
     onSuccess,
 }: ClusterDialogProps) {
     const [loading, setLoading] = useState(false)
-    const { theme } = useThemeStore()
     const isEdit = !!cluster
-
-    // Determine editor theme based on app theme
-    const editorTheme = theme === 'dark' ? 'vs-dark' : 'light'
 
     const form = useForm({
         resolver: zodResolver(formSchema),
@@ -280,7 +275,6 @@ export function ClusterDialog({
                                                     size="sm"
                                                     className="h-7 text-xs"
                                                     onClick={() => {
-                                                        // Example snippet if empty? Or just format
                                                         formatKubeConfig(field.value || '')
                                                     }}
                                                 >
@@ -288,26 +282,12 @@ export function ClusterDialog({
                                                 </Button>
                                             </div>
                                         </div>
-                                        <div className="border rounded-md overflow-hidden h-[400px] relative">
-                                            <Editor
-                                                height="100%"
-                                                defaultLanguage="yaml"
-                                                theme={editorTheme}
-                                                value={field.value ?? ""}
-                                                onChange={(value) => field.onChange(value)}
-                                                options={{
-                                                    minimap: { enabled: false },
-                                                    scrollBeyondLastLine: false,
-                                                    fontSize: 13,
-                                                    automaticLayout: true,
-                                                    tabSize: 2,
-                                                    wordWrap: 'on',
-                                                    scrollbar: {
-                                                        alwaysConsumeMouseWheel: false,
-                                                    },
-                                                }}
-                                            />
-                                        </div>
+                                        <YamlEditor
+                                            value={field.value ?? ""}
+                                            onChange={(value) => field.onChange(value)}
+                                            placeholder="# 粘贴 KubeConfig YAML 内容..."
+                                            height="400px"
+                                        />
                                         <FormDescription>
                                             请粘贴标准的 Kubernetes 配置文件 (Admin KubeConfig)。
                                         </FormDescription>
