@@ -55,6 +55,13 @@ type MinIOConfig struct {
 	UseSSL     bool   `mapstructure:"use_ssl" json:"use_ssl" yaml:"use_ssl"`
 }
 
+// KiteConfig Kite 集成配置
+type KiteConfig struct {
+	Enabled     bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	DatabaseURL string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
+	DBType      string `mapstructure:"db_type" json:"db_type" yaml:"db_type"` // mysql, postgres, sqlite
+}
+
 // Config 应用配置结构
 type Config struct {
 	Environment string `mapstructure:"environment" json:"environment" yaml:"environment"`
@@ -76,6 +83,7 @@ type Config struct {
 	CAS       CASConfig       `mapstructure:"cas" json:"cas" yaml:"cas"`
 	Email     EmailConfig     `mapstructure:"email" json:"email" yaml:"email"`
 	MinIO     MinIOConfig     `mapstructure:"minio" json:"minio" yaml:"minio"`
+	Kite      KiteConfig      `mapstructure:"kite" json:"kite" yaml:"kite"`
 
 	RateLimitRPS int    `mapstructure:"rate_limit_rps" json:"rate_limit_rps" yaml:"rate_limit_rps"`
 	LogLevel     string `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
@@ -181,4 +189,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("email.from", "")
 	v.SetDefault("email.rca_to", "")
 	v.SetDefault("email.enabled", false)
+
+	v.SetDefault("kite.enabled", false)
+	v.SetDefault("kite.database_url", "")
+	v.SetDefault("kite.db_type", "mysql")
 }

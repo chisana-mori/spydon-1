@@ -50,3 +50,9 @@ email:
   from: ""
   rca_to: ""
   enabled: false
+
+# Kite 集群同步配置
+kite:
+  enabled: false  # 是否启用 Kite 集群同步
+  database_url: root:password@tcp(localhost:3306)/kite?charset=utf8mb4&parseTime=True&loc=Local
+  db_type: mysql  # mysql, postgres, sqlite

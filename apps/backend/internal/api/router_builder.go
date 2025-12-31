@@ -31,7 +31,13 @@ type handlerSet struct {
 }
 
 func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, error) {
-	clusterService := services.NewClusterService(database)
+	// 初始化 Kite 数据库连接（可选）
+	kiteDB, err := db.InitializeKiteDB(cfg.Kite)
+	if err != nil {
+		return nil, err
+	}
+
+	clusterService := services.NewClusterService(database, kiteDB)
 	auditService := services.NewAuditService(database)
 
 	objectStorage, err := services.NewObjectStorageService(cfg)

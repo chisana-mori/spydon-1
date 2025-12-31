@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -16,13 +18,15 @@ import (
 
 // ClusterService 集群服务
 type ClusterService struct {
-	db *db.Database
+	db     *db.Database
+	kiteDB *db.KiteDatabase // Kite 数据库连接（可选）
 }
 
 // NewClusterService 创建新的集群服务
-func NewClusterService(database *db.Database) *ClusterService {
+func NewClusterService(database *db.Database, kiteDB *db.KiteDatabase) *ClusterService {
 	return &ClusterService{
-		db: database,
+		db:     database,
+		kiteDB: kiteDB,
 	}
 }
 
@@ -183,6 +187,9 @@ func (s *ClusterService) DeleteCluster(clusterName string) error {
 		return fmt.Errorf("删除集群告警失败: %w", err)
 	}
 
+	// 同步删除到 Kite 数据库
+	s.syncDeleteToKite(clusterName)
+
 	return nil
 }
 
@@ -250,7 +257,14 @@ func (s *ClusterService) CreateCluster(cluster *models.Cluster) error {
 		return fmt.Errorf("cluster %s already exists", cluster.Name)
 	}
 
-	return s.db.Create(cluster).Error
+	if err := s.db.Create(cluster).Error; err != nil {
+		return err
+	}
+
+	// 同步创建到 Kite 数据库
+	s.syncCreateToKite(cluster)
+
+	return nil
 }
 
 // UpdateCluster 更新集群信息
@@ -260,7 +274,7 @@ func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 		return fmt.Errorf("kubeconfig validation failed: %w", err)
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var existingCluster models.Cluster
 		if err := tx.Where("name = ?", cluster.Name).First(&existingCluster).Error; err != nil {
 			return fmt.Errorf("cluster not found: %w", err)
@@ -274,4 +288,68 @@ func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 
 		return tx.Save(&existingCluster).Error
 	})
+
+	if err != nil {
+		return err
+	}
+
+	// 同步更新到 Kite 数据库
+	s.syncUpdateToKite(cluster)
+
+	return nil
+}
+
+// syncCreateToKite 同步创建集群到 Kite 数据库
+func (s *ClusterService) syncCreateToKite(cluster *models.Cluster) {
+	if s.kiteDB == nil {
+		return
+	}
+
+	kiteCluster := &db.KiteCluster{
+		Name:          cluster.Name,
+		Description:   cluster.Description,
+		Config:        cluster.KubeConfig,
+		PrometheusURL: cluster.PrometheusURL,
+		InCluster:     false,
+		IsDefault:     false,
+		Enable:        true,
+	}
+
+	if err := s.kiteDB.CreateCluster(kiteCluster); err != nil {
+		logger.L().Warn("同步集群到 Kite 失败", zap.String("cluster", cluster.Name), zap.Error(err))
+	} else {
+		logger.L().Info("已同步集群到 Kite", zap.String("cluster", cluster.Name))
+	}
+}
+
+// syncUpdateToKite 同步更新集群到 Kite 数据库
+func (s *ClusterService) syncUpdateToKite(cluster *models.Cluster) {
+	if s.kiteDB == nil {
+		return
+	}
+
+	updates := map[string]interface{}{
+		"description":    cluster.Description,
+		"config":         cluster.KubeConfig,
+		"prometheus_url": cluster.PrometheusURL,
+	}
+
+	if err := s.kiteDB.UpdateClusterByName(cluster.Name, updates); err != nil {
+		logger.L().Warn("同步更新集群到 Kite 失败", zap.String("cluster", cluster.Name), zap.Error(err))
+	} else {
+		logger.L().Info("已同步更新集群到 Kite", zap.String("cluster", cluster.Name))
+	}
+}
+
+// syncDeleteToKite 同步删除集群到 Kite 数据库
+func (s *ClusterService) syncDeleteToKite(clusterName string) {
+	if s.kiteDB == nil {
+		return
+	}
+
+	if err := s.kiteDB.DeleteClusterByName(clusterName); err != nil {
+		logger.L().Warn("同步删除集群到 Kite 失败", zap.String("cluster", clusterName), zap.Error(err))
+	} else {
+		logger.L().Info("已同步删除集群到 Kite", zap.String("cluster", clusterName))
+	}
 }
