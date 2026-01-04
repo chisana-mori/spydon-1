@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -326,6 +327,39 @@ func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, 
 			StageType:   stage.Type,
 			Status:      models.StageRunStatusPending,
 		}
+
+		// 对于 AWX Job 阶段，在提交任务时就克隆模板并绑定 Inventory 和其他配置
+		if stage.Type == models.StageTypeAWXJob && e.jobRuntime != nil && stage.Config.AWXTemplateID > 0 {
+			// 构建克隆配置
+			cloneConfig := CloneTemplateConfig{
+				TemplateID:   stage.Config.AWXTemplateID,
+				TemplateName: stage.Config.AWXTemplateName,
+				ClusterName:  cluster.Name,
+			}
+
+			// 处理 extra_vars，添加 cluster_name
+			if len(stage.Config.ExtraVars) > 0 {
+				cloneConfig.ExtraVars = make(map[string]interface{})
+				for k, v := range stage.Config.ExtraVars {
+					cloneConfig.ExtraVars[k] = v
+				}
+			}
+
+			clonedID, cloneErr := e.jobRuntime.PrepareClonedTemplate(ctx, cloneConfig)
+			if cloneErr != nil {
+				logger.L().Warn("克隆模板失败，将在执行时使用原模板",
+					zap.Int("template_id", stage.Config.AWXTemplateID),
+					zap.Error(cloneErr))
+			} else {
+				stageRun.ClonedTemplateID = &clonedID
+				logger.L().Info("AWX 模板已克隆",
+					zap.Uint64("execution_id", execution.ID),
+					zap.String("stage_id", stage.ID),
+					zap.Int("original_template_id", stage.Config.AWXTemplateID),
+					zap.Int("cloned_template_id", clonedID))
+			}
+		}
+
 		if err := e.db.Create(stageRun).Error; err != nil {
 			return nil, fmt.Errorf("创建阶段记录失败: %w", err)
 		}
@@ -610,9 +644,18 @@ func (e *PipelineEngine) executeAWXJob(ctx context.Context, stageRun *models.Sta
 	}
 	extraVars["cluster_name"] = clusterName
 
+	// 确定使用的模板 ID（优先使用克隆模板）
+	templateID := config.AWXTemplateID
+	if stageRun.ClonedTemplateID != nil && *stageRun.ClonedTemplateID > 0 {
+		templateID = *stageRun.ClonedTemplateID
+		logger.L().Debug("使用克隆模板执行",
+			zap.Int("cloned_template_id", templateID),
+			zap.Int("original_template_id", config.AWXTemplateID))
+	}
+
 	// 构建任务配置
 	jobConfig := JobConfig{
-		TemplateID:   config.AWXTemplateID,
+		TemplateID:   templateID,
 		TemplateName: config.AWXTemplateName,
 		ExtraVars:    extraVars,
 		DryRun:       config.DryRun,
@@ -627,6 +670,8 @@ func (e *PipelineEngine) executeAWXJob(ctx context.Context, stageRun *models.Sta
 	// 启动任务
 	handle, err := e.jobRuntime.LaunchJob(ctx, jobConfig)
 	if err != nil {
+		// 启动失败也要清理克隆模板
+		e.cleanupClonedTemplate(stageRun)
 		return StageResult{Success: false, Error: fmt.Sprintf("启动任务失败: %v", err)}
 	}
 
@@ -637,6 +682,7 @@ func (e *PipelineEngine) executeAWXJob(ctx context.Context, stageRun *models.Sta
 	// 等待任务完成
 	result, err := e.jobRuntime.WaitForJob(ctx, handle, 5*time.Second)
 	if err != nil {
+		e.cleanupClonedTemplate(stageRun)
 		return StageResult{Success: false, Error: fmt.Sprintf("等待任务失败: %v", err)}
 	}
 
@@ -650,11 +696,40 @@ func (e *PipelineEngine) executeAWXJob(ctx context.Context, stageRun *models.Sta
 	stageRun.Output = datatypes.JSON(outputBytes)
 	e.db.Save(stageRun)
 
+	// 任务完成后清理克隆模板
+	e.cleanupClonedTemplate(stageRun)
+
 	if !result.Success {
 		return StageResult{Success: false, Error: fmt.Sprintf("任务执行失败: %s", result.Status), Output: outputJSON}
 	}
 
 	return StageResult{Success: true, Output: outputJSON}
+}
+
+// cleanupClonedTemplate 清理克隆模板（在任务完成后调用）
+func (e *PipelineEngine) cleanupClonedTemplate(stageRun *models.StageRun) {
+	if stageRun.ClonedTemplateID == nil || *stageRun.ClonedTemplateID <= 0 {
+		return
+	}
+
+	if e.jobRuntime == nil {
+		return
+	}
+
+	// 使用独立的 context 清理，避免被父 context 取消
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := e.jobRuntime.CleanupClonedTemplate(cleanupCtx, *stageRun.ClonedTemplateID); err != nil {
+		logger.L().Warn("清理克隆模板失败",
+			zap.Uint64("stage_run_id", stageRun.ID),
+			zap.Int("cloned_template_id", *stageRun.ClonedTemplateID),
+			zap.Error(err))
+	} else {
+		logger.L().Debug("克隆模板已清理",
+			zap.Uint64("stage_run_id", stageRun.ID),
+			zap.Int("cloned_template_id", *stageRun.ClonedTemplateID))
+	}
 }
 
 // executeManualGate 执行人工审批门
@@ -1289,4 +1364,137 @@ func (e *PipelineEngine) GetJobTemplate(ctx context.Context, id int) (*JobTempla
 		return nil, fmt.Errorf("任务运行时未配置")
 	}
 	return e.jobRuntime.GetTemplate(ctx, id)
+}
+
+// GetInventoryVariables 获取集群对应的Inventory变量
+func (e *PipelineEngine) GetInventoryVariables(ctx context.Context, clusterName string) (string, error) {
+	if e.jobRuntime == nil {
+		return "", errors.New("job runtime not configured")
+	}
+	return e.jobRuntime.GetInventoryVariables(ctx, clusterName)
+}
+
+// GenerateSOPFlow 生成 AI-SOP 所需的完整执行流定义
+func (e *PipelineEngine) GenerateSOPFlow(ctx context.Context, executionID uint64) (*models.SOPFlow, error) {
+	if err := e.ensureDB(); err != nil {
+		return nil, err
+	}
+
+	// 1. 获取执行记录
+	var execution models.PipelineExecution
+	if err := e.db.Preload("Template").First(&execution, executionID).Error; err != nil {
+		return nil, fmt.Errorf("Execution not found: %w", err)
+	}
+
+	// 2. 解析 Stage 配置
+	var stages []models.StageDefinition
+	// 优先使用 EffectiveStages (实际执行的阶段)，如果为空则回退到 Template 的 Stages
+	if len(execution.EffectiveStages) > 0 {
+		// EffectiveStages 是 datatypes.JSON ([]byte)
+		// 需要特定的结构体来解析，或者 []StageDefinition
+		// 但 EffectiveStages 存储是 JSON，这里假设结构兼容
+		if err := json.Unmarshal(execution.EffectiveStages, &stages); err != nil {
+			logger.L().Warn("Parsed effective_stages failed, fallback to template", zap.Error(err))
+		}
+	}
+
+	if len(stages) == 0 && execution.Template != nil {
+		if err := json.Unmarshal(execution.Template.Stages, &stages); err != nil {
+			return nil, fmt.Errorf("解析模板 Stages 失败: %w", err)
+		}
+	}
+
+	// 3. 构建 SOP Flow
+	sopFlow := &models.SOPFlow{
+		ExecutionID:  execution.ID,
+		PipelineName: execution.Template.Name, // 假设 Template 已加载
+		ClusterName:  execution.ClusterName,
+		GlobalParams: execution.Parameters,
+		Stages:       make([]models.SOPStage, 0, len(stages)),
+	}
+
+	// 4. 遍历阶段并填充详情
+	for _, stage := range stages {
+		sopStage := models.SOPStage{
+			StageID:   stage.ID,
+			StageName: stage.Name,
+			Type:      stage.Type,
+		}
+
+		switch stage.Type {
+		case models.StageTypeAWXJob:
+			// 获取 AWX 模板详情 (Playbook 等)
+			// 注意：这里我们获取的是**原始**模板的详情，因为 SOP 分析的是这一类任务的逻辑
+			// 用户在任务中可能配置了 override 参数，也应该包含进去
+			templateInfo, err := e.GetJobTemplate(ctx, stage.Config.AWXTemplateID)
+			if err != nil {
+				logger.L().Warn("获取 AWX Template 详情失败",
+					zap.Int("id", stage.Config.AWXTemplateID), zap.Error(err))
+				// 继续执行，只是缺少部分信息
+			}
+
+			// 获取 Inventory 变量 (如果 ClusterName 存在)
+			inventoryVars := ""
+			if execution.ClusterName != "" {
+				vars, err := e.GetInventoryVariables(ctx, execution.ClusterName)
+				if err != nil {
+					logger.L().Warn("获取 Inventory 变量失败",
+						zap.String("cluster", execution.ClusterName), zap.Error(err))
+				} else {
+					inventoryVars = vars
+				}
+			}
+
+			limit := ""
+			if val, ok := stage.Config.ExtraVars["limit"]; ok {
+				limit = val
+			}
+
+			awxDetail := &models.SOPAWXJobDetail{
+				TemplateID:    stage.Config.AWXTemplateID,
+				TemplateName:  stage.Config.AWXTemplateName,
+				Limit:         limit,
+				ExtraVars:     make(map[string]interface{}),
+				Inventory:     execution.ClusterName, // 默认使用 ClusterName 作为 Inventory 名
+				InventoryVars: inventoryVars,
+			}
+
+			if templateInfo != nil {
+				awxDetail.Playbook = templateInfo.Playbook
+				// 合并 Template 默认的 extra_vars? 暂时不需要，AI 可以自己分析
+				// 但如果有 override 的 extra_vars，需要加上
+			}
+
+			// 合并 Stage 级别的 ExtraVars
+			if stage.Config.ExtraVars != nil {
+				for k, v := range stage.Config.ExtraVars {
+					awxDetail.ExtraVars[k] = v
+				}
+			}
+
+			// 合并运行时参数 (Global execution parameters) - 如果有参数绑定逻辑，这里应该处理
+			// 简单起见，暂时把 GlobalParams 也包含进去或者由前端/AI处理
+			// 这里我们只处理明确配置在 Stage 上的
+
+			sopStage.AWXJob = awxDetail
+
+		case models.StageTypeManualGate:
+			sopStage.ManualGate = &models.SOPManualGateDetail{
+				ApproverRoles: stage.Config.ApproverRoles,
+				Timeout:       stage.Config.TimeoutMinutes,
+			}
+		}
+
+		sopFlow.Stages = append(sopFlow.Stages, sopStage)
+	}
+
+	return sopFlow, nil
+}
+
+// UpdateInventoryVariables 更新集群对应的Inventory变量
+func (e *PipelineEngine) UpdateInventoryVariables(ctx context.Context, clusterName string, variables string) error {
+	if e.jobRuntime == nil {
+		return fmt.Errorf("任务运行时未配置")
+	}
+	return e.jobRuntime.UpdateInventoryVariables(ctx, clusterName, variables)
 }

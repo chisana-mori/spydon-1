@@ -300,6 +300,10 @@ export class RobustaAPI {
         await apiClient.post(`/pipelines/executions/${id}/run`)
     }
 
+    static async generateSOPFlow(id: string): Promise<any> {
+        return handleResponse(apiClient.get(`/pipelines/executions/${id}/sop`))
+    }
+
     // AWX Templates
     static async listAWXTemplates(): Promise<AWXJobTemplate[]> {
         return handleResponse(apiClient.get('/pipelines/awx/templates'))
@@ -307,6 +311,16 @@ export class RobustaAPI {
 
     static async getAWXTemplate(id: number): Promise<AWXJobTemplate> {
         return handleResponse(apiClient.get(`/pipelines/awx/templates/${id}`))
+    }
+
+    // AWX Inventory Variables
+    static async getInventoryVariables(clusterName: string): Promise<string> {
+        const response = await apiClient.get(`/pipelines/awx/inventories/${clusterName}/variables`)
+        return response.data?.data?.variables ?? ''
+    }
+
+    static async updateInventoryVariables(clusterName: string, variables: string): Promise<void> {
+        await apiClient.put(`/pipelines/awx/inventories/${clusterName}/variables`, { variables })
     }
 
     // ============ Navy Devices ============

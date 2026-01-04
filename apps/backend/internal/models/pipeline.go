@@ -123,22 +123,23 @@ const (
 
 // StageRun 阶段执行记录
 type StageRun struct {
-	ID            uint64         `json:"id" gorm:"primaryKey;autoIncrement"`
-	ExecutionID   uint64         `json:"execution_id" gorm:"type:bigint unsigned;not null"`
-	StageID       string         `json:"stage_id" gorm:"type:varchar(64);not null"`
-	StageName     string         `json:"stage_name" gorm:"type:varchar(255)"`
-	StageType     StageType      `json:"stage_type" gorm:"type:varchar(32)"`
-	Status        StageRunStatus `json:"status" gorm:"type:varchar(32);not null;default:pending"`
-	AWXJobID      *int           `json:"awx_job_id" gorm:"type:int"`
-	AWXJobStatus  string         `json:"awx_job_status" gorm:"type:varchar(32)"`
-	Output        datatypes.JSON `json:"output" gorm:"type:json"` // 阶段输出/结果
-	ErrorMessage  *string        `json:"error_message" gorm:"type:text"`
-	StartedAt     *time.Time     `json:"started_at"`
-	CompletedAt   *time.Time     `json:"completed_at"`
-	ApprovedBy    *uint64        `json:"approved_by" gorm:"type:bigint unsigned"`
-	ApprovalNotes string         `json:"approval_notes" gorm:"type:text"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	ID               uint64         `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID      uint64         `json:"execution_id" gorm:"type:bigint unsigned;not null"`
+	StageID          string         `json:"stage_id" gorm:"type:varchar(64);not null"`
+	StageName        string         `json:"stage_name" gorm:"type:varchar(255)"`
+	StageType        StageType      `json:"stage_type" gorm:"type:varchar(32)"`
+	Status           StageRunStatus `json:"status" gorm:"type:varchar(32);not null;default:pending"`
+	AWXJobID         *int           `json:"awx_job_id" gorm:"type:int"`
+	AWXJobStatus     string         `json:"awx_job_status" gorm:"type:varchar(32)"`
+	ClonedTemplateID *int           `json:"cloned_template_id" gorm:"type:int"` // 克隆的 AWX Template ID（用于动态 Inventory 绑定）
+	Output           datatypes.JSON `json:"output" gorm:"type:json"`            // 阶段输出/结果
+	ErrorMessage     *string        `json:"error_message" gorm:"type:text"`
+	StartedAt        *time.Time     `json:"started_at"`
+	CompletedAt      *time.Time     `json:"completed_at"`
+	ApprovedBy       *uint64        `json:"approved_by" gorm:"type:bigint unsigned"`
+	ApprovalNotes    string         `json:"approval_notes" gorm:"type:text"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 // StageRunStatus 阶段运行状态

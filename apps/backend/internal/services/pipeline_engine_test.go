@@ -104,6 +104,23 @@ func (m *MockJobRuntime) GetTemplate(ctx context.Context, id int) (*JobTemplateI
 	return nil, errors.New("template not found")
 }
 
+func (m *MockJobRuntime) GetInventoryVariables(ctx context.Context, clusterName string) (string, error) {
+	return "---\nkey: value", nil
+}
+
+func (m *MockJobRuntime) UpdateInventoryVariables(ctx context.Context, clusterName string, variables string) error {
+	return nil
+}
+
+func (m *MockJobRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemplateConfig) (int, error) {
+	// 返回一个模拟的克隆模板 ID
+	return config.TemplateID + 10000, nil
+}
+
+func (m *MockJobRuntime) CleanupClonedTemplate(ctx context.Context, clonedTemplateID int) error {
+	return nil
+}
+
 // Reset 重置计数器
 func (m *MockJobRuntime) Reset() {
 	m.mu.Lock()

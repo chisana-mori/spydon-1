@@ -16,6 +16,18 @@ type JobTemplate struct {
 	ExtraVars        string `json:"extra_vars"` // usually YAML/JSON string
 }
 
+// JobTemplateCopyRequest 复制模板的请求参数
+type JobTemplateCopyRequest struct {
+	Name string `json:"name"` // 新模板名称
+}
+
+// JobTemplateUpdateRequest 更新模板的请求参数
+type JobTemplateUpdateRequest struct {
+	Inventory int    `json:"inventory,omitempty"`  // 绑定的 Inventory ID
+	Limit     string `json:"limit,omitempty"`      // 执行范围限制（主机列表）
+	ExtraVars string `json:"extra_vars,omitempty"` // 额外变量 (JSON/YAML 格式)
+}
+
 // Job AWX Job 实例
 type Job struct {
 	ID              int        `json:"id"`
@@ -88,6 +100,20 @@ type Inventory struct {
 	Description string `json:"description"`
 	TotalHosts  int    `json:"total_hosts"`
 	TotalGroups int    `json:"total_groups"`
+	Variables   string `json:"variables"` // YAML/JSON format variables
+}
+
+// InventoryUpdateRequest 更新Inventory的请求参数
+type InventoryUpdateRequest struct {
+	Variables string `json:"variables"` // YAML format variables
+}
+
+// InventoryCreateRequest 创建Inventory的请求参数
+type InventoryCreateRequest struct {
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	Organization int    `json:"organization"` // AWX Organization ID (必须, 通常为1)
+	Variables    string `json:"variables,omitempty"`
 }
 
 // JobStatus Job 状态常量

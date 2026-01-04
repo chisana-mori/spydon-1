@@ -39,13 +39,15 @@ import {
   Eye,
   Plus,
   Pencil,
-  Trash2
+  Trash2,
+  Settings,
 } from 'lucide-react'
 import RobustaAPI from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { KiteLink } from '@/components/kite'
 import { ClusterDialog } from './components/ClusterDialog'
+import { InventoryVariablesDialog } from './components/InventoryVariablesDialog'
 import { toast } from 'sonner'
 import { Cluster } from '@/types/api'
 
@@ -60,6 +62,7 @@ export default function Clusters() {
   const [editingCluster, setEditingCluster] = useState<Cluster | null>(null)
   const [deletingCluster, setDeletingCluster] = useState<Cluster | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [inventoryCluster, setInventoryCluster] = useState<Cluster | null>(null)
 
   // 获取集群列表
   const { data: clustersData, isLoading, refetch } = useQuery({
@@ -282,6 +285,14 @@ export default function Clusters() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            title="参数配置"
+                            onClick={() => setInventoryCluster(cluster)}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             title="编辑"
                             onClick={() => setEditingCluster(cluster)}
                           >
@@ -376,6 +387,16 @@ export default function Clusters() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Inventory 参数配置对话框 */}
+      <InventoryVariablesDialog
+        open={!!inventoryCluster}
+        onOpenChange={(open) => !open && setInventoryCluster(null)}
+        clusterName={inventoryCluster?.name || ''}
+        onSuccess={() => {
+          toast.success('Inventory 参数已更新')
+        }}
+      />
     </div>
   )
 }

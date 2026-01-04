@@ -1,0 +1,12 @@
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
+metadata:
+  name: awx
+  namespace: awx
+spec:
+  # Ask operator to create AWX with a NodePort service so it can be reached from the kind node
+  service_type: NodePort
+  # No ingress; we'll access via NodePort/port-forward
+  ingress_type: none
+  # Optional: allow privileged tasks if you plan to run privileged jobs
+  task_privileged: true

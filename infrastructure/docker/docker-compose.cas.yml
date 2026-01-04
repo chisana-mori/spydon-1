@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Apereo CAS服务
   cas:
@@ -21,8 +19,8 @@ services:
       CAS_SERVICE_REGISTRY_JSON_ENABLED: "true"
       CAS_SERVICE_REGISTRY_CORE_INIT_FROM_JSON: "true"
 
-      # 认证配置 - 使用静态用户
-      CAS_AUTHN_ACCEPT_USERS: casuser::Mellon,hny::Mellon,hbc::Mellon,navy::Mellon,wayne::Mellon
+      # 认证配置 - 使用静态用户 (create yzg,hny,admin with password 'admin')
+      CAS_AUTHN_ACCEPT_USERS: "yzg::admin,hny::admin,admin::admin"
       CAS_AUTHN_ACCEPT_ENABLED: true
 
       # CAS Profiles
@@ -41,8 +39,14 @@ services:
       - "8443:8443"
 
     volumes:
-      - ../cas/config:/etc/cas:ro
-      - ../cas/runtime/logs:/etc/cas/logs
+      # Mount only the config subdirectory so we don't override the container's /etc/cas
+      - ../cas/config:/etc/cas/config:ro
+      # Mount JSON service registrations so CAS can load them
+      - ../cas/services:/etc/cas/services:ro
+      # Use a named volume for writable logs at /etc/cas/logs
+      - cas-logs:/etc/cas/logs
+      # Mount a host keystore file (create at ../cas/thekeystore) for TLS
+      - ../cas/thekeystore:/etc/cas/thekeystore:ro
 
     command: ["java", "-jar", "/etc/cas/war/cas.war"]
 
@@ -60,5 +64,8 @@ services:
 
 networks:
   robusta-network:
-    external:
-      name: robusta-web_robusta-network
+    driver: bridge
+
+volumes:
+  cas-logs:
+    driver: local

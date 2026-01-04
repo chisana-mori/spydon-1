@@ -318,6 +318,9 @@ func (r *routeRegistrar) registerPipelineRoutes(v1 *gin.RouterGroup) {
 	awxGroup.Use(middleware.RequireAdmin())
 	awxGroup.GET("/templates", r.handlers.pipeline.ListAWXTemplates)
 	awxGroup.GET("/templates/:id", r.handlers.pipeline.GetAWXTemplate)
+	// AWX Inventory Variables
+	awxGroup.GET("/inventories/:name/variables", r.handlers.pipeline.GetInventoryVariables)
+	awxGroup.PUT("/inventories/:name/variables", r.handlers.pipeline.UpdateInventoryVariables)
 
 	// Pipeline Executions (需登录)
 	execGroup := v1.Group("/pipelines/executions")
@@ -331,6 +334,8 @@ func (r *routeRegistrar) registerPipelineRoutes(v1 *gin.RouterGroup) {
 	execGroup.POST("/:id/resume", r.handlers.pipeline.ResumeExecution)
 	execGroup.POST("/:id/cancel", r.handlers.pipeline.CancelExecution)
 	execGroup.POST("/:id/rollback", r.handlers.pipeline.RollbackExecution)
+	execGroup.POST("/:id/run", r.handlers.pipeline.RunPendingExecution)
+	execGroup.GET("/:id/sop", r.handlers.pipeline.GenerateSOPFlow) // AI-SOP 接口
 }
 
 func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {

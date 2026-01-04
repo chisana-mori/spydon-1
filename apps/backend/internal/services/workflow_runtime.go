@@ -31,6 +31,30 @@ type JobRuntime interface {
 
 	// GetTemplate 获取单个任务模板详情
 	GetTemplate(ctx context.Context, id int) (*JobTemplateInfo, error)
+
+	// GetInventoryVariables 获取集群对应的Inventory变量（YAML格式）
+	// clusterName 对应 AWX Inventory 名称
+	GetInventoryVariables(ctx context.Context, clusterName string) (string, error)
+
+	// UpdateInventoryVariables 更新集群对应的Inventory变量
+	// variables 为 YAML 格式的变量字符串
+	UpdateInventoryVariables(ctx context.Context, clusterName string, variables string) error
+
+	// PrepareClonedTemplate 准备克隆模板（在提交任务时调用）
+	// 克隆原模板并绑定指定的 Inventory、Limit、ExtraVars 等配置，返回克隆模板 ID
+	PrepareClonedTemplate(ctx context.Context, config CloneTemplateConfig) (int, error)
+
+	// CleanupClonedTemplate 清理克隆模板（在任务完成后调用）
+	CleanupClonedTemplate(ctx context.Context, clonedTemplateID int) error
+}
+
+// CloneTemplateConfig 克隆模板配置
+type CloneTemplateConfig struct {
+	TemplateID   int                    `json:"template_id"`   // 原模板 ID
+	TemplateName string                 `json:"template_name"` // 原模板名称（用于生成克隆名称）
+	ClusterName  string                 `json:"cluster_name"`  // 目标集群名称（用于绑定 Inventory）
+	Limit        string                 `json:"limit"`         // 执行范围限制
+	ExtraVars    map[string]interface{} `json:"extra_vars"`    // 额外变量
 }
 
 // JobConfig 任务启动配置
@@ -62,7 +86,8 @@ type JobTemplateInfo struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	ExtraVars   string `json:"extra_vars,omitempty"` // 模板变量定义(JSON/YAML)
+	Playbook    string `json:"playbook"`   // Playbook 文件名
+	ExtraVars   string `json:"extra_vars"` // 模板变量定义(JSON/YAML)
 }
 
 // MetricsRuntime 指标查询运行时接口

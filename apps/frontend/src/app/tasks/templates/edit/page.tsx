@@ -571,6 +571,16 @@ export default function TemplateEditorPage() {
                                                     </div>
                                                 </div>
 
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs text-muted-foreground">参数描述</Label>
+                                                    <Input
+                                                        value={param.description || ''}
+                                                        onChange={(e) => updateParameter(idx, { description: e.target.value })}
+                                                        className="h-8 shadow-none"
+                                                        placeholder="说明此参数的作用和用途..."
+                                                    />
+                                                </div>
+
                                                 {(param.input_type === 'select' || param.input_type === 'multi_select') && (
                                                     <div className="space-y-1.5">
                                                         <Label className="text-xs text-muted-foreground">选项 (逗号分隔)</Label>

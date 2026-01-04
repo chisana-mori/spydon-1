@@ -104,6 +104,72 @@ func (c *Client) GetJobTemplate(ctx context.Context, id int) (*JobTemplate, erro
 	return &template, nil
 }
 
+// CopyJobTemplate 复制Job Template
+func (c *Client) CopyJobTemplate(ctx context.Context, id int, newName string) (*JobTemplate, error) {
+	req := JobTemplateCopyRequest{Name: newName}
+	var template JobTemplate
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(req).
+		SetResult(&template).
+		Post(fmt.Sprintf("/api/v2/job_templates/%d/copy/", id))
+
+	if err != nil {
+		return nil, fmt.Errorf("复制模板失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusCreated {
+		return nil, fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	c.logger.Info("AWX Job Template已复制",
+		zap.Int("source_id", id),
+		zap.Int("new_id", template.ID),
+		zap.String("new_name", newName))
+	return &template, nil
+}
+
+// UpdateJobTemplate 更新Job Template配置（Inventory、Limit、ExtraVars等）
+func (c *Client) UpdateJobTemplate(ctx context.Context, id int, req JobTemplateUpdateRequest) error {
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(req).
+		Patch(fmt.Sprintf("/api/v2/job_templates/%d/", id))
+
+	if err != nil {
+		return fmt.Errorf("更新模板配置失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	c.logger.Debug("AWX Job Template配置已更新",
+		zap.Int("template_id", id),
+		zap.Int("inventory_id", req.Inventory),
+		zap.String("limit", req.Limit))
+	return nil
+}
+
+// DeleteJobTemplate 删除Job Template
+func (c *Client) DeleteJobTemplate(ctx context.Context, id int) error {
+	resp, err := c.client.R().
+		SetContext(ctx).
+		Delete(fmt.Sprintf("/api/v2/job_templates/%d/", id))
+
+	if err != nil {
+		return fmt.Errorf("删除模板失败: %w", err)
+	}
+
+	// 204 No Content 表示成功
+	if resp.StatusCode() != http.StatusNoContent && resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	c.logger.Debug("AWX Job Template已删除", zap.Int("template_id", id))
+	return nil
+}
+
 // LaunchJob 启动Job
 func (c *Client) LaunchJob(ctx context.Context, templateID int, req JobLaunchRequest) (*JobLaunchResponse, error) {
 	var result JobLaunchResponse
@@ -259,6 +325,95 @@ func (c *Client) ListInventories(ctx context.Context) ([]Inventory, error) {
 	}
 
 	return result.Results, nil
+}
+
+// GetInventoryByName 根据名称获取Inventory
+func (c *Client) GetInventoryByName(ctx context.Context, name string) (*Inventory, error) {
+	var result PaginatedResponse[Inventory]
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetQueryParam("name", name).
+		SetResult(&result).
+		Get("/api/v2/inventories/")
+
+	if err != nil {
+		return nil, fmt.Errorf("请求失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	if len(result.Results) == 0 {
+		return nil, fmt.Errorf("未找到名称为 %s 的Inventory", name)
+	}
+
+	return &result.Results[0], nil
+}
+
+// GetInventory 获取Inventory详情(包含variables)
+func (c *Client) GetInventory(ctx context.Context, id int) (*Inventory, error) {
+	var inventory Inventory
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetResult(&inventory).
+		Get(fmt.Sprintf("/api/v2/inventories/%d/", id))
+
+	if err != nil {
+		return nil, fmt.Errorf("请求失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	return &inventory, nil
+}
+
+// UpdateInventoryVariables 更新Inventory的变量
+func (c *Client) UpdateInventoryVariables(ctx context.Context, id int, variables string) error {
+	req := InventoryUpdateRequest{
+		Variables: variables,
+	}
+
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(req).
+		Patch(fmt.Sprintf("/api/v2/inventories/%d/", id))
+
+	if err != nil {
+		return fmt.Errorf("更新Inventory变量失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	c.logger.Info("AWX Inventory变量已更新", zap.Int("inventory_id", id))
+	return nil
+}
+
+// CreateInventory 创建新的Inventory
+func (c *Client) CreateInventory(ctx context.Context, req InventoryCreateRequest) (*Inventory, error) {
+	var inventory Inventory
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetBody(req).
+		SetResult(&inventory).
+		Post("/api/v2/inventories/")
+
+	if err != nil {
+		return nil, fmt.Errorf("创建Inventory失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusCreated {
+		return nil, fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	c.logger.Info("AWX Inventory已创建",
+		zap.Int("inventory_id", inventory.ID),
+		zap.String("name", inventory.Name))
+	return &inventory, nil
 }
 
 // Ping 测试AWX连接

@@ -2,7 +2,7 @@ environment: development
 port: "8080"
 
 database_url: root:password@tcp(localhost:3306)/robusta_hub?charset=utf8mb4&parseTime=True&loc=Local
-navy_database_url: /Users/ny/Documents/auto-navy/navy.db
+navy_database_url: /Users/heningyu/sofeware/auto-navy/navy.db
 
 jwt_secret: kite-default-jwt-secret-key-change-in-production
 hmac_secret: your-hmac-secret-key-change-in-production
@@ -54,8 +54,8 @@ email:
   enabled: false
 
 awx:
-  token: "hyfHxdikUGR7TlV84kgtT4Gh477rVm"
+  token: "EmSsBUy77HKm4KzqvgPPcDxKTN20Yl"
   url: "http://localhost:19999"
   username: "admin"
-  password: "cfLa3a3ORN5KbplIWWWjZOkmx23H2mqw"
+  password: "EiG8FpCjjw1mcPXPfjjroFEyCCsBqKPY"
   insecure: true

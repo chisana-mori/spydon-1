@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,7 +29,11 @@ import {
     GitBranch,
     Edit,
     Trash2,
-    MoreVertical
+    MoreVertical,
+    Server,
+    Layers,
+    Search,
+    Sparkles,
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
@@ -44,7 +48,9 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { Search } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { formatDistanceToNow } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
 
 // 状态颜色映射
 const statusColors: Record<ExecutionStatus, string> = {
@@ -107,6 +113,217 @@ const parseStages = (stagesData: unknown): StageDefinition[] => {
     return []
 }
 
+// --- Independent Execution Card Component ---
+interface ExecutionCardProps {
+    exec: PipelineExecution
+    showActions?: boolean
+    onRun: (id: string) => void
+    onPause: (id: string) => void
+    onResume: (id: string) => void
+    onCancel: (id: string) => void
+    onRollback: (id: string) => void
+    onGenerateSOP: (id: string) => void
+}
+
+const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onCancel, onRollback, onGenerateSOP }: ExecutionCardProps) => {
+    const templateName = exec.template?.name || `模板 #${exec.pipeline_template_id}`
+    const stages = parseStages(exec.template?.stages)
+    const stageRuns = exec.stage_runs || []
+
+    // Time display logic
+    const timeDisplay = useMemo(() => {
+        if (exec.status === 'pending') {
+            return {
+                icon: <Clock className="w-3 h-3" />,
+                text: exec.created_at ? `创建于 ${formatDistanceToNow(new Date(exec.created_at), { addSuffix: true, locale: zhCN })}` : '刚刚创建'
+            }
+        }
+        if (exec.started_at) {
+            return {
+                icon: <Play className="w-3 h-3" />,
+                text: `开始于 ${formatDistanceToNow(new Date(exec.started_at), { addSuffix: true, locale: zhCN })}`
+            }
+        }
+        return { icon: <Clock className="w-3 h-3" />, text: '未开始' }
+    }, [exec.status, exec.created_at, exec.started_at])
+
+    // Visual styles helpers
+    const getStatusStyle = (s: ExecutionStatus) => {
+        switch (s) {
+            case 'running': return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800"
+            case 'successful': return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
+            case 'failed': return "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
+            case 'paused': return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800"
+            case 'pending': return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700"
+            default: return "bg-gray-50 text-gray-600 border-gray-200"
+        }
+    }
+
+    const getStripeColor = (s: ExecutionStatus) => {
+        switch (s) {
+            case 'running': return "bg-blue-500"
+            case 'successful': return "bg-emerald-500"
+            case 'failed': return "bg-red-500"
+            case 'paused': return "bg-amber-500"
+            case 'pending': return "bg-gray-400"
+            default: return "bg-gray-300"
+        }
+    }
+
+    // Render Stage Progress (Internal Helper)
+    const renderStageProgress = () => {
+        if (stages.length === 0) {
+            return <div className="text-sm text-muted-foreground/50 italic">此模板未定义执行阶段</div>
+        }
+
+        return (
+            <div className="relative">
+                <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide mask-fade-right">
+                    {stages.map((stage: StageDefinition, idx: number) => {
+                        const stageRun = stageRuns.find((sr: StageRun) => sr.stage_id === stage.id)
+                        const isCurrentStage = exec.current_stage_id === stage.id
+                        const status = stageRun?.status || 'pending'
+
+                        let icon = <div className="w-1.5 h-1.5 rounded-full bg-current" />
+                        let wrapperClass = "bg-muted/50 text-muted-foreground border-transparent"
+
+                        if (status === 'successful') {
+                            icon = <CheckCircle className="w-3.5 h-3.5" />
+                            wrapperClass = "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800"
+                        } else if (status === 'running') {
+                            icon = <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            wrapperClass = "bg-blue-50 text-blue-600 border-blue-200 shadow-sm ring-1 ring-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 dark:ring-blue-900"
+                        } else if (status === 'waiting_approval') {
+                            icon = <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                            wrapperClass = "bg-orange-50 text-orange-600 border-orange-200 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-800"
+                        } else if (status === 'failed') {
+                            icon = <XCircle className="w-3.5 h-3.5" />
+                            wrapperClass = "bg-red-50 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
+                        } else if (isCurrentStage) {
+                            icon = <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            wrapperClass = "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800"
+                        }
+
+                        return (
+                            <div key={stage.id} className="flex items-center flex-shrink-0 group">
+                                <div className={cn(
+                                    "px-3 py-1.5 rounded-full text-xs font-medium border flex items-center gap-2 transition-all duration-200",
+                                    wrapperClass,
+                                    isCurrentStage && "scale-105 shadow-md"
+                                )}>
+                                    {icon}
+                                    <span>{stage.name || `Stage ${idx + 1}`}</span>
+                                </div>
+                                {idx < stages.length - 1 && (
+                                    <div className={cn(
+                                        "w-4 h-[1px] mx-1 transition-colors",
+                                        stageRuns.some(r => r.stage_id === stages[idx + 1].id) ? "bg-muted-foreground/30" : "bg-muted/40"
+                                    )} />
+                                )}
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div
+            className={cn(
+                "relative group overflow-hidden bg-card rounded-xl border transition-all duration-300",
+                "hover:shadow-lg hover:border-primary/20",
+                "dark:hover:shadow-primary/5"
+            )}
+        >
+            {/* Status Stripe */}
+            <div className={cn("absolute left-0 top-0 bottom-0 w-1", getStripeColor(exec.status))} />
+
+            <div className="p-5 pl-7">
+                {/* Header Row */}
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
+                    <div className="space-y-1.5">
+                        <div className="flex items-center gap-3">
+                            <h3 className="text-lg font-bold flex items-center gap-2 tracking-tight">
+                                <Server className="w-4 h-4 text-muted-foreground/70" />
+                                {exec.cluster_name || `集群 #${exec.cluster_id}`}
+                            </h3>
+                            <Badge variant="outline" className={cn("text-xs px-2 py-0.5 h-6 font-medium border", getStatusStyle(exec.status))}>
+                                <StatusIcon status={exec.status} />
+                                <span className="ml-1.5">{statusLabels[exec.status]}</span>
+                            </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground/80">
+                            <span className="flex items-center gap-1.5 bg-muted/50 px-2 py-0.5 rounded border border-muted">
+                                <Layers className="w-3 h-3" />
+                                {templateName}
+                            </span>
+                            <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+                            <span className="flex items-center gap-1">
+                                {timeDisplay.icon}
+                                <span>{timeDisplay.text}</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Actions Group */}
+                    {showActions && (
+                        <div className="flex items-center gap-2 opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
+                            <Button size="sm" variant="outline" onClick={() => onGenerateSOP(exec.id)} className="h-8 border-violet-200 hover:bg-violet-50 text-violet-700">
+                                <Sparkles className="w-3.5 h-3.5 mr-1.5" /> AI-SOP
+                            </Button>
+                            {exec.status === 'pending' && (
+                                <Button size="sm" onClick={() => onRun(exec.id)} className="h-8 shadow-sm">
+                                    <Play className="w-3.5 h-3.5 mr-1.5" /> 执行
+                                </Button>
+                            )}
+                            {exec.status === 'paused' && (
+                                <Button size="sm" onClick={() => onResume(exec.id)} className="h-8 shadow-sm bg-amber-500 hover:bg-amber-600 text-white">
+                                    <Play className="w-3.5 h-3.5 mr-1.5" /> 继续
+                                </Button>
+                            )}
+                            {exec.status === 'running' && (
+                                <Button size="sm" variant="outline" onClick={() => onPause(exec.id)} className="h-8 border-amber-200 hover:bg-amber-50 text-amber-700">
+                                    <Pause className="w-3.5 h-3.5 mr-1.5" /> 暂停
+                                </Button>
+                            )}
+                            {(exec.status === 'running' || exec.status === 'paused' || exec.status === 'pending') && (
+                                <Button size="sm" variant="ghost" onClick={() => onCancel(exec.id)} className="h-8 text-muted-foreground hover:text-destructive">
+                                    <StopCircle className="w-3.5 h-3.5 mr-1.5" /> 取消
+                                </Button>
+                            )}
+                            {(exec.status === 'successful' || exec.status === 'failed') && (
+                                <Button size="sm" variant="secondary" onClick={() => onRollback(exec.id)} className="h-8">
+                                    <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> 回滚
+                                </Button>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Progress Area */}
+                <div className="bg-muted/30 rounded-lg p-4 border border-border/40">
+                    {stages.length > 0 ? (
+                        <div className="flex flex-col gap-3">
+                            {renderStageProgress()}
+                            {exec.error_message && (
+                                <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/10 dark:text-red-400 p-2.5 rounded border border-red-100 dark:border-red-900/30">
+                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                                    <span className="leading-relaxed">{exec.error_message}</span>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center py-4 text-xs text-muted-foreground/60 border border-dashed rounded bg-background/50">
+                            暂无阶段配置
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export default function TasksPage() {
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -126,8 +343,6 @@ export default function TasksPage() {
     const [keyword, setKeyword] = useState('')
     const [total, setTotal] = useState(0)
     const [searchInputValue, setSearchInputValue] = useState('') // For input field before search trigger
-
-
 
     // 审批对话框状态
     const [approvalDialogOpen, setApprovalDialogOpen] = useState(false)
@@ -183,7 +398,12 @@ export default function TasksPage() {
         }
     }, [tabFromUrl, activeTab])
 
-
+    const handleTabChange = (value: string) => {
+        setActiveTab(value)
+        const params = new URLSearchParams(searchParams)
+        params.set('tab', value)
+        router.push(`/tasks?${params.toString()}`)
+    }
 
     // 暂停执行
     const handlePause = async (id: string) => {
@@ -226,6 +446,22 @@ export default function TasksPage() {
             console.error('Failed to cancel execution:', error)
             toast.error('取消失败')
         }
+    }
+
+    // 生成 AI-SOP
+    const handleGenerateSOP = async (id: string) => {
+        toast.promise(
+            async () => {
+                const data = await RobustaAPI.generateSOPFlow(id)
+                await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+                return 'AI-SOP 流程已生成并复制到剪贴板'
+            },
+            {
+                loading: '正在生成 SOP 流程...',
+                success: (msg) => msg,
+                error: '生成 AI-SOP 流程失败'
+            }
+        )
     }
 
     // 回滚执行
@@ -293,125 +529,6 @@ export default function TasksPage() {
         setDeleteDialogOpen(true)
     }
 
-    // 渲染阶段进度
-    const renderStageProgress = (execution: PipelineExecution) => {
-        const stages = parseStages(execution.template?.stages)
-        const stageRuns = execution.stage_runs || []
-
-        if (stages.length === 0) {
-            return <div className="text-sm text-muted-foreground">无阶段信息</div>
-        }
-
-        return (
-            <div className="flex items-center gap-2 overflow-x-auto py-2">
-                {stages.map((stage: StageDefinition, idx: number) => {
-                    const stageRun = stageRuns.find((sr: StageRun) => sr.stage_id === stage.id)
-                    const isCurrentStage = execution.current_stage_id === stage.id
-                    const status = stageRun?.status || 'pending'
-
-                    let bgClass = 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                    if (status === 'successful') {
-                        bgClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-                    } else if (status === 'running') {
-                        bgClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
-                    } else if (status === 'waiting_approval') {
-                        bgClass = 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300'
-                    } else if (status === 'failed') {
-                        bgClass = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
-                    }
-
-                    return (
-                        <div key={stage.id} className="flex items-center">
-                            <div className={`
-                                px-3 py-1 rounded-full text-sm whitespace-nowrap transition-all
-                                ${bgClass}
-                                ${isCurrentStage ? 'ring-2 ring-blue-500 dark:ring-blue-400' : ''}
-                            `}>
-                                {stage.name || `阶段 ${idx + 1}`}
-                            </div>
-                            {idx < stages.length - 1 && (
-                                <ChevronRight className="w-4 h-4 text-gray-400 mx-1 flex-shrink-0" />
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
-        )
-    }
-
-    // 渲染执行卡片
-    const renderExecutionCard = (exec: PipelineExecution, showActions = true) => {
-        const templateName = exec.template?.name || `模板 #${exec.pipeline_template_id}`
-        const stages = parseStages(exec.template?.stages)
-
-        return (
-            <Card key={exec.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 flex-wrap">
-                            <Badge className={`${statusColors[exec.status]} text-white`}>
-                                <StatusIcon status={exec.status} />
-                                <span className="ml-1">{statusLabels[exec.status]}</span>
-                            </Badge>
-                            <CardTitle className="text-lg">{exec.cluster_name || `集群 #${exec.cluster_id}`}</CardTitle>
-                            <span className="text-sm text-muted-foreground">· {templateName}</span>
-                        </div>
-                        {showActions && (
-                            <div className="flex gap-2 flex-wrap">
-                                {exec.status === 'pending' && (
-                                    <Button size="sm" onClick={() => handleRunPending(exec.id)}>
-                                        <Play className="w-4 h-4 mr-1" />
-                                        执行
-                                    </Button>
-                                )}
-                                {exec.status === 'paused' && (
-                                    <Button size="sm" variant="outline" onClick={() => openApprovalDialog(exec.id)}>
-                                        <Play className="w-4 h-4 mr-1" />
-                                        继续
-                                    </Button>
-                                )}
-                                {exec.status === 'running' && (
-                                    <Button size="sm" variant="outline" onClick={() => handlePause(exec.id)}>
-                                        <Pause className="w-4 h-4 mr-1" />
-                                        暂停
-                                    </Button>
-                                )}
-                                {(exec.status === 'running' || exec.status === 'paused' || exec.status === 'pending') && (
-                                    <Button size="sm" variant="outline" onClick={() => handleCancel(exec.id)}>
-                                        <StopCircle className="w-4 h-4 mr-1" />
-                                        取消
-                                    </Button>
-                                )}
-                                {(exec.status === 'successful' || exec.status === 'failed') && (
-                                    <Button size="sm" variant="outline" onClick={() => handleRollback(exec.id)}>
-                                        <RotateCcw className="w-4 h-4 mr-1" />
-                                        回滚
-                                    </Button>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                    <CardDescription>
-                        开始于 {exec.started_at ? new Date(exec.started_at).toLocaleString() : '-'}
-                        {exec.completed_at && ` · 完成于 ${new Date(exec.completed_at).toLocaleString()}`}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {stages.length > 0 ? (
-                        renderStageProgress(exec)
-                    ) : (
-                        <div className="text-sm text-muted-foreground py-2">无阶段配置</div>
-                    )}
-                    {exec.error_message && (
-                        <div className="mt-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-2 rounded">
-                            错误：{exec.error_message}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-        )
-    }
-
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
@@ -421,7 +538,7 @@ export default function TasksPage() {
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
+        <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -441,7 +558,7 @@ export default function TasksPage() {
             </div>
 
             {/* Tabs */}
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <Tabs value={activeTab} onValueChange={handleTabChange}>
                 <TabsList>
                     <TabsTrigger value="tasks">
                         任务
@@ -465,7 +582,19 @@ export default function TasksPage() {
                         </Card>
                     ) : (
                         <div className="grid gap-4">
-                            {activeExecutions.map((exec) => renderExecutionCard(exec, true))}
+                            {activeExecutions.map((exec) => (
+                                <ExecutionCard
+                                    key={exec.id}
+                                    exec={exec}
+                                    showActions={true}
+                                    onRun={handleRunPending}
+                                    onPause={handlePause}
+                                    onResume={openApprovalDialog}
+                                    onCancel={handleCancel}
+                                    onRollback={handleRollback}
+                                    onGenerateSOP={handleGenerateSOP}
+                                />
+                            ))}
                         </div>
                     )}
                 </TabsContent>
@@ -629,7 +758,19 @@ export default function TasksPage() {
                         </Card>
                     ) : (
                         <div className="grid gap-4">
-                            {historyExecutions.map((exec) => renderExecutionCard(exec, false))}
+                            {historyExecutions.map((exec) => (
+                                <ExecutionCard
+                                    key={exec.id}
+                                    exec={exec}
+                                    showActions={false}
+                                    onRun={handleRunPending}
+                                    onPause={handlePause}
+                                    onResume={openApprovalDialog}
+                                    onCancel={handleCancel}
+                                    onRollback={handleRollback}
+                                    onGenerateSOP={handleGenerateSOP}
+                                />
+                            ))}
                         </div>
                     )}
                 </TabsContent>

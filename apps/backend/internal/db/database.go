@@ -60,6 +60,9 @@ func (d *Database) AutoMigrate() error {
 	}
 
 	err := d.DB.AutoMigrate(
+		&models.PipelineTemplate{},
+		&models.PipelineExecution{},
+		&models.StageRun{},
 		&models.Cluster{},
 		&models.Alert{},
 		&models.RCARun{},
@@ -216,6 +219,21 @@ func (d *Database) CreateIndexes() error {
 			name:   "idx_kb_rule_norm_status",
 			model:  &models.KnowledgeArticle{},
 			create: "CREATE INDEX idx_kb_rule_norm_status ON spydon_knowledge_articles(alert_rule_name_normalized, status)",
+		},
+		{
+			name:   "idx_pipeline_executions_template_status",
+			model:  &models.PipelineExecution{},
+			create: "CREATE INDEX idx_pipeline_executions_template_status ON spydon_pipeline_executions(pipeline_template_id, status, created_at DESC)",
+		},
+		{
+			name:   "idx_pipeline_executions_cluster_status",
+			model:  &models.PipelineExecution{},
+			create: "CREATE INDEX idx_pipeline_executions_cluster_status ON spydon_pipeline_executions(cluster_id, status, created_at DESC)",
+		},
+		{
+			name:   "idx_stage_runs_execution_id",
+			model:  &models.StageRun{},
+			create: "CREATE INDEX idx_stage_runs_execution_id ON spydon_stage_runs(execution_id)",
 		},
 	}
 

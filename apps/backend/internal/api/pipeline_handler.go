@@ -442,6 +442,83 @@ func (h *PipelineHandler) GetAWXTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": template})
 }
 
+// GetInventoryVariables 获取Inventory变量
+// @Summary 获取集群对应的AWX Inventory变量
+// @Tags Pipeline
+// @Param name path string true "集群名称（对应AWX Inventory名称）"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/pipelines/awx/inventories/{name}/variables [get]
+func (h *PipelineHandler) GetInventoryVariables(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		BadRequest(c, "", "集群名称不能为空")
+		return
+	}
+
+	variables, err := h.engine.GetInventoryVariables(c.Request.Context(), name)
+	if err != nil {
+		InternalError(c, "", "获取Inventory变量失败: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{"variables": variables}})
+}
+
+// GenerateSOPFlow 生成 AI-SOP 流程定义
+// @Summary 生成 AI-SOP 流程定义 JSON
+// @Tags Pipeline
+// @Param id path int true "Execution ID"
+// @Success 200 {object} models.SOPFlow
+// @Router /api/pipelines/executions/{id}/sop [get]
+func (h *PipelineHandler) GenerateSOPFlow(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "", "无效的 Execution ID")
+		return
+	}
+
+	sopFlow, err := h.engine.GenerateSOPFlow(c.Request.Context(), id)
+	if err != nil {
+		InternalError(c, "", "生成 SOP Flow 失败: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": sopFlow})
+}
+
+// UpdateInventoryVariablesRequest 更新Inventory变量的请求
+type UpdateInventoryVariablesRequest struct {
+	Variables string `json:"variables" binding:"required"` // YAML格式的变量
+}
+
+// UpdateInventoryVariables 更新Inventory变量
+// @Summary 更新集群对应的AWX Inventory变量
+// @Tags Pipeline
+// @Accept json
+// @Param name path string true "集群名称（对应AWX Inventory名称）"
+// @Param request body UpdateInventoryVariablesRequest true "变量配置（YAML格式）"
+// @Success 200 {object} map[string]string
+// @Router /api/pipelines/awx/inventories/{name}/variables [put]
+func (h *PipelineHandler) UpdateInventoryVariables(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		BadRequest(c, "", "集群名称不能为空")
+		return
+	}
+
+	var req UpdateInventoryVariablesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "", "请求参数错误: "+err.Error())
+		return
+	}
+
+	if err := h.engine.UpdateInventoryVariables(c.Request.Context(), name, req.Variables); err != nil {
+		InternalError(c, "", "更新Inventory变量失败: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Inventory变量已更新"})
+}
+
 // 辅助函数
 func getUserIDFromContext(c *gin.Context) uint64 {
 	if userID, exists := c.Get("user_id"); exists {
