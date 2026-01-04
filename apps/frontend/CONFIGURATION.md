@@ -2,7 +2,7 @@
 
 前端现在通过 `src/config/index.ts` 统一读取配置。默认值写在代码里，同时自动合并：
 
-1. `NEXT_PUBLIC_*` 系列环境变量（构建时确定）  
+1. `NEXT_PUBLIC_*` 系列环境变量（构建时确定）
 2. 运行期注入的 `window.__ROBUSTA_RUNTIME_CONFIG__`
 
 这样可以在容器内通过挂载静态文件而无需重新构建即可调整地址。

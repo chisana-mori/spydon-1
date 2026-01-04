@@ -275,4 +275,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_kb_versions_unique
   - 编辑器 `apps/frontend/src/components/knowledge/KnowledgeEditor.tsx`
   - 展示 `apps/frontend/src/components/knowledge/KnowledgeViewer.tsx`
   - 详情集成 `apps/frontend/src/components/alerts/AlertKnowledgePanel.tsx`
-

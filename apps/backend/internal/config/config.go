@@ -27,6 +27,7 @@ type HolmesGPTConfig struct {
 type CASConfig struct {
 	Enabled            bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
 	ServerURL          string `mapstructure:"server_url" json:"server_url" yaml:"server_url"`
+	ServiceURL         string `mapstructure:"service_url" json:"service_url" yaml:"service_url"` // CAS 回调使用的固定 service URL
 	CallbackPath       string `mapstructure:"callback_path" json:"callback_path" yaml:"callback_path"`
 	RedirectURL        string `mapstructure:"redirect_url" json:"redirect_url" yaml:"redirect_url"`
 	DefaultEmailDomain string `mapstructure:"default_email_domain" json:"default_email_domain" yaml:"default_email_domain"`
@@ -71,7 +72,8 @@ type Config struct {
 	Port        string `mapstructure:"port" json:"port" yaml:"port"`
 	BasePath    string `mapstructure:"base_path" json:"base_path" yaml:"base_path"` // 应用部署的基础路径，如 /spydon
 
-	DatabaseURL string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
+	DatabaseURL     string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
+	NavyDatabaseURL string `mapstructure:"navy_database_url" json:"navy_database_url" yaml:"navy_database_url"`
 
 	JWTSecret    string `mapstructure:"jwt_secret" json:"jwt_secret" yaml:"jwt_secret"`
 	HMACSecret   string `mapstructure:"hmac_secret" json:"hmac_secret" yaml:"hmac_secret"`
@@ -148,6 +150,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("port", strconv.Itoa(constants.DefaultPort))
 
 	v.SetDefault("database_url", "root:password@tcp(localhost:3306)/robusta_hub?charset=utf8mb4&parseTime=True&loc=Local")
+	v.SetDefault("navy_database_url", "navy.db")
 
 	v.SetDefault("jwt_secret", "your-jwt-secret-key")
 	v.SetDefault("hmac_secret", "your-hmac-secret-key")

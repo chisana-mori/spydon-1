@@ -10,8 +10,8 @@ interface UseCopyToClipboardReturn {
   copyToClipboard: (text: string) => Promise<boolean>
 }
 
-export function useCopyToClipboard({ 
-  timeout = 2000 
+export function useCopyToClipboard({
+  timeout = 2000
 }: UseCopyToClipboardProps = {}): UseCopyToClipboardReturn {
   const [isCopied, setIsCopied] = useState<boolean>(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)

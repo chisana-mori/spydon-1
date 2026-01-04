@@ -8,8 +8,8 @@ import (
 )
 
 // SetupRoutes 设置API路由
-func SetupRoutes(router *gin.Engine, database *db.Database, cfg *config.Config) error {
-	handlers, err := buildHandlerSet(database, cfg)
+func SetupRoutes(router *gin.Engine, database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config) error {
+	handlers, err := buildHandlerSet(database, navyDatabase, cfg)
 	if err != nil {
 		return err
 	}

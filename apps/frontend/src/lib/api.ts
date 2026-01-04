@@ -15,6 +15,22 @@ import type {
     KnowledgeArticle,
     KnowledgeManifest,
 } from '@/types/api'
+import type {
+    PipelineTemplate,
+    PipelineExecution,
+    CreateTemplateRequest,
+    UpdateTemplateRequest,
+    StartExecutionRequest,
+    AWXJobTemplate,
+} from '@/types/pipeline'
+import type {
+    NavyDevice,
+    DeviceQuery,
+    NavyDeviceQueryRequest,
+    NavyFilterOptions,
+    QueryTemplate,
+    DeviceFeatureDetails,
+} from '@/types/navy'
 
 // 获取 API Base URL
 function getApiBaseUrl(): string {
@@ -103,6 +119,10 @@ export class RobustaAPI {
 
     static async getCluster(id: string): Promise<Cluster> {
         return handleResponse(apiClient.get(`/clusters/${id}`))
+    }
+
+    static async getClusterNodes(id: string): Promise<string[]> {
+        return handleResponse(apiClient.get(`/clusters/${id}/nodes`))
     }
 
     static async createCluster(data: Partial<Cluster>): Promise<Cluster> {
@@ -215,7 +235,141 @@ export class RobustaAPI {
     static async deleteKnowledge(id: string): Promise<void> {
         await apiClient.delete(`/knowledge/${id}`)
     }
+
+    // ============ Pipelines ============
+    static async listPipelineTemplates(
+        page = 1,
+        pageSize = 20,
+        keyword?: string
+    ): Promise<PaginationResponse<PipelineTemplate>> {
+        const params: Record<string, any> = { page, page_size: pageSize }
+        if (keyword) params.keyword = keyword
+        const response = await apiClient.get('/pipelines/templates', { params })
+        return response.data
+    }
+
+    static async getPipelineTemplate(id: string): Promise<PipelineTemplate> {
+        return handleResponse(apiClient.get(`/pipelines/templates/${id}`))
+    }
+
+    static async createPipelineTemplate(data: CreateTemplateRequest): Promise<PipelineTemplate> {
+        return handleResponse(apiClient.post('/pipelines/templates', data))
+    }
+
+    static async updatePipelineTemplate(id: string, data: UpdateTemplateRequest): Promise<PipelineTemplate> {
+        return handleResponse(apiClient.put(`/pipelines/templates/${id}`, data))
+    }
+
+    static async deletePipelineTemplate(id: string): Promise<void> {
+        await apiClient.delete(`/pipelines/templates/${id}`)
+    }
+
+    static async getActiveExecutions(limit = 50): Promise<PipelineExecution[]> {
+        return handleResponse(apiClient.get('/pipelines/executions/active', { params: { limit } }))
+    }
+
+    static async getExecutionHistory(params?: { cluster_id?: string; limit?: number }): Promise<PipelineExecution[]> {
+        return handleResponse(apiClient.get('/pipelines/executions', { params }))
+    }
+
+    static async getExecution(id: string): Promise<PipelineExecution> {
+        return handleResponse(apiClient.get(`/pipelines/executions/${id}`))
+    }
+
+    static async startExecution(data: StartExecutionRequest): Promise<PipelineExecution> {
+        return handleResponse(apiClient.post('/pipelines/executions', data))
+    }
+
+    static async pauseExecution(id: string): Promise<void> {
+        await apiClient.post(`/pipelines/executions/${id}/pause`)
+    }
+
+    static async resumeExecution(id: string, notes?: string): Promise<void> {
+        await apiClient.post(`/pipelines/executions/${id}/resume`, { notes })
+    }
+
+    static async cancelExecution(id: string): Promise<void> {
+        await apiClient.post(`/pipelines/executions/${id}/cancel`)
+    }
+
+    static async rollbackExecution(id: string): Promise<void> {
+        await apiClient.post(`/pipelines/executions/${id}/rollback`)
+    }
+
+    static async runPendingExecution(id: string): Promise<void> {
+        await apiClient.post(`/pipelines/executions/${id}/run`)
+    }
+
+    // AWX Templates
+    static async listAWXTemplates(): Promise<AWXJobTemplate[]> {
+        return handleResponse(apiClient.get('/pipelines/awx/templates'))
+    }
+
+    static async getAWXTemplate(id: number): Promise<AWXJobTemplate> {
+        return handleResponse(apiClient.get(`/pipelines/awx/templates/${id}`))
+    }
+
+    // ============ Navy Devices ============
+    static async listNavyDevices(query: DeviceQuery): Promise<PaginationResponse<NavyDevice>> {
+        const response = await apiClient.get('/navy/devices', { params: query })
+        return response.data
+    }
+
+    static async queryNavyDevices(req: NavyDeviceQueryRequest): Promise<PaginationResponse<NavyDevice>> {
+        const response = await apiClient.post('/navy/devices/query', req)
+        return response.data
+    }
+
+    static async getNavyFilterOptions(): Promise<NavyFilterOptions> {
+        return handleResponse(apiClient.get('/navy/devices/filter-options'))
+    }
+
+    static async getLabelValues(labelKey: string): Promise<string[]> {
+        return handleResponse(apiClient.get('/navy/devices/label-values', { params: { key: labelKey } }))
+    }
+
+    static async getTaintValues(taintKey: string): Promise<{ value: string; effect: string }[]> {
+        return handleResponse(apiClient.get('/navy/devices/taint-values', { params: { key: taintKey } }))
+    }
+
+    static async getDeviceFieldValues(field: string): Promise<string[]> {
+        return handleResponse(apiClient.get('/navy/devices/device-field-values', { params: { field } }))
+    }
+
+    static async getNavyDeviceFeatures(ciCode: string): Promise<DeviceFeatureDetails> {
+        return handleResponse(apiClient.get('/navy/devices/feature-details', { params: { ci_code: ciCode } }))
+    }
+
+    static async updateNavyDeviceRole(id: number, role: string): Promise<void> {
+        await apiClient.patch(`/navy/devices/${id}/role`, { role })
+    }
+
+    static async updateNavyDeviceGroup(id: number, group: string): Promise<void> {
+        await apiClient.patch(`/navy/devices/${id}/group`, { group })
+    }
+
+    static async listNavyTemplates(page = 1, pageSize = 10): Promise<PaginationResponse<QueryTemplate>> {
+        const response = await apiClient.get('/navy/templates', { params: { page, size: pageSize } })
+        return response.data
+    }
+
+    static async getNavyTemplate(id: number): Promise<QueryTemplate> {
+        return handleResponse(apiClient.get(`/navy/templates/${id}`))
+    }
+
+    static async saveNavyTemplate(template: QueryTemplate): Promise<void> {
+        await apiClient.post('/navy/templates', template)
+    }
+
+    static async deleteNavyTemplate(id: number): Promise<void> {
+        await apiClient.delete(`/navy/templates/${id}`)
+    }
+
+    static getNavyExportUrl(): string {
+        return `${getApiBaseUrl()}/navy/devices/export`
+    }
 }
+
 
 // 默认导出
 export default RobustaAPI

@@ -90,6 +90,25 @@ func (h *QueryHandler) GetCluster(c *gin.Context) {
 	Success(c, cluster)
 }
 
+// GetClusterNodes 获取集群节点列表
+func (h *QueryHandler) GetClusterNodes(c *gin.Context) {
+	var path struct {
+		ID string `uri:"id" binding:"required"`
+	}
+	if derr := bindURI(c, &path); derr != nil {
+		AbortWithDomainError(c, derr)
+		return
+	}
+
+	nodes, err := h.clusterService.GetClusterNodes(c.Request.Context(), path.ID)
+	if err != nil {
+		InternalError(c, "GET_CLUSTER_NODES_ERROR", "获取集群节点失败: "+err.Error())
+		return
+	}
+
+	Success(c, gin.H{"data": nodes})
+}
+
 // GetAlerts 获取告警列表
 func (h *QueryHandler) GetAlerts(c *gin.Context) {
 	var query struct {

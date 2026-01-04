@@ -211,6 +211,15 @@ func (c *Client) GetJobStdout(ctx context.Context, jobID int) (string, error) {
 
 // WaitForJob 等待Job完成 (轮询)
 func (c *Client) WaitForJob(ctx context.Context, jobID int, pollInterval time.Duration) (*Job, error) {
+	// 立即检查一次
+	job, err := c.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if IsJobFinished(job.Status) {
+		return job, nil
+	}
+
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 

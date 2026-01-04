@@ -119,7 +119,7 @@ export interface CustomBlock extends BaseBlock {
   customField: string;
 }
 
-export type Block = 
+export type Block =
   | MarkdownBlock
   | CustomBlock  // 添加到联合类型
   | ...;

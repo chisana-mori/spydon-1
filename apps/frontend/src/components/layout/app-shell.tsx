@@ -80,12 +80,18 @@ const navigation: NavigationItem[] = [
     icon: Server,
     description: '集群状态',
   },
-  //   {
-  //     name: '变更管理',
-  //     href: '/pipelines',
-  //     icon: GitBranch,
-  //     description: '流水线与变更执行',
-  //   },
+  {
+    name: '设备管理',
+    href: '/devices',
+    icon: Monitor,
+    description: '硬件资产管理',
+  },
+  {
+    name: '变更管理',
+    href: '/tasks',
+    icon: GitBranch,
+    description: '任务与变更执行',
+  },
   {
     name: '权限管理',
     icon: Shield,

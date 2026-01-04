@@ -76,7 +76,7 @@ export function GraphBlock({ block }: GraphBlockProps) {
 
   const handleDownload = () => {
     if (!graphData?.contents) return;
-    
+
     const content = isBase64(graphData.contents) ? atob(graphData.contents) : graphData.contents;
     const mimeType = getImageMimeType(graphData.filename);
     const blob = new Blob([content], { type: mimeType });
@@ -124,9 +124,9 @@ export function GraphBlock({ block }: GraphBlockProps) {
       </div>
       {isImage && imageDataUrl ? (
         <div className="bg-gradient-to-br from-slate-50 to-purple-50 dark:from-slate-950 dark:to-purple-950 p-6 flex justify-center">
-          <img 
-            src={imageDataUrl} 
-            alt={graphData.filename || 'Graph'} 
+          <img
+            src={imageDataUrl}
+            alt={graphData.filename || 'Graph'}
             className={`max-w-full h-auto rounded-lg shadow-xl border-2 border-purple-100 dark:border-purple-900 ${graphData.html_class || ''}`}
             style={{ maxHeight: '600px' }}
           />

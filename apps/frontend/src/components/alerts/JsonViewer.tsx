@@ -4,11 +4,11 @@ import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { 
-  ChevronDown, 
-  ChevronRight, 
-  Copy, 
-  Eye, 
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Eye,
   EyeOff,
   Braces,
   Hash,
@@ -36,7 +36,7 @@ interface JsonNodeProps {
 
 const JsonNode: React.FC<JsonNodeProps> = ({ data, keyName, level = 0, isLast = true }) => {
   const [isExpanded, setIsExpanded] = useState(level < 2) // 默认展开前两层
-  
+
   const getValueType = (value: any): string => {
     if (value === null) return 'null'
     if (typeof value === 'boolean') return 'boolean'
@@ -101,7 +101,7 @@ const JsonNode: React.FC<JsonNodeProps> = ({ data, keyName, level = 0, isLast = 
       const keys = Object.keys(value)
       return (
         <div>
-          <div 
+          <div
             className="flex items-center cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5"
             onClick={() => setIsExpanded(!isExpanded)}
           >
@@ -134,7 +134,7 @@ const JsonNode: React.FC<JsonNodeProps> = ({ data, keyName, level = 0, isLast = 
     if (type === 'array') {
       return (
         <div>
-          <div 
+          <div
             className="flex items-center cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5"
             onClick={() => setIsExpanded(!isExpanded)}
           >
@@ -182,9 +182,9 @@ const JsonNode: React.FC<JsonNodeProps> = ({ data, keyName, level = 0, isLast = 
   return renderValue(data, valueType)
 }
 
-export const JsonViewer: React.FC<JsonViewerProps> = ({ 
-  data, 
-  title = "JSON 数据", 
+export const JsonViewer: React.FC<JsonViewerProps> = ({
+  data,
+  title = "JSON 数据",
   className,
   maxHeight = "400px"
 }) => {
@@ -215,7 +215,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           <span className="font-medium text-sm text-gray-700">{title}</span>
           <Badge variant="secondary" className="text-xs">
             {typeof parsedData === 'object' && parsedData !== null
-              ? Array.isArray(parsedData) 
+              ? Array.isArray(parsedData)
                 ? `${parsedData.length} items`
                 : `${Object.keys(parsedData).length} keys`
               : typeof parsedData
@@ -250,10 +250,10 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           </Button>
         </div>
       </div>
-      
+
       {!isCollapsed && (
         <CardContent className="p-0">
-          <div 
+          <div
             className="overflow-auto p-3 bg-white"
             style={{ maxHeight }}
           >

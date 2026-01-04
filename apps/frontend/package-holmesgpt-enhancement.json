@@ -61,7 +61,7 @@
         "commands": [
           "npx shadcn-ui@latest init",
           "npx shadcn-ui@latest add button",
-          "npx shadcn-ui@latest add card", 
+          "npx shadcn-ui@latest add card",
           "npx shadcn-ui@latest add badge",
           "npx shadcn-ui@latest add tabs",
           "npx shadcn-ui@latest add scroll-area",
@@ -87,7 +87,7 @@
               "colors": {
                 "shiki": {
                   "light": "var(--shiki-light)",
-                  "light-bg": "var(--shiki-light-bg)", 
+                  "light-bg": "var(--shiki-light-bg)",
                   "dark": "var(--shiki-dark)",
                   "dark-bg": "var(--shiki-dark-bg)"
                 }

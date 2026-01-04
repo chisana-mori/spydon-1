@@ -45,11 +45,11 @@ const (
 // StageConfig 阶段配置 (根据Type不同使用不同字段)
 type StageConfig struct {
 	// AWX Job 相关
-	AWXTemplateID   int               `json:"awx_template_id,omitempty"`
-	AWXTemplateName string            `json:"awx_template_name,omitempty"`
-	ExtraVars       map[string]string `json:"extra_vars,omitempty"`
-	Limit           string            `json:"limit,omitempty"`
-	DryRun          bool              `json:"dry_run,omitempty"` // Check Mode
+	AWXTemplateID   int                `json:"awx_template_id,omitempty"`
+	AWXTemplateName string             `json:"awx_template_name,omitempty"`
+	ExtraVars       map[string]string  `json:"extra_vars,omitempty"`
+	DryRun          bool               `json:"dry_run,omitempty"`    // Check Mode
+	Parameters      []ParameterBinding `json:"parameters,omitempty"` // 参数绑定
 
 	// Manual Gate 相关
 	ApproverRoles  []string `json:"approver_roles,omitempty"`
@@ -62,6 +62,17 @@ type StageConfig struct {
 	PromQuery     string `json:"prom_query,omitempty"`
 	ExpectedValue string `json:"expected_value,omitempty"`
 	Operator      string `json:"operator,omitempty"` // eq, ne, gt, lt
+}
+
+// ParameterBinding 参数绑定定义
+type ParameterBinding struct {
+	Name         string   `json:"name"`                    // 参数名称（对应AWX extra_vars的key）
+	Label        string   `json:"label"`                   // 显示标签
+	Description  string   `json:"description,omitempty"`   // 参数说明
+	InputType    string   `json:"input_type"`              // 输入类型: fixed, text, select, multi_select
+	DefaultValue string   `json:"default_value,omitempty"` // 默认值
+	Options      []string `json:"options,omitempty"`       // 可选值列表（用于select/multi_select）
+	Required     bool     `json:"required"`                // 是否必填
 }
 
 // FailureStrategy 失败策略
@@ -81,7 +92,8 @@ type PipelineExecution struct {
 	ClusterID          uint64          `json:"cluster_id" gorm:"type:bigint unsigned"`
 	ClusterName        string          `json:"cluster_name" gorm:"type:varchar(255)"`
 	Status             ExecutionStatus `json:"status" gorm:"type:varchar(32);not null;default:pending"`
-	Parameters         datatypes.JSON  `json:"parameters" gorm:"type:json"` // 运行时参数
+	Parameters         datatypes.JSON  `json:"parameters" gorm:"type:json"`       // 运行时参数
+	EffectiveStages    datatypes.JSON  `json:"effective_stages" gorm:"type:json"` // 实际执行的阶段定义（支持动态生成/批次）
 	CurrentStageID     string          `json:"current_stage_id" gorm:"type:varchar(64)"`
 	StartedAt          *time.Time      `json:"started_at"`
 	CompletedAt        *time.Time      `json:"completed_at"`

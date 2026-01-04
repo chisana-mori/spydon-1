@@ -9,9 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { AlertList } from '@prototypes/alerts/components/alerts/AlertList';
 import { alertsAPI } from '@prototypes/alerts/lib/alerts-api';
 import { Alert, AlertsQueryParams } from '@prototypes/alerts/types/alerts';
-import { 
-  Search, 
-  Filter, 
+import {
+  Search,
+  Filter,
   RefreshCw,
   AlertTriangle,
   CheckCircle,
@@ -23,13 +23,13 @@ export default function AlertsDashboardPrototype() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<any>(null);
-  
+
   // 查询参数
   const [queryParams, setQueryParams] = useState<AlertsQueryParams>({
     page: 1,
     pageSize: 20,
   });
-  
+
   // 搜索和过滤状态
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('');
@@ -40,17 +40,17 @@ export default function AlertsDashboardPrototype() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const params: AlertsQueryParams = {
         ...queryParams,
         search: searchTerm || undefined,
         severity: selectedSeverity ? [selectedSeverity] : undefined,
         status: selectedStatus ? [selectedStatus] : undefined,
       };
-      
+
       const response = await alertsAPI.getAlerts(params);
       setAlerts(response.alerts);
-      
+
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载告警数据失败');
     } finally {
@@ -127,7 +127,7 @@ export default function AlertsDashboardPrototype() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
@@ -139,7 +139,7 @@ export default function AlertsDashboardPrototype() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
@@ -151,7 +151,7 @@ export default function AlertsDashboardPrototype() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
@@ -190,7 +190,7 @@ export default function AlertsDashboardPrototype() {
               </div>
               <Button onClick={handleSearch}>搜索</Button>
             </div>
-            
+
             {/* 过滤器 */}
             <div className="flex gap-2">
               <Select value={selectedSeverity} onValueChange={setSelectedSeverity}>
@@ -205,7 +205,7 @@ export default function AlertsDashboardPrototype() {
                   <SelectItem value="low">低</SelectItem>
                 </SelectContent>
               </Select>
-              
+
               <Select value={selectedStatus} onValueChange={setSelectedStatus}>
                 <SelectTrigger className="w-32">
                   <SelectValue placeholder="状态" />
@@ -217,7 +217,7 @@ export default function AlertsDashboardPrototype() {
                   <SelectItem value="acknowledged">已确认</SelectItem>
                 </SelectContent>
               </Select>
-              
+
               <Button variant="outline" onClick={resetFilters}>
                 重置
               </Button>
@@ -239,8 +239,8 @@ export default function AlertsDashboardPrototype() {
       )}
 
       {/* 告警列表 */}
-      <AlertList 
-        alerts={alerts} 
+      <AlertList
+        alerts={alerts}
         loading={loading}
         onAlertClick={(alert) => {
           // 这里可以添加更多的点击处理逻辑

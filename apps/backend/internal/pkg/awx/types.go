@@ -13,6 +13,7 @@ type JobTemplate struct {
 	Playbook         string `json:"playbook"`
 	AskVarsOnLaunch  bool   `json:"ask_variables_on_launch"`
 	AskLimitOnLaunch bool   `json:"ask_limit_on_launch"`
+	ExtraVars        string `json:"extra_vars"` // usually YAML/JSON string
 }
 
 // Job AWX Job 实例

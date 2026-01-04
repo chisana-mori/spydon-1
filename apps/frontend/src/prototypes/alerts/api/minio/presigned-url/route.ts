@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // 这里需要根据您的后端 API 来获取预签名 URL
     // 示例：调用后端服务获取预签名 URL
     const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
-    
+
     const response = await fetch(`${backendUrl}/api/v1/minio/presigned-url`, {
       method: 'POST',
       headers: {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    
+
     return NextResponse.json({
       url: data.url,
       expiry: data.expiry,
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to get presigned URL',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

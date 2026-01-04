@@ -17,6 +17,10 @@ func CORSMiddleware() gin.HandlerFunc {
 			constants.CORSPort5173HTTP,
 			constants.CORSPort3000HTTPS,
 			constants.CORSPort5173HTTPS,
+			constants.CORSPort3000HTTP_127,
+			constants.CORSPort5173HTTP_127,
+			constants.CORSPort3000HTTP_V6,
+			constants.CORSPort5173HTTP_V6,
 		}
 
 		// 检查是否为允许的源

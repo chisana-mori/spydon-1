@@ -10,6 +10,7 @@ import (
 	"robusta-web/backend/internal/models"
 
 	"gorm.io/gorm"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -287,4 +288,40 @@ func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 
 		return tx.Save(&existingCluster).Error
 	})
+}
+
+// GetClusterNodes 获取集群节点列表
+func (s *ClusterService) GetClusterNodes(ctx context.Context, clusterName string) ([]string, error) {
+	cluster, err := s.GetClusterByID(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	if cluster.Config == "" {
+		return nil, fmt.Errorf("cluster has no kubeconfig")
+	}
+
+	config, err := clientcmd.RESTConfigFromKubeConfig([]byte(cluster.Config))
+	if err != nil {
+		return nil, fmt.Errorf("invalid kubeconfig: %w", err)
+	}
+	// 设置超时
+	config.Timeout = 10 * time.Second
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8s client: %w", err)
+	}
+
+	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	nodeNames := make([]string, 0, len(nodes.Items))
+	for _, node := range nodes.Items {
+		nodeNames = append(nodeNames, node.Name)
+	}
+
+	return nodeNames, nil
 }

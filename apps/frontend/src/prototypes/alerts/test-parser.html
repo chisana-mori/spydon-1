@@ -6,7 +6,7 @@
 <body>
     <h1>Enrichment Parser Test</h1>
     <div id="output"></div>
-    
+
     <script type="module">
         const testData = {
             "id": "c67815ae-132e-4cca-a3f5-f4cb4c820b8b",
@@ -69,7 +69,7 @@
         console.log('Enrichments:', cleaned.enrichments);
         console.log('First enrichment:', cleaned.enrichments[0]);
         console.log('First block:', cleaned.enrichments[0].blocks[0]);
-        
+
         document.getElementById('output').innerHTML = `
             <h2>Test Results:</h2>
             <pre>${JSON.stringify(cleaned, null, 2)}</pre>

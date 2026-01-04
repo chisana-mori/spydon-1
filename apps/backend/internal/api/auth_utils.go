@@ -80,7 +80,6 @@ func (h *AuthHandler) clearRedirectCookie(c *gin.Context) {
 }
 
 func (h *AuthHandler) buildCallbackURL(r *http.Request) (*url.URL, error) {
-	base := h.buildRequestBaseURL(r) // 包含 basePath，如 "http://host/spydon"
 	callbackPath := h.cfg.CAS.CallbackPath
 	if callbackPath == "" {
 		callbackPath = "/auth/cas/callback"
@@ -91,8 +90,14 @@ func (h *AuthHandler) buildCallbackURL(r *http.Request) (*url.URL, error) {
 		callbackPath = "/" + callbackPath
 	}
 
-	// 直接拼接 base + callbackPath
-	// base 已经包含了 basePath，所以最终结果是 http://host/spydon/auth/cas/callback
+	// 优先使用配置的 ServiceURL，确保 CAS 登录和回调使用相同的 service URL
+	if serviceURL := strings.TrimSpace(h.cfg.CAS.ServiceURL); serviceURL != "" {
+		base := strings.TrimRight(serviceURL, "/")
+		return url.Parse(base + callbackPath)
+	}
+
+	// 回退到基于请求的动态构建
+	base := h.buildRequestBaseURL(r)
 	fullURL := strings.TrimRight(base, "/") + callbackPath
 
 	return url.Parse(fullURL)

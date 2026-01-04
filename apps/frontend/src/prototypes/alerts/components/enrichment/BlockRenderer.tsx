@@ -22,32 +22,32 @@ export function BlockRenderer({ block }: BlockRendererProps) {
   switch (block.type) {
     case 'markdown':
       return <MarkdownBlock block={block as any} />;
-    
+
     case 'header':
       const headerBlock = block as any;
       const HeaderTag = `h${headerBlock.level || 3}` as keyof React.JSX.IntrinsicElements;
       return <HeaderTag className="text-lg font-semibold">{headerBlock.text}</HeaderTag>;
-    
+
     case 'json':
       return <JsonBlock block={block as any} />;
-    
+
     case 'k8s_diff':
     case 'diff':
       return <K8sDiffBlock block={block as any} />;
-    
+
     case 'list':
       return <ListBlock block={block as any} />;
-    
+
     case 'table':
       return <TableBlock block={block as any} />;
-    
+
     case 'links':
       return <LinksBlock block={block as any} />;
-    
+
     case 'text_file':
     case 'file':
       return <TextFileBlock block={block as any} />;
-    
+
     case 'graph':
       return <GraphBlock block={block as any} />;
 
@@ -58,7 +58,7 @@ export function BlockRenderer({ block }: BlockRendererProps) {
 
     case 'callback':
       return <CallbackBlock block={block as any} />;
-    
+
     default:
       return <GenericBlock block={block as any} />;
   }

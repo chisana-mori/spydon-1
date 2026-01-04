@@ -56,7 +56,7 @@ type FindingToAlertConverter struct {
     handler        *IngestHandler
     finding        *RobustaFinding
     rawPayload     []byte
-    
+
     // 转换后的字段
     clusterID      string
     title          string
@@ -131,13 +131,13 @@ func (c *FindingToAlertConverter) Convert() (*models.Alert, error) {
     c.parseTimes()             // 7. 解析时间
     c.buildLabels()            // 8. 构建标签
     c.buildAnnotations()       // 9. 构建注解
-    
+
     payloadKey := c.saveRawPayload()        // 10. 保存原始数据
     enrichmentKeys := c.processEnrichments() // 11. 处理enrichments
-    
+
     labelsJSON, annotationsJSON := c.serializeMetadata() // 12. 序列化
     status := c.determineStatus()                        // 13. 确定状态
-    
+
     return c.buildAlert(payloadKey, labelsJSON, annotationsJSON, status), nil
 }
 ```
@@ -172,16 +172,16 @@ func (c *FindingToAlertConverter) extractClusterID() {
 ```go
 func (c *FindingToAlertConverter) buildTitle() {
     c.title = c.finding.Title
-    
+
     if c.title == "" && c.finding.Subject != nil {
-        c.title = fmt.Sprintf("%s: %s", 
-            c.finding.Subject.SubjectType, 
+        c.title = fmt.Sprintf("%s: %s",
+            c.finding.Subject.SubjectType,
             c.finding.Subject.Name)
         if c.finding.Subject.Namespace != "" {
             c.title = fmt.Sprintf("%s (%s)", c.title, c.finding.Subject.Namespace)
         }
     }
-    
+
     if c.title == "" {
         c.title = "Robusta Finding"
     }
@@ -200,14 +200,14 @@ func (c *FindingToAlertConverter) buildLabels() {
             c.labels[k] = v
         }
     }
-    
+
     // 合并 silence_labels
     if c.finding.SilenceLabels != nil {
         for k, v := range c.finding.SilenceLabels {
             c.labels[k] = v
         }
     }
-    
+
     // 添加元数据
     c.labels["source"] = c.finding.Source
     c.labels["finding_type"] = c.finding.FindingType
@@ -264,9 +264,9 @@ func TestBuildTitle(t *testing.T) {
             Title: "Test Alert",
         },
     }
-    
+
     converter.buildTitle()
-    
+
     assert.Equal(t, "Test Alert", converter.title)
 }
 ```

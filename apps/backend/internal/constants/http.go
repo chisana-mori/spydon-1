@@ -36,5 +36,5 @@ const (
 
 // HTTP Methods
 const (
-	AllowedHTTPMethods = "GET, POST, PUT, DELETE, OPTIONS"
+	AllowedHTTPMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 )

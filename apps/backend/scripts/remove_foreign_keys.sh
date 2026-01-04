@@ -23,11 +23,11 @@ ALTER TABLE alerts DROP CONSTRAINT IF EXISTS fk_alerts_cluster;
 ALTER TABLE rca_runs DROP CONSTRAINT IF EXISTS fk_rca_runs_alert;
 
 -- 验证外键已被移除
-SELECT 
+SELECT
     conname AS constraint_name,
     conrelid::regclass AS table_name
 FROM pg_constraint
-WHERE contype = 'f' 
+WHERE contype = 'f'
     AND conrelid::regclass::text IN ('alerts', 'rca_runs');
 
 EOF

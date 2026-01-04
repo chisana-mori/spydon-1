@@ -50,7 +50,7 @@ export default function TestUnicodePage() {
     const results = tests.map(test => {
       const output = formatSummaryText(test.input)
       const passed = output.includes(test.expected)
-      
+
       return {
         name: test.name,
         input: test.input,
@@ -105,14 +105,14 @@ export default function TestUnicodePage() {
                         {result.input.length > 200 && '...'}
                       </div>
                     </div>
-                    
+
                     <div>
                       <div className="text-xs font-semibold text-gray-500 mb-1">期望包含:</div>
                       <div className="bg-blue-50 p-2 rounded text-sm">
                         {result.expected}
                       </div>
                     </div>
-                    
+
                     <div>
                       <div className="text-xs font-semibold text-gray-500 mb-1">实际输出:</div>
                       <div className={`p-2 rounded text-sm ${result.passed ? 'bg-green-50' : 'bg-red-50'}`}>
@@ -151,4 +151,3 @@ export default function TestUnicodePage() {
     </div>
   )
 }
-

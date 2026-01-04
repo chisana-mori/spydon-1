@@ -127,16 +127,16 @@ export default function UnauthorizedPage() {
 
           {/* 操作按钮 */}
           <div className="flex flex-col sm:flex-row gap-3 pt-4">
-            <Button 
-              onClick={handleRefresh} 
+            <Button
+              onClick={handleRefresh}
               className="flex-1"
               variant="default"
             >
               <RefreshCw className="w-4 h-4 mr-2" />
               刷新权限状态
             </Button>
-            <Button 
-              onClick={handleLogout} 
+            <Button
+              onClick={handleLogout}
               variant="outline"
               className="flex-1"
             >

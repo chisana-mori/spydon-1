@@ -1,6 +1,6 @@
 .tiptap-button {
-  /************************************************** 
-      Default button background color 
+  /**************************************************
+      Default button background color
   **************************************************/
   /* Light mode */
   --tt-button-default-bg-color: var(--tt-gray-light-a-100);
@@ -42,8 +42,8 @@
   --tt-button-disabled-bg-color: var(--tt-gray-dark-a-50);
 }
 .tiptap-button {
-  /************************************************** 
-      Default button text color 
+  /**************************************************
+      Default button text color
   **************************************************/
   /* Light mode */
   --tt-button-default-text-color: var(--tt-gray-light-a-600);
@@ -63,8 +63,8 @@
   --tt-button-disabled-text-color: var(--tt-gray-dark-a-300);
 }
 .tiptap-button {
-  /************************************************** 
-      Default button icon color 
+  /**************************************************
+      Default button icon color
   **************************************************/
   /* Light mode */
   --tt-button-default-icon-color: var(--tt-gray-light-a-600);
@@ -84,8 +84,8 @@
   --tt-button-disabled-icon-color: var(--tt-gray-dark-a-400);
 }
 .tiptap-button {
-  /************************************************** 
-      Default button subicon color 
+  /**************************************************
+      Default button subicon color
   **************************************************/
   /* Light mode */
   --tt-button-default-icon-sub-color: var(--tt-gray-light-a-400);
@@ -105,8 +105,8 @@
   --tt-button-disabled-icon-sub-color: var(--tt-gray-dark-a-100);
 }
 .tiptap-button {
-  /************************************************** 
-      Default button dropdown / arrows color 
+  /**************************************************
+      Default button dropdown / arrows color
   **************************************************/
   /* Light mode */
   --tt-button-default-dropdown-arrows-color: var(--tt-gray-light-a-600);
@@ -135,8 +135,8 @@
       ---------------------------------------------------------------- */
 }
 .tiptap-button[data-style=ghost] {
-  /************************************************** 
-      Ghost button background color 
+  /**************************************************
+      Ghost button background color
   **************************************************/
   /* Light mode */
   --tt-button-default-bg-color: var(--transparent);
@@ -178,8 +178,8 @@
   --tt-button-disabled-bg-color: var(--transparent);
 }
 .tiptap-button[data-style=ghost] {
-  /************************************************** 
-      Ghost button text color 
+  /**************************************************
+      Ghost button text color
   **************************************************/
   /* Light mode */
   --tt-button-default-text-color: var(--tt-gray-light-a-600);
@@ -199,8 +199,8 @@
   --tt-button-disabled-text-color: var(--tt-gray-dark-a-300);
 }
 .tiptap-button[data-style=ghost] {
-  /************************************************** 
-      Ghost button icon color 
+  /**************************************************
+      Ghost button icon color
   **************************************************/
   /* Light mode */
   --tt-button-default-icon-color: var(--tt-gray-light-a-600);
@@ -220,8 +220,8 @@
   --tt-button-disabled-icon-color: var(--tt-gray-dark-a-400);
 }
 .tiptap-button[data-style=ghost] {
-  /************************************************** 
-      Ghost button subicon color 
+  /**************************************************
+      Ghost button subicon color
   **************************************************/
   /* Light mode */
   --tt-button-default-icon-sub-color: var(--tt-gray-light-a-400);
@@ -241,8 +241,8 @@
   --tt-button-disabled-icon-sub-color: var(--tt-gray-dark-a-100);
 }
 .tiptap-button[data-style=ghost] {
-  /************************************************** 
-      Ghost button dropdown / arrows color 
+  /**************************************************
+      Ghost button dropdown / arrows color
   **************************************************/
   /* Light mode */
   --tt-button-default-dropdown-arrows-color: var(--tt-gray-light-a-600);
@@ -275,8 +275,8 @@
       ---------------------------------------------------------------- */
 }
 .tiptap-button[data-style=primary] {
-  /************************************************** 
-      Primary button background color 
+  /**************************************************
+      Primary button background color
   **************************************************/
   /* Light mode */
   --tt-button-default-bg-color: var(--tt-brand-color-500);
@@ -318,8 +318,8 @@
   --tt-button-disabled-bg-color: var(--tt-gray-dark-a-100);
 }
 .tiptap-button[data-style=primary] {
-  /************************************************** 
-      Primary button text color 
+  /**************************************************
+      Primary button text color
   **************************************************/
   /* Light mode */
   --tt-button-default-text-color: var(--white);
@@ -339,8 +339,8 @@
   --tt-button-disabled-text-color: var(--tt-gray-dark-a-300);
 }
 .tiptap-button[data-style=primary] {
-  /************************************************** 
-      Primary button icon color 
+  /**************************************************
+      Primary button icon color
   **************************************************/
   /* Light mode */
   --tt-button-default-icon-color: var(--white);
@@ -360,8 +360,8 @@
   --tt-button-disabled-icon-color: var(--tt-gray-dark-a-300);
 }
 .tiptap-button[data-style=primary] {
-  /************************************************** 
-      Primary button subicon color 
+  /**************************************************
+      Primary button subicon color
   **************************************************/
   /* Light mode */
   --tt-button-default-icon-sub-color: var(--tt-gray-dark-a-500);
@@ -381,8 +381,8 @@
   --tt-button-disabled-icon-sub-color: var(--tt-gray-dark-a-100);
 }
 .tiptap-button[data-style=primary] {
-  /************************************************** 
-      Primary button dropdown / arrows color 
+  /**************************************************
+      Primary button dropdown / arrows color
   **************************************************/
   /* Light mode */
   --tt-button-default-dropdown-arrows-color: var(--white);

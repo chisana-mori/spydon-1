@@ -117,7 +117,7 @@ const progress = parseProgress(structuredData)
 
 - **桌面端**: `max-w-4xl` 或 `max-w-6xl`
 - **平板**: `max-w-2xl`
-- **手机**: `w-full` 
+- **手机**: `w-full`
 
 ## API 集成
 

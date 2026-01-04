@@ -9,7 +9,7 @@ interface ListBlockProps {
 
 export function ListBlock({ block }: ListBlockProps) {
   const ListTag = block.ordered ? 'ol' : 'ul';
-  
+
   return (
     <ListTag className={`space-y-1 text-sm ${block.ordered ? 'list-decimal' : 'list-disc'} list-inside`}>
       {block.items.map((item, idx) => (

@@ -1,5 +1,5 @@
 :root {
-  /****************** 
+  /******************
   Basics
   ******************/
   overflow-wrap: break-word;
@@ -7,7 +7,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /****************** 
+  /******************
   Colors variables
   ******************/
   /* Gray alpha (light mode) */
@@ -106,7 +106,7 @@
   --white: rgba(255, 255, 255, 1);
   --black: rgba(14, 14, 17, 1);
   --transparent: rgba(255, 255, 255, 0);
-  /****************** 
+  /******************
   Shadow variables
   ******************/
   /* Shadows Light */
@@ -115,8 +115,8 @@
     0px 12px 24px 0px rgba(17, 24, 39, 0.04),
     0px 6px 8px 0px rgba(17, 24, 39, 0.02),
     0px 2px 3px 0px rgba(17, 24, 39, 0.02);
-  /************************************************** 
-       Radius variables 
+  /**************************************************
+       Radius variables
     **************************************************/
   --tt-radius-xxs: 0.125rem; /* 2px */
   --tt-radius-xs: 0.25rem; /* 4px */
@@ -124,8 +124,8 @@
   --tt-radius-md: 0.5rem; /* 8px */
   --tt-radius-lg: 0.75rem; /* 12px */
   --tt-radius-xl: 1rem; /* 16px */
-  /************************************************** 
-       Transition variables 
+  /**************************************************
+       Transition variables
     **************************************************/
   --tt-transition-duration-short: 0.1s;
   --tt-transition-duration-default: 0.2s;
@@ -135,7 +135,7 @@
   --tt-transition-easing-quart: cubic-bezier(0.77, 0, 0.18, 1);
   --tt-transition-easing-circ: cubic-bezier(0.79, 0.14, 0.15, 0.86);
   --tt-transition-easing-back: cubic-bezier(0.68, -0.55, 0.27, 1.55);
-  /****************** 
+  /******************
   Contrast variables
   ******************/
   --tt-accent-contrast: 8%;
@@ -151,8 +151,8 @@
 }
 
 :root {
-  /************************************************** 
-      Global colors 
+  /**************************************************
+      Global colors
   **************************************************/
   /* Global colors - Light mode */
   --tt-bg-color: var(--white);

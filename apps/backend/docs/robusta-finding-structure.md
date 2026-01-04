@@ -256,7 +256,7 @@ func (c *FindingToAlertConverter) addCustomLabels() {
             c.labels["env"] = env
         }
     }
-    
+
     // 添加团队标签
     if team, ok := c.finding.Subject.Labels["team"].(string); ok {
         c.labels["team"] = team

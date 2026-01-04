@@ -55,7 +55,7 @@ frontend/src/components/alerts/
 1. **任务创建/更新**
 ```json
 {
-  "tool_name": "TodoWrite", 
+  "tool_name": "TodoWrite",
   "result": {
     "params": {
       "todos": [
@@ -89,7 +89,7 @@ frontend/src/components/alerts/
 graph TD
     A[接收JSON数据] --> B{数据类型判断}
     B -->|任务数据| C[解析任务状态]
-    B -->|工具调用| D[显示调用结果]  
+    B -->|工具调用| D[显示调用结果]
     B -->|最终报告| E[渲染结论内容]
     C --> F[更新进度显示]
     D --> F
@@ -122,9 +122,9 @@ import { EnhancedHolmesGPTChat } from '@/components/alerts/EnhancedHolmesGPTChat
 ```tsx
 import { AlertAnalysisIntegration } from '@/components/alerts/AlertAnalysisIntegration'
 
-<AlertAnalysisIntegration 
-  alert={alert} 
-  defaultTab="enhanced" 
+<AlertAnalysisIntegration
+  alert={alert}
+  defaultTab="enhanced"
 />
 ```
 
@@ -160,7 +160,7 @@ module.exports = {
         shiki: {
           light: 'var(--shiki-light)',
           'light-bg': 'var(--shiki-light-bg)',
-          dark: 'var(--shiki-dark)', 
+          dark: 'var(--shiki-dark)',
           'dark-bg': 'var(--shiki-dark-bg)'
         }
       }
@@ -191,7 +191,7 @@ module.exports = {
 
 ### 2. 增强的视觉效果
 - 任务连接时间线
-- 状态动画和指示器  
+- 状态动画和指示器
 - 分析阶段颜色区分
 - 响应式布局适配
 

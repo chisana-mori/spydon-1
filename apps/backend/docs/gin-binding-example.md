@@ -16,13 +16,13 @@ func (h *Handler) HandleRequest(c *gin.Context) {
         c.JSON(500, gin.H{"error": "读取失败"})
         return
     }
-    
+
     var data MyStruct
     if err := json.Unmarshal(raw, &data); err != nil {
         c.JSON(400, gin.H{"error": "解析失败"})
         return
     }
-    
+
     // 处理数据...
 }
 ```
@@ -45,7 +45,7 @@ func (h *Handler) HandleRequest(c *gin.Context) {
         })
         return
     }
-    
+
     // 直接使用解析好的数据
     // data.Field1, data.Field2...
 }
@@ -103,10 +103,10 @@ func (h *Handler) HandleRequest(c *gin.Context) {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "读取失败"})
         return
     }
-    
+
     // 2. 恢复 Body 供 ShouldBindJSON 使用
     c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
-    
+
     // 3. 使用 ShouldBindJSON 解析
     var data MyStruct
     if err := c.ShouldBindJSON(&data); err != nil {
@@ -116,14 +116,14 @@ func (h *Handler) HandleRequest(c *gin.Context) {
         })
         return
     }
-    
+
     // 4. 现在同时拥有原始数据和解析后的结构体
     // rawBody - 用于存储
     // data - 用于业务逻辑
-    
+
     // 保存原始数据
     storageService.Save(ctx, "path", rawBody, "application/json")
-    
+
     // 使用解析后的数据
     processData(data)
 }
@@ -142,10 +142,10 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
         })
         return
     }
-    
+
     // 恢复Body
     c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
-    
+
     // 使用ShouldBindJSON解析
     var finding RobustaFinding
     if err := c.ShouldBindJSON(&finding); err != nil {
@@ -156,10 +156,10 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
         })
         return
     }
-    
+
     // 打印调试信息
     finding.LogDebugInfo()
-    
+
     // 创建转换器
     converter := NewFindingToAlertConverter(c, h, &finding, rawBody)
     alert, err := converter.Convert()
@@ -171,10 +171,10 @@ func (h *IngestHandler) IngestRobustaFinding(c *gin.Context) {
         })
         return
     }
-    
+
     // 保存告警
     h.alertService.CreateOrUpdateAlert(alert)
-    
+
     c.JSON(http.StatusOK, gin.H{
         "message": "Robusta告警接收成功",
         "alert_id": alert.ID,
@@ -206,7 +206,7 @@ if err := c.ShouldBindJSON(&data); err != nil {
     // - JSON 语法错误
     // - 类型不匹配
     // - 验证失败
-    
+
     // 可以根据错误类型返回不同的响应
     if _, ok := err.(*json.SyntaxError); ok {
         c.JSON(http.StatusBadRequest, gin.H{

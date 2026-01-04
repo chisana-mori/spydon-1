@@ -37,19 +37,27 @@ func main() {
 	defer logger.Sync()
 
 	// 初始化数据库连接
-	database, err := db.Initialize(cfg.DatabaseURL)
+	var database *db.Database
+	var navyDatabase *db.NavyDatabase
+	database, err = db.Initialize(cfg.DatabaseURL)
 	if err != nil {
 		logger.L().Fatal("数据库初始化失败", zap.Error(err))
 	}
 
 	// 运行自动迁移
-	if err := database.AutoMigrate(); err != nil {
+	if err = database.AutoMigrate(); err != nil {
 		logger.L().Fatal("数据库自动迁移失败", zap.Error(err))
 	}
 
 	// 创建索引
-	if err := database.CreateIndexes(); err != nil {
+	if err = database.CreateIndexes(); err != nil {
 		logger.L().Fatal("创建数据库索引失败", zap.Error(err))
+	}
+
+	// 初始化 Navy 数据库连接
+	navyDatabase, err = db.InitializeNavy(cfg.NavyDatabaseURL)
+	if err != nil {
+		logger.L().Fatal("Navy 数据库初始化失败", zap.Error(err))
 	}
 
 	// 设置Gin模式
@@ -62,7 +70,7 @@ func main() {
 	router.Use(gin.Recovery())
 
 	// 设置API路由
-	if err := api.SetupRoutes(router, database, cfg); err != nil {
+	if err := api.SetupRoutes(router, database, navyDatabase, cfg); err != nil {
 		logger.L().Fatal("初始化路由失败", zap.Error(err))
 	}
 

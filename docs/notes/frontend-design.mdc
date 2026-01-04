@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: true
 ---
 # Frontend Design Rules for Nest Project
@@ -23,7 +23,7 @@ When creating or updating any frontend component, STRICTLY follow these establis
       Detailed description text
     </DialogDescription>
   </DialogHeader>
-  
+
   <div className="space-y-8">
     <div className="flex items-center justify-center">
       <div className="flex items-center space-x-2">
@@ -32,10 +32,10 @@ When creating or updating any frontend component, STRICTLY follow these establis
         <div className="w-8 h-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium">2</div>
       </div>
     </div>
-    
+
     {/* Content sections */}
   </div>
-  
+
   {/* Action buttons */}
   <div className="flex flex-col sm:flex-row justify-between gap-4 pt-6 border-t">
     <Button variant="outline" className="h-11">Cancel</Button>
@@ -145,7 +145,7 @@ When creating or updating any frontend component, STRICTLY follow these establis
 const DESIGN_COLORS = {
   crypto: 'orange-500',
   stock: 'blue-500',
-  etf: 'green-500', 
+  etf: 'green-500',
   forex: 'purple-500',
   commodity: 'yellow-500',
   index: 'red-500',

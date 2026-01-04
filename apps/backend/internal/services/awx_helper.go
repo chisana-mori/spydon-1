@@ -19,3 +19,14 @@ func NewAWXClientFromConfig(cfg *config.Config) *awx.Client {
 
 	return awx.NewClient(awxCfg, logger.L())
 }
+
+// NewAWXRuntimeFromConfig 从应用配置创建AWX运行时
+func NewAWXRuntimeFromConfig(cfg *config.Config) *AWXRuntime {
+	client := NewAWXClientFromConfig(cfg)
+	return NewAWXRuntime(client, logger.L())
+}
+
+// NewPrometheusRuntimeFromConfig 创建 Prometheus 运行时
+func NewPrometheusRuntimeFromConfig() *PrometheusRuntime {
+	return NewPrometheusRuntime(logger.L())
+}

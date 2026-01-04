@@ -29,9 +29,10 @@ type handlerSet struct {
 	knowledge     *KnowledgeHandler
 	systemSetting *SystemSettingHandler
 	pipeline      *PipelineHandler
+	navyDevice    *NavyDeviceHandler
 }
 
-func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, error) {
+func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config) (*handlerSet, error) {
 	clusterService := services.NewClusterService(database)
 	auditService := services.NewAuditService(database)
 
@@ -54,12 +55,18 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 		return nil, err
 	}
 
-	// 创建AWX客户端和流水线引擎 (Pipeline功能)
-	var pipelineEngine *services.PipelineEngine
-	if cfg.AWX.URL != "" {
-		awxClient := services.NewAWXClientFromConfig(cfg)
-		pipelineEngine = services.NewPipelineEngine(database, cfg, awxClient)
-	}
+	// 创建流水线引擎 (使用 AWX 和 Prometheus 运行时)
+	awxRuntime := services.NewAWXRuntimeFromConfig(cfg)
+	prometheusRuntime := services.NewPrometheusRuntimeFromConfig()
+	pipelineEngine := services.NewPipelineEngine(
+		database,
+		cfg,
+		services.WithJobRuntime(awxRuntime),
+		services.WithMetricsRuntime(prometheusRuntime),
+	)
+
+	// Navy 设备服务
+	navyDeviceService := services.NewNavyDeviceService(navyDatabase)
 
 	handlers := &handlerSet{
 		cfg:           cfg,
@@ -81,6 +88,7 @@ func buildHandlerSet(database *db.Database, cfg *config.Config) (*handlerSet, er
 		knowledge:     NewKnowledgeHandler(knowledgeService),
 		systemSetting: NewSystemSettingHandler(systemSettingService, rcaService),
 		pipeline:      NewPipelineHandler(pipelineEngine),
+		navyDevice:    NewNavyDeviceHandler(navyDeviceService),
 	}
 
 	return handlers, nil
@@ -138,6 +146,7 @@ func (r *routeRegistrar) register() {
 	r.registerAdminRoutes(v1)
 	r.registerKnowledgeRoutes(v1)
 	r.registerPipelineRoutes(v1)
+	r.registerNavyRoutes(v1)
 }
 
 func (r *routeRegistrar) applyGlobalMiddleware() {
@@ -208,6 +217,7 @@ func (r *routeRegistrar) registerQueryRoutes(v1 *gin.RouterGroup) {
 	queryGroup.GET("/clusters/summary", r.handlers.query.GetClustersSummary)
 	queryGroup.GET("/clusters", r.handlers.query.GetClusters)
 	queryGroup.GET("/clusters/:id", r.handlers.query.GetCluster)
+	queryGroup.GET("/clusters/:id/nodes", r.handlers.query.GetClusterNodes)
 
 	queryGroup.GET("/alerts", r.handlers.query.GetAlerts)
 	queryGroup.GET("/alerts/trend", r.handlers.query.GetAlertTrend)
@@ -299,16 +309,55 @@ func (r *routeRegistrar) registerPipelineRoutes(v1 *gin.RouterGroup) {
 	templateGroup.GET("", r.handlers.pipeline.ListTemplates)
 	templateGroup.GET("/:id", r.handlers.pipeline.GetTemplate)
 	templateGroup.POST("", r.handlers.pipeline.CreateTemplate)
+	templateGroup.PUT("/:id", r.handlers.pipeline.UpdateTemplate)
+	templateGroup.DELETE("/:id", r.handlers.pipeline.DeleteTemplate)
+
+	// AWX Templates (管理员)
+	awxGroup := v1.Group("/pipelines/awx")
+	awxGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	awxGroup.Use(middleware.RequireAdmin())
+	awxGroup.GET("/templates", r.handlers.pipeline.ListAWXTemplates)
+	awxGroup.GET("/templates/:id", r.handlers.pipeline.GetAWXTemplate)
 
 	// Pipeline Executions (需登录)
 	execGroup := v1.Group("/pipelines/executions")
 	execGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
 	execGroup.Use(middleware.AuditLogMiddleware())
 	execGroup.GET("", r.handlers.pipeline.GetExecutionHistory)
+	execGroup.GET("/active", r.handlers.pipeline.GetActiveExecutions)
 	execGroup.POST("", r.handlers.pipeline.StartExecution)
 	execGroup.GET("/:id", r.handlers.pipeline.GetExecution)
 	execGroup.POST("/:id/pause", r.handlers.pipeline.PauseExecution)
 	execGroup.POST("/:id/resume", r.handlers.pipeline.ResumeExecution)
 	execGroup.POST("/:id/cancel", r.handlers.pipeline.CancelExecution)
 	execGroup.POST("/:id/rollback", r.handlers.pipeline.RollbackExecution)
+}
+
+func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {
+	navyGroup := v1.Group("/navy")
+	navyGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+
+	deviceGroup := navyGroup.Group("/devices")
+	{
+		deviceGroup.GET("", r.handlers.navyDevice.List)
+		deviceGroup.POST("/query", r.handlers.navyDevice.Query)
+		deviceGroup.GET("/filter-options", r.handlers.navyDevice.GetFilterOptions)
+		deviceGroup.GET("/label-values", r.handlers.navyDevice.GetLabelValues)
+		deviceGroup.GET("/taint-values", r.handlers.navyDevice.GetTaintValues)
+		deviceGroup.GET("/device-field-values", r.handlers.navyDevice.GetDeviceFieldValues)
+		deviceGroup.GET("/feature-details", r.handlers.navyDevice.GetFeatureDetails)
+		deviceGroup.GET("/export", r.handlers.navyDevice.Export)
+		deviceGroup.GET("/:id", r.handlers.navyDevice.Get)
+		deviceGroup.PATCH("/:id/role", r.handlers.navyDevice.UpdateRole)
+		deviceGroup.PATCH("/:id/group", r.handlers.navyDevice.UpdateGroup)
+	}
+
+	// 模板管理
+	templateGroup := navyGroup.Group("/templates")
+	{
+		templateGroup.GET("", r.handlers.navyDevice.GetTemplates)
+		templateGroup.POST("", r.handlers.navyDevice.SaveTemplate)
+		templateGroup.GET("/:id", r.handlers.navyDevice.GetTemplate)
+		templateGroup.DELETE("/:id", r.handlers.navyDevice.DeleteTemplate)
+	}
 }

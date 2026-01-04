@@ -16,7 +16,7 @@
   --tiptap-ai-insertion-color: var(--tt-brand-color-400);
 }
 
-/* Ensure each top-level node has relative positioning 
+/* Ensure each top-level node has relative positioning
    so absolutely positioned placeholders work correctly */
 .tiptap.ProseMirror > * {
   position: relative;
