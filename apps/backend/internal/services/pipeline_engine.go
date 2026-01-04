@@ -388,6 +388,103 @@ func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, 
 	return execution, nil
 }
 
+// CloneExecution 克隆执行任务
+func (e *PipelineEngine) CloneExecution(ctx context.Context, executionID uint64, userID uint64) (*models.PipelineExecution, error) {
+	if err := e.ensureDB(); err != nil {
+		return nil, err
+	}
+
+	// 1. 获取原执行记录
+	var original models.PipelineExecution
+	if err := e.db.First(&original, executionID).Error; err != nil {
+		return nil, fmt.Errorf("获取原执行记录失败: %w", err)
+	}
+
+	// 2. 创建新执行记录 (Pending 状态)
+	now := time.Now()
+	execution := &models.PipelineExecution{
+		PipelineTemplateID: original.PipelineTemplateID,
+		ClusterID:          original.ClusterID,
+		ClusterName:        original.ClusterName,
+		Status:             models.ExecutionStatusPending,
+		Parameters:         original.Parameters,
+		EffectiveStages:    original.EffectiveStages,
+		StartedAt:          &now,
+		TriggeredBy:        userID,
+	}
+
+	if err := e.db.Create(execution).Error; err != nil {
+		return nil, fmt.Errorf("创建克隆执行记录失败: %w", err)
+	}
+
+	// 3. 解析 Stages 用于创建 StageRun
+	var stages []models.StageDefinition
+	// 优先使用 EffectiveStages 以保持批次结构一致
+	if len(execution.EffectiveStages) > 0 {
+		if err := json.Unmarshal(execution.EffectiveStages, &stages); err != nil {
+			return nil, fmt.Errorf("解析 EffectiveStages 失败: %w", err)
+		}
+	} else {
+		// 如果原记录没有 EffectiveStages (旧数据)，则从 Template 获取
+		var template models.PipelineTemplate
+		if err := e.db.First(&template, execution.PipelineTemplateID).Error; err != nil {
+			return nil, fmt.Errorf("获取关联模板失败: %w", err)
+		}
+		if err := json.Unmarshal(template.Stages, &stages); err != nil {
+			return nil, fmt.Errorf("解析模板 Stages 失败: %w", err)
+		}
+	}
+
+	// 4. 创建 StageRun 记录
+	for _, stage := range stages {
+		stageRun := &models.StageRun{
+			ExecutionID: execution.ID,
+			StageID:     stage.ID,
+			StageName:   stage.Name,
+			StageType:   stage.Type,
+			Status:      models.StageRunStatusPending,
+		}
+
+		// 对于 AWX Job 阶段，克隆模板配置
+		if stage.Type == models.StageTypeAWXJob && e.jobRuntime != nil && stage.Config.AWXTemplateID > 0 {
+			// 构建克隆配置
+			cloneConfig := CloneTemplateConfig{
+				TemplateID:   stage.Config.AWXTemplateID,
+				TemplateName: stage.Config.AWXTemplateName,
+				ClusterName:  original.ClusterName,
+			}
+
+			// 处理 extra_vars
+			if len(stage.Config.ExtraVars) > 0 {
+				cloneConfig.ExtraVars = make(map[string]interface{})
+				for k, v := range stage.Config.ExtraVars {
+					cloneConfig.ExtraVars[k] = v
+				}
+			}
+
+			clonedID, cloneErr := e.jobRuntime.PrepareClonedTemplate(ctx, cloneConfig)
+			if cloneErr != nil {
+				logger.L().Warn("克隆模板失败 (CloneExecution)，将在执行时使用原模板",
+					zap.Int("template_id", stage.Config.AWXTemplateID),
+					zap.Error(cloneErr))
+			} else {
+				stageRun.ClonedTemplateID = &clonedID
+			}
+		}
+
+		if err := e.db.Create(stageRun).Error; err != nil {
+			return nil, fmt.Errorf("创建阶段记录失败: %w", err)
+		}
+	}
+
+	logger.L().Info("流水线任务已克隆",
+		zap.Uint64("original_id", executionID),
+		zap.Uint64("new_id", execution.ID),
+		zap.Uint64("user_id", userID))
+
+	return execution, nil
+}
+
 // RunPendingExecution 启动处于等待状态的流水线
 func (e *PipelineEngine) RunPendingExecution(ctx context.Context, executionID uint64) error {
 	if err := e.ensureDB(); err != nil {

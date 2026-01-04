@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"io"
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/services"
 
@@ -12,12 +13,16 @@ import (
 
 // PipelineHandler 流水线API处理器
 type PipelineHandler struct {
-	engine *services.PipelineEngine
+	engine      *services.PipelineEngine
+	awxStreamer *services.AWXStreamer
 }
 
 // NewPipelineHandler 创建流水线处理器
-func NewPipelineHandler(engine *services.PipelineEngine) *PipelineHandler {
-	return &PipelineHandler{engine: engine}
+func NewPipelineHandler(engine *services.PipelineEngine, awxStreamer *services.AWXStreamer) *PipelineHandler {
+	return &PipelineHandler{
+		engine:      engine,
+		awxStreamer: awxStreamer,
+	}
 }
 
 // 请求/响应结构
@@ -341,6 +346,29 @@ func (h *PipelineHandler) RunPendingExecution(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "任务已启动"})
 }
 
+// CloneExecution 克隆任务 (Copy to New Pending)
+// @Summary 克隆流水线任务
+// @Tags Pipeline
+// @Param id path int true "Execution ID"
+// @Success 201 {object} models.PipelineExecution
+// @Router /api/pipelines/executions/{id}/clone [post]
+func (h *PipelineHandler) CloneExecution(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "", "无效的执行ID")
+		return
+	}
+
+	userID := getUserIDFromContext(c)
+	execution, err := h.engine.CloneExecution(c.Request.Context(), id, userID)
+	if err != nil {
+		InternalError(c, "", "克隆失败: "+err.Error())
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"data": execution})
+}
+
 // GetExecutionHistory 获取流水线执行历史
 // @Summary 获取流水线执行历史
 // @Tags Pipeline
@@ -517,6 +545,87 @@ func (h *PipelineHandler) UpdateInventoryVariables(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Inventory变量已更新"})
+}
+
+// StreamLogs SSE endpoint for raw log streaming
+// @Summary Stream raw job logs
+// @Tags Pipeline
+// @Param id path int true "Execution ID"
+// @Success 200 {string} string "stream"
+// @Router /api/pipelines/executions/{id}/logs/stream [get]
+func (h *PipelineHandler) StreamLogs(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "", "Invalid Execution ID")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Transfer-Encoding", "chunked")
+
+	stream, err := h.awxStreamer.StreamJobLogs(c.Request.Context(), id)
+	if err != nil {
+		// If error happens immediately, return error.
+		// If streaming started, we can't change status code, just log and close.
+		InternalError(c, "", "Failed to start log stream: "+err.Error())
+		return
+	}
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case line, ok := <-stream:
+			if !ok {
+				return false
+			}
+			// Write raw text line as "data: ..." event?
+			// Actually for raw logs, typically we might just stream text/plain or specialized events.
+			// Ideally we use server sent events format: data: <content>\n\n
+			// Use gin's SSE helper
+			c.SSEvent("log", line)
+			return true
+		case <-c.Request.Context().Done():
+			return false
+		}
+	})
+}
+
+// StreamProgress SSE endpoint for structured task progress
+// @Summary Stream task progress
+// @Tags Pipeline
+// @Param id path int true "Execution ID"
+// @Success 200 {object} services.PipelineNodeStatus
+// @Router /api/pipelines/executions/{id}/progress/stream [get]
+func (h *PipelineHandler) StreamProgress(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		BadRequest(c, "", "Invalid Execution ID")
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+
+	stream, err := h.awxStreamer.StreamJobProgress(c.Request.Context(), id)
+	if err != nil {
+		InternalError(c, "", "Failed to start progress stream: "+err.Error())
+		return
+	}
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case node, ok := <-stream:
+			if !ok {
+				return false
+			}
+			c.SSEvent("task", node)
+			return true
+		case <-c.Request.Context().Done():
+			return false
+		}
+	})
 }
 
 // 辅助函数

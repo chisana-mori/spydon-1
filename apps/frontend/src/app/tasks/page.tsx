@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -34,10 +35,13 @@ import {
     Layers,
     Search,
     Sparkles,
+    Terminal,
+    Copy, // Added Copy icon
 } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import { RobustaAPI } from '@/lib/api'
+import { ExecutionLiveView } from '@/components/ExecutionLiveView'
 import type { PipelineTemplate, PipelineExecution, ExecutionStatus, StageRun, StageDefinition, ParameterBinding } from '@/types/pipeline'
 import type { Cluster } from '@/types/api'
 import {
@@ -123,12 +127,17 @@ interface ExecutionCardProps {
     onCancel: (id: string) => void
     onRollback: (id: string) => void
     onGenerateSOP: (id: string) => void
+    onViewLogs: (id: string) => void
+    onClone?: (id: string) => void // Added onClone prop
 }
 
-const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onCancel, onRollback, onGenerateSOP }: ExecutionCardProps) => {
+const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onCancel, onRollback, onGenerateSOP, onViewLogs, onClone }: ExecutionCardProps) => {
     const templateName = exec.template?.name || `模板 #${exec.pipeline_template_id}`
     const stages = parseStages(exec.template?.stages)
     const stageRuns = exec.stage_runs || []
+
+    const isPending = exec.status === 'pending'
+    const isCompleted = ['successful', 'failed', 'canceled'].includes(exec.status)
 
     // Time display logic
     const timeDisplay = useMemo(() => {
@@ -159,14 +168,20 @@ const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onC
         }
     }
 
-    const getStripeColor = (s: ExecutionStatus) => {
+    const getCardTheme = (s: ExecutionStatus) => {
         switch (s) {
-            case 'running': return "bg-blue-500"
-            case 'successful': return "bg-emerald-500"
-            case 'failed': return "bg-red-500"
-            case 'paused': return "bg-amber-500"
-            case 'pending': return "bg-gray-400"
-            default: return "bg-gray-300"
+            case 'running':
+                return "hover:border-blue-400/50 dark:hover:border-blue-500/30 bg-gradient-to-r from-blue-50/80 via-transparent to-transparent dark:from-blue-950/20"
+            case 'successful':
+                return "hover:border-emerald-400/50 dark:hover:border-emerald-500/30 bg-gradient-to-r from-emerald-50/80 via-transparent to-transparent dark:from-emerald-950/20"
+            case 'failed':
+                return "hover:border-red-400/50 dark:hover:border-red-500/30 bg-gradient-to-r from-red-50/80 via-transparent to-transparent dark:from-red-950/20"
+            case 'paused':
+                return "hover:border-amber-400/50 dark:hover:border-amber-500/30 bg-gradient-to-r from-amber-50/80 via-transparent to-transparent dark:from-amber-950/20"
+            case 'pending':
+                return "hover:border-gray-400/50 dark:hover:border-gray-500/30 bg-gradient-to-r from-gray-50/80 via-transparent to-transparent dark:from-gray-900/20"
+            default:
+                return "hover:border-primary/20"
         }
     }
 
@@ -232,14 +247,12 @@ const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onC
         <div
             className={cn(
                 "relative group overflow-hidden bg-card rounded-xl border transition-all duration-300",
-                "hover:shadow-lg hover:border-primary/20",
-                "dark:hover:shadow-primary/5"
+                "hover:shadow-lg",
+                "dark:hover:shadow-primary/5",
+                getCardTheme(exec.status)
             )}
         >
-            {/* Status Stripe */}
-            <div className={cn("absolute left-0 top-0 bottom-0 w-1", getStripeColor(exec.status))} />
-
-            <div className="p-5 pl-7">
+            <div className="p-5">
                 {/* Header Row */}
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
                     <div className="space-y-1.5">
@@ -269,9 +282,21 @@ const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onC
                     {/* Actions Group */}
                     {showActions && (
                         <div className="flex items-center gap-2 opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
-                            <Button size="sm" variant="outline" onClick={() => onGenerateSOP(exec.id)} className="h-8 border-violet-200 hover:bg-violet-50 text-violet-700">
-                                <Sparkles className="w-3.5 h-3.5 mr-1.5" /> AI-SOP
-                            </Button>
+                            {!isPending && (
+                                <Button size="sm" variant="outline" onClick={() => onViewLogs(exec.id)} className="h-8">
+                                    <Terminal className="w-3.5 h-3.5 mr-1.5" /> 日志
+                                </Button>
+                            )}
+                            {onClone && ( // Conditionally render Clone button
+                                <Button size="sm" variant="outline" onClick={() => onClone(exec.id)} className="h-8">
+                                    <Copy className="w-3.5 h-3.5 mr-1.5" /> 克隆
+                                </Button>
+                            )}
+                            {!isCompleted && (
+                                <Button size="sm" variant="outline" onClick={() => onGenerateSOP(exec.id)} className="h-8 border-violet-200 hover:bg-violet-50 text-violet-700">
+                                    <Sparkles className="w-3.5 h-3.5 mr-1.5" /> AI-SOP
+                                </Button>
+                            )}
                             {exec.status === 'pending' && (
                                 <Button size="sm" onClick={() => onRun(exec.id)} className="h-8 shadow-sm">
                                     <Play className="w-3.5 h-3.5 mr-1.5" /> 执行
@@ -354,6 +379,10 @@ export default function TasksPage() {
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
     const [deletingTemplate, setDeletingTemplate] = useState<PipelineTemplate | null>(null)
     const [deleting, setDeleting] = useState(false)
+
+    // 日志对话框状态
+    const [viewDialogOpen, setViewDialogOpen] = useState(false)
+    const [viewExecutionId, setViewExecutionId] = useState<string>('')
 
     // 加载数据
     const fetchData = useCallback(async (showRefreshing = false) => {
@@ -529,6 +558,25 @@ export default function TasksPage() {
         setDeleteDialogOpen(true)
     }
 
+    // 打开日志对话框
+    const handleViewLogs = (id: string) => {
+        setViewExecutionId(id)
+        setViewDialogOpen(true)
+    }
+
+    // 克隆执行
+    const handleClone = async (id: string) => {
+        try {
+            await RobustaAPI.cloneExecution(id)
+            toast.success('克隆成功', { description: '新任务已创建，请在任务列表中查看' })
+            fetchData(true) // 刷新列表
+            setActiveTab('tasks') // 切换到任务列表Tab
+        } catch (error) {
+            console.error('Failed to clone execution:', error)
+            toast.error('克隆失败', { description: '无法克隆任务' })
+        }
+    }
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
@@ -593,6 +641,8 @@ export default function TasksPage() {
                                     onCancel={handleCancel}
                                     onRollback={handleRollback}
                                     onGenerateSOP={handleGenerateSOP}
+                                    onViewLogs={handleViewLogs}
+                                    onClone={handleClone} // Passed onClone prop
                                 />
                             ))}
                         </div>
@@ -762,13 +812,15 @@ export default function TasksPage() {
                                 <ExecutionCard
                                     key={exec.id}
                                     exec={exec}
-                                    showActions={false}
+                                    showActions={true} // Changed to true to show actions like logs and clone
                                     onRun={handleRunPending}
                                     onPause={handlePause}
                                     onResume={openApprovalDialog}
                                     onCancel={handleCancel}
                                     onRollback={handleRollback}
                                     onGenerateSOP={handleGenerateSOP}
+                                    onViewLogs={handleViewLogs}
+                                    onClone={handleClone}
                                 />
                             ))}
                         </div>
@@ -804,8 +856,16 @@ export default function TasksPage() {
                 </DialogContent>
             </Dialog>
 
+            {/* Live View Dialog */}
+            {/* Live View Sheet (Drawer) */}
+            <Sheet open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+                <SheetContent side="right" className="w-[90%] sm:max-w-[850px] p-0 flex flex-col gap-0 border-l border-border bg-background/95 backdrop-blur-sm shadow-2xl z-[100]">
+                    <ExecutionLiveView executionId={viewExecutionId} isOpen={viewDialogOpen} onClose={() => setViewDialogOpen(false)} />
+                </SheetContent>
+            </Sheet>
+
             {/* 删除确认对话框 */}
-            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            < AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} >
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>确认删除</AlertDialogTitle>
@@ -826,7 +886,7 @@ export default function TasksPage() {
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
-            </AlertDialog>
-        </div>
+            </AlertDialog >
+        </div >
     )
 }

@@ -174,3 +174,12 @@ export interface ExecutionHistoryParams {
   cluster_id: string
   limit?: number
 }
+
+export interface PipelineNodeStatus {
+  task_name: string
+  task_id: string
+  status: 'running' | 'success' | 'failed' | 'skipped'
+  start_time: string
+  end_time?: string
+  host?: string
+}

@@ -296,8 +296,28 @@ export class RobustaAPI {
         await apiClient.post(`/pipelines/executions/${id}/rollback`)
     }
 
-    static async runPendingExecution(id: string): Promise<void> {
-        await apiClient.post(`/pipelines/executions/${id}/run`)
+    static async runPendingExecution(id: string): Promise<{ message: string }> {
+        const res = await fetch(`${getApiBaseUrl()}/pipelines/executions/${id}/run`, {
+            method: 'POST',
+        })
+        if (!res.ok) throw new Error('Failed to run pending execution')
+        return res.json()
+    }
+
+    static async cloneExecution(id: string): Promise<{ data: PipelineExecution }> {
+        const res = await fetch(`${getApiBaseUrl()}/pipelines/executions/${id}/clone`, {
+            method: 'POST',
+        })
+        if (!res.ok) throw new Error('Failed to clone execution')
+        return res.json()
+    }
+
+    static getLogStreamUrl(id: string): string {
+        return `${getApiBaseUrl()}/pipelines/executions/${id}/progress/stream`
+    }
+
+    static getProgressStreamUrl(id: string): string {
+        return `${getApiBaseUrl()}/pipelines/executions/${id}/progress/stream`
     }
 
     static async generateSOPFlow(id: string): Promise<any> {

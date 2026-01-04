@@ -68,6 +68,9 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 	// Navy 设备服务
 	navyDeviceService := services.NewNavyDeviceService(navyDatabase)
 
+	// Streamer needs raw access to AWX Client
+	awxStreamer := services.NewAWXStreamer(database.DB, awxRuntime.GetClient())
+
 	handlers := &handlerSet{
 		cfg:           cfg,
 		apiKeyService: apiKeyService,
@@ -87,7 +90,7 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 		health:        NewHealthHandler(database),
 		knowledge:     NewKnowledgeHandler(knowledgeService),
 		systemSetting: NewSystemSettingHandler(systemSettingService, rcaService),
-		pipeline:      NewPipelineHandler(pipelineEngine),
+		pipeline:      NewPipelineHandler(pipelineEngine, awxStreamer),
 		navyDevice:    NewNavyDeviceHandler(navyDeviceService),
 	}
 
@@ -335,6 +338,7 @@ func (r *routeRegistrar) registerPipelineRoutes(v1 *gin.RouterGroup) {
 	execGroup.POST("/:id/cancel", r.handlers.pipeline.CancelExecution)
 	execGroup.POST("/:id/rollback", r.handlers.pipeline.RollbackExecution)
 	execGroup.POST("/:id/run", r.handlers.pipeline.RunPendingExecution)
+	execGroup.POST("/:id/clone", r.handlers.pipeline.CloneExecution)
 	execGroup.GET("/:id/sop", r.handlers.pipeline.GenerateSOPFlow) // AI-SOP 接口
 }
 

@@ -257,6 +257,34 @@ func (c *Client) GetJobEvents(ctx context.Context, jobID int, page int) ([]JobEv
 	return result.Results, nil
 }
 
+// GetJobEventsSince 获取自指定ID之后的新事件
+func (c *Client) GetJobEventsSince(ctx context.Context, jobID int, lastEventID int) ([]JobEvent, error) {
+	var result PaginatedResponse[JobEvent]
+
+	// 使用 id__gt 过滤，这是 AWX API 支持的标准过滤方式
+	req := c.client.R().
+		SetContext(ctx).
+		SetQueryParam("order_by", "id").
+		SetQueryParam("page_size", "100"). // 每次最多拉取100条
+		SetResult(&result)
+
+	if lastEventID > 0 {
+		req.SetQueryParam("id__gt", fmt.Sprintf("%d", lastEventID))
+	}
+
+	resp, err := req.Get(fmt.Sprintf("/api/v2/jobs/%d/job_events/", jobID))
+
+	if err != nil {
+		return nil, fmt.Errorf("取新事件失败: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("AWX返回错误 %d: %s", resp.StatusCode(), string(resp.Body()))
+	}
+
+	return result.Results, nil
+}
+
 // GetJobStdout 获取Job的标准输出 (文本格式)
 func (c *Client) GetJobStdout(ctx context.Context, jobID int) (string, error) {
 	resp, err := c.client.R().
