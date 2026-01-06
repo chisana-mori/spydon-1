@@ -3,7 +3,7 @@ package api
 import (
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/db"
-	"robusta-web/backend/internal/services/nodesync"
+	"robusta-web/backend/internal/pkg/nodesync"
 
 	"github.com/gin-gonic/gin"
 )

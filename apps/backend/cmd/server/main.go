@@ -15,7 +15,7 @@ import (
 	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/logger"
-	"robusta-web/backend/internal/services/nodesync"
+	"robusta-web/backend/internal/pkg/nodesync"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

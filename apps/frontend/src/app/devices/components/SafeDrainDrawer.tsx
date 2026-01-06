@@ -9,9 +9,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { useSafeDrain, ActiveDrain, DrainLog } from '../context/SafeDrainContext'
+import { useSafeDrain, ActiveDrain } from '../context/SafeDrainContext'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { DrainPodMigrationStatus } from '@/types/safe-drain'
+import type { DrainPodMigrationStatus, DrainLog } from '@/types/safe-drain'
+import { MigrationsTable } from '../../clusters/components/SafeDrain/MigrationsTable'
+import { DrainStatsDisplay } from '../../clusters/components/SafeDrain/DrainStatsView'
 
 export function SafeDrainDrawer() {
     const { activeDrains, isDrawerOpen, minimizeDrawer, closeDrawer, clearCompleted, removeDrain, requestCancel } = useSafeDrain()
@@ -159,40 +161,8 @@ function DrainItem({ drain, onRemove, onRequestCancel }: { drain: ActiveDrain, o
                 </div>
 
                 {/* Migrations table */}
-                <div className="rounded-md border h-[300px] overflow-auto relative">
-                    <Table>
-                        <TableHeader className="sticky top-0 bg-secondary z-10">
-                            <TableRow>
-                                <TableHead>Pod Name</TableHead>
-                                <TableHead>Namespace</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Started</TableHead>
-                                <TableHead>Evicted</TableHead>
-                                <TableHead>Completed</TableHead>
-                                <TableHead className="text-right">Message</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {drain.migrations.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={7} className="h-16 text-center text-xs">No pods migrated yet.</TableCell>
-                                </TableRow>
-                            ) : (
-                                drain.migrations.map(mig => (
-                                    <TableRow key={mig.migrationId}>
-                                        <TableCell className="text-xs font-medium">{mig.sourcePod.name}</TableCell>
-                                        <TableCell className="text-xs">{mig.sourcePod.namespace}</TableCell>
-                                        <TableCell className="text-xs"><StatusBadge status={mig.status} /></TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{mig.startTime ? new Date(mig.startTime).toLocaleTimeString() : '-'}</TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{mig.evictionTime ? new Date(mig.evictionTime).toLocaleTimeString() : '-'}</TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{mig.completionTime ? new Date(mig.completionTime).toLocaleTimeString() : '-'}</TableCell>
-                                        <TableCell className="text-xs text-right text-muted-foreground truncate" title={mig.errorMessage || ''}>{mig.errorMessage || '-'}</TableCell>
-                                    </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
+                {drain.stats && <DrainStatsDisplay stats={drain.stats} />}
+                <MigrationsTable migrations={drain.migrations} />
 
                 {/* Logs (aligned with auto-navy LogViewer style) */}
                 <div className="border rounded-md bg-zinc-950 p-3 h-[150px] text-xs text-zinc-300 font-mono">
@@ -219,27 +189,4 @@ function DrainItem({ drain, onRemove, onRequestCancel }: { drain: ActiveDrain, o
             </div>
         </div>
     )
-}
-
-function StatusBadge({ status }: { status: DrainPodMigrationStatus }) {
-    // Align with auto-navy MigrationsTable badge styles
-    const variants: Record<DrainPodMigrationStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-        pending: 'outline',
-        evicting: 'secondary',
-        evicted: 'secondary',
-        creating: 'default',
-        completed: 'default',
-        failed: 'destructive',
-        ignored: 'outline',
-    }
-    const colors: Record<DrainPodMigrationStatus, string> = {
-        pending: 'text-zinc-500',
-        evicting: 'bg-blue-100 text-blue-800 hover:bg-blue-100',
-        evicted: 'bg-purple-100 text-purple-800 hover:bg-purple-100',
-        creating: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-100',
-        completed: 'bg-green-100 text-green-800 hover:bg-green-100',
-        failed: 'bg-red-100 text-red-800 hover:bg-red-100',
-        ignored: 'text-zinc-400',
-    }
-    return <Badge variant={variants[status]} className={colors[status]}>{status.toUpperCase()}</Badge>
 }

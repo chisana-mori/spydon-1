@@ -1,5 +1,5 @@
 export type DrainStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type DrainPodMigrationStatus = 'pending' | 'evicting' | 'evicted' | 'creating' | 'completed' | 'failed' | 'ignored';
+export type DrainPodMigrationStatus = 'pending' | 'evicting' | 'evicted' | 'creating' | 'completed' | 'failed' | 'ignored' | 'timeout';
 
 export interface SafeDrainRequest {
     clusterName: string;
@@ -29,6 +29,7 @@ export interface DrainPodInfo {
     labels?: Record<string, string>;
     annotations?: Record<string, string>;
     ownerReferences?: SimplifiedOwnerReference[];
+    createdAt?: string;
 }
 
 export interface DrainPodMigrationInfo {
@@ -41,11 +42,33 @@ export interface DrainPodMigrationInfo {
     startTime: string; // ISO date string
     evictionTime?: string;
     completionTime?: string;
+    progress?: number;
+    ownerReference?: string;
+}
+
+export interface DrainStats {
+    totalPods: number;
+    migratedPods: number;
+    failedPods: number;
+    pendingPods: number;
+    migratingPods: number;
+    ignoredPods: number;
+    pdbCount: number;
 }
 
 export interface LogEntry {
-    timestamp: number;
+    timestamp: number | string;
     level: string;
     message: string;
     category?: string;
+    id?: string;
+}
+
+export type DrainLog = LogEntry;
+
+export interface SSEMessage {
+    type: string;
+    message: string;
+    data?: any;
+    timestamp?: number;
 }

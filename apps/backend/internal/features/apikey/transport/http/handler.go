@@ -1,0 +1,277 @@
+package http
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"robusta-web/backend/internal/apperrors"
+	"robusta-web/backend/internal/config"
+	"robusta-web/backend/internal/constants"
+	"robusta-web/backend/internal/features/apikey/services"
+	"robusta-web/backend/internal/middleware"
+	"robusta-web/backend/internal/models"
+	httpx "robusta-web/backend/internal/transport/httpx"
+
+	"github.com/gin-gonic/gin"
+)
+
+// Handler wires API Key routes, preserving existing URL paths and response shapes.
+type Handler struct {
+	cfg           *config.Config
+	apiKeyService *services.APIKeyService
+}
+
+func New(cfg *config.Config, apiKeyService *services.APIKeyService) *Handler {
+	return &Handler{cfg: cfg, apiKeyService: apiKeyService}
+}
+
+// RegisterRoutes registers both user and admin API key routes.
+// v1 is /api/v1 group; admin is /api/v1/admin group with admin middlewares already applied.
+func (h *Handler) RegisterRoutes(v1, admin *gin.RouterGroup) {
+	// /api/v1/apikeys (current user)
+	userGroup := v1.Group(RouteGroupUser)
+	userGroup.Use(middleware.CookieAuthMiddleware(h.cfg))
+	userGroup.Use(middleware.AuditLogMiddleware())
+	{
+		userGroup.POST("", h.CreateAPIKey)
+		userGroup.GET("", h.ListAPIKeys)
+		userGroup.DELETE(":id", h.DeleteAPIKey)
+		userGroup.PUT(":id/status", h.UpdateAPIKeyStatus)
+	}
+
+	// /api/v1/admin/apikeys (admin list all)
+	admin.GET(RouteGroupAdmin, h.ListAllAPIKeys)
+}
+
+// Request/Response DTOs (copied to avoid importing internal/api and causing import cycles)
+type CreateAPIKeyRequest struct {
+	Name        string `json:"name" binding:"required"`
+	ExpiresIn   *int   `json:"expires_in"`
+	Permissions string `json:"permissions" binding:"required,oneof=read write admin"`
+}
+
+type CreateAPIKeyResponse struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Key         string     `json:"key"`
+	KeyPrefix   string     `json:"key_prefix"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	Permissions string     `json:"permissions"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type APIKeyListResponse struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	KeyPrefix   string     `json:"key_prefix"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	IsActive    bool       `json:"is_active"`
+	Permissions string     `json:"permissions"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// CreateAPIKey creates a new API key for current user.
+func (h *Handler) CreateAPIKey(c *gin.Context) {
+	var req CreateAPIKeyRequest
+	if err := httpx.BindJSON(c, &req); err != nil {
+		httpx.AbortWithDomainError(c, err)
+		return
+	}
+
+	uid, derr := h.resolveUserID(c)
+	if derr != nil {
+		httpx.AbortWithDomainError(c, derr)
+		return
+	}
+
+	// Compute expiry
+	var expiresAt *time.Time
+	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
+		expiry := time.Now().AddDate(0, 0, *req.ExpiresIn)
+		expiresAt = &expiry
+	}
+
+	apiKey, rawKey, err := h.apiKeyService.GenerateAPIKey(uid, req.Name, expiresAt, req.Permissions)
+	if err != nil {
+		httpx.ErrorWithDetails(c, http.StatusInternalServerError, constants.ErrorCodeCreateFailed, "创建API Key失败", err.Error())
+		return
+	}
+
+	resp := CreateAPIKeyResponse{
+		ID:          models.FormatID(apiKey.ID),
+		Name:        apiKey.Name,
+		Key:         rawKey, // only return once
+		KeyPrefix:   apiKey.KeyPrefix,
+		ExpiresAt:   apiKey.ExpiresAt,
+		Permissions: apiKey.Permissions,
+		CreatedAt:   apiKey.CreatedAt,
+	}
+
+	// 201 Created with { data: ... }
+	c.AbortWithStatusJSON(constants.StatusCreated, gin.H{"data": resp})
+}
+
+// ListAPIKeys lists API keys of current user.
+func (h *Handler) ListAPIKeys(c *gin.Context) {
+	uid, derr := h.resolveUserID(c)
+	if derr != nil {
+		httpx.AbortWithDomainError(c, derr)
+		return
+	}
+
+	apiKeys, err := h.apiKeyService.ListAPIKeys(uid)
+	if err != nil {
+		httpx.ErrorWithDetails(c, http.StatusInternalServerError, constants.ErrorCodeListFailed, "获取API Key列表失败", err.Error())
+		return
+	}
+
+	resp := make([]APIKeyListResponse, len(apiKeys))
+	for i, key := range apiKeys {
+		resp[i] = APIKeyListResponse{
+			ID:          models.FormatID(key.ID),
+			Name:        key.Name,
+			KeyPrefix:   key.KeyPrefix,
+			LastUsedAt:  key.LastUsedAt,
+			ExpiresAt:   key.ExpiresAt,
+			IsActive:    key.IsActive,
+			Permissions: key.Permissions,
+			CreatedAt:   key.CreatedAt,
+		}
+	}
+	httpx.Success(c, resp)
+}
+
+// DeleteAPIKey deletes a key by id for current user.
+func (h *Handler) DeleteAPIKey(c *gin.Context) {
+	var uri struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&uri); err != nil {
+		httpx.BadRequest(c, "INVALID_ID", "无效的API Key ID")
+		return
+	}
+
+	uid, derr := h.resolveUserID(c)
+	if derr != nil {
+		httpx.AbortWithDomainError(c, derr)
+		return
+	}
+
+	if err := h.apiKeyService.DeleteAPIKey(uri.ID, uid); err != nil {
+		httpx.ErrorWithDetails(c, http.StatusInternalServerError, constants.ErrorCodeDeleteFailed, err.Error(), nil)
+		return
+	}
+	httpx.SuccessWithMessage(c, "API Key删除成功", nil)
+}
+
+// UpdateAPIKeyStatus updates is_active of a key for current user.
+func (h *Handler) UpdateAPIKeyStatus(c *gin.Context) {
+	var uri struct {
+		ID uint64 `uri:"id" binding:"required,gt=0"`
+	}
+	if err := c.ShouldBindUri(&uri); err != nil {
+		httpx.BadRequest(c, "INVALID_ID", "无效的API Key ID")
+		return
+	}
+	var req struct {
+		IsActive bool `json:"is_active"`
+	}
+	if err := httpx.BindJSON(c, &req); err != nil {
+		httpx.AbortWithDomainError(c, err)
+		return
+	}
+
+	uid, derr := h.resolveUserID(c)
+	if derr != nil {
+		httpx.AbortWithDomainError(c, derr)
+		return
+	}
+
+	if err := h.apiKeyService.UpdateAPIKeyStatus(uri.ID, uid, req.IsActive); err != nil {
+		httpx.ErrorWithDetails(c, http.StatusInternalServerError, constants.ErrorCodeUpdateFailed, err.Error(), nil)
+		return
+	}
+	httpx.SuccessWithMessage(c, "API Key状态更新成功", nil)
+}
+
+// ListAllAPIKeys lists all keys with pagination (admin route).
+func (h *Handler) ListAllAPIKeys(c *gin.Context) {
+	params, derr := httpx.ParsePaginationParams(c)
+	if derr != nil {
+		httpx.AbortWithDomainError(c, derr)
+		return
+	}
+
+	apiKeys, total, err := h.apiKeyService.ListAllAPIKeys(params.Page, params.PageSize)
+	if err != nil {
+		httpx.ErrorWithDetails(c, http.StatusInternalServerError, constants.ErrorCodeListFailed, "获取API Key列表失败", err.Error())
+		return
+	}
+
+	// build response list
+	data := make([]map[string]interface{}, len(apiKeys))
+	for i, key := range apiKeys {
+		data[i] = map[string]interface{}{
+			"id":           models.FormatID(key.ID),
+			"name":         key.Name,
+			"key_prefix":   key.KeyPrefix,
+			"last_used_at": key.LastUsedAt,
+			"expires_at":   key.ExpiresAt,
+			"is_active":    key.IsActive,
+			"permissions":  key.Permissions,
+			"created_at":   key.CreatedAt,
+			"user": map[string]interface{}{
+				"id":       models.FormatID(key.User.ID),
+				"username": key.User.Username,
+				"email":    key.User.Email,
+				"name":     key.User.Name,
+			},
+		}
+	}
+
+	pagination := httpx.NewPagination(params.Page, params.PageSize, total)
+	pagination.Sort = params.Sort
+	httpx.SuccessPaginated(c, data, pagination)
+}
+
+// resolveUserID reads user_id from context and converts to uint64.
+func (h *Handler) resolveUserID(c *gin.Context) (uint64, apperrors.DomainError) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return 0, apperrors.Unauthorized("未授权", apperrors.WithCode(constants.ErrorCodeUnauthorized))
+	}
+	uid, err := toUint64(userID)
+	if err != nil {
+		return 0, apperrors.BadRequest("无效的用户ID", nil, apperrors.WithCode("INVALID_USER_ID"), apperrors.WithCause(err))
+	}
+	return uid, nil
+}
+
+// toUint64 converts value to uint64; supports strings and numbers used in context.
+func toUint64(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return v, nil
+	case int:
+		if v < 0 {
+			return 0, fmt.Errorf("negative value")
+		}
+		return uint64(v), nil
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("negative value")
+		}
+		return uint64(v), nil
+	case float64:
+		if v < 0 || v != float64(int64(v)) {
+			return 0, fmt.Errorf("invalid float value")
+		}
+		return uint64(v), nil
+	case string:
+		return models.ParseID(v)
+	default:
+		return 0, fmt.Errorf("unsupported type %T", value)
+	}
+}

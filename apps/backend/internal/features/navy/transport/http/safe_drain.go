@@ -1,0 +1,187 @@
+package http
+
+import (
+	"net/http"
+	"time"
+
+	"robusta-web/backend/internal/features/navy/services"
+
+	"github.com/gin-gonic/gin"
+)
+
+// StartDrain 启动安全驱逐
+// @Summary Start node drain
+// @Tags Drain
+// @Accept json
+// @Produce json
+// @Param request body services.SimpleDrainRequest true "Drain request"
+// @Success 200 {object} services.GenericResponse "Success"
+// @Failure 400 {object} services.GenericResponse "Bad request"
+// @Failure 500 {object} services.GenericResponse "Internal error"
+// @Router /api/v1/navy/drain/start [post]
+func (h *Handler) StartDrain(c *gin.Context) {
+	var req services.SimpleDrainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, services.GenericResponse{
+			Success: false,
+			Message: "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	response, err := h.safeDrainService.StartDrain(c.Request.Context(), &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, services.GenericResponse{
+			Success: false,
+			Message: "Failed to start drain: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, services.GenericResponse{
+		Success: true,
+		Message: response.Message,
+		Data: map[string]any{
+			"drainId":   response.DrainID,
+			"nodeName":  req.NodeName,
+			"status":    response.Status,
+			"startTime": time.Now(),
+		},
+	})
+}
+
+// CancelDrain 取消安全驱逐
+// @Summary Cancel drain
+// @Tags Drain
+// @Param drainId path string true "Drain ID"
+// @Success 200 {object} services.GenericResponse "Success"
+// @Failure 400 {object} services.GenericResponse "Bad request"
+// @Failure 500 {object} services.GenericResponse "Internal error"
+// @Router /api/v1/navy/drain/{drainId}/cancel [post]
+func (h *Handler) CancelDrain(c *gin.Context) {
+	drainID := c.Param("drain_id")
+	if drainID == "" {
+		drainID = c.Param("drainId")
+	}
+	if drainID == "" {
+		c.JSON(http.StatusBadRequest, services.GenericResponse{
+			Success: false,
+			Message: "drain_id is required",
+		})
+		return
+	}
+
+	if err := h.safeDrainService.CancelDrain(drainID); err != nil {
+		c.JSON(http.StatusInternalServerError, services.GenericResponse{
+			Success: false,
+			Message: "Cancel failed: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, services.GenericResponse{
+		Success: true,
+		Message: "Drain canceled",
+		Data: map[string]any{
+			"drainId":    drainID,
+			"cancelTime": time.Now(),
+		},
+	})
+}
+
+// GetDrainMigrations 获取驱逐迁移详情
+// @Summary Get drain migrations
+// @Tags Drain
+// @Param drainId path string true "Drain ID"
+// @Success 200 {object} services.GenericResponse "Success"
+// @Failure 400 {object} services.GenericResponse "Bad request"
+// @Failure 500 {object} services.GenericResponse "Internal error"
+// @Router /api/v1/navy/drain/{drainId}/migrations [get]
+func (h *Handler) GetDrainMigrations(c *gin.Context) {
+	drainID := c.Param("drain_id")
+	if drainID == "" {
+		drainID = c.Param("drainId")
+	}
+	if drainID == "" {
+		c.JSON(http.StatusBadRequest, services.GenericResponse{
+			Success: false,
+			Message: "drain_id is required",
+		})
+		return
+	}
+
+	migrations, err := h.safeDrainService.GetDrainMigrations(drainID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, services.GenericResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	if migrations == nil {
+		migrations = []*services.DrainPodMigrationInfo{}
+	}
+
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+
+	c.JSON(http.StatusOK, services.GenericResponse{
+		Success: true,
+		Message: "Migrations retrieved",
+		Data: map[string]any{
+			"drainId":    drainID,
+			"migrations": migrations,
+			"summary":    buildMigrationsSummary(migrations),
+		},
+	})
+}
+
+// DrainEvents 安全驱逐事件流（SSE）
+// @Summary SSE event stream
+// @Tags Drain
+// @Param drainId path string true "Drain ID"
+// @Success 200 {string} string "SSE stream"
+// @Router /api/v1/navy/drain/{drainId}/stream [get]
+func (h *Handler) DrainEvents(c *gin.Context) {
+	h.safeDrainService.HandleSSE(c)
+}
+
+// buildMigrationsSummary 构建迁移统计摘要
+func buildMigrationsSummary(migrations []*services.DrainPodMigrationInfo) map[string]int {
+	summary := map[string]int{
+		"total":     len(migrations),
+		"pending":   0,
+		"evicting":  0,
+		"evicted":   0,
+		"creating":  0,
+		"completed": 0,
+		"failed":    0,
+		"migrating": 0,
+		"ignored":   0,
+	}
+
+	for _, m := range migrations {
+		switch m.Status {
+		case services.DrainMigrationPending:
+			summary["pending"]++
+		case services.DrainMigrationEvicting:
+			summary["evicting"]++
+			summary["migrating"]++
+		case services.DrainMigrationEvicted:
+			summary["evicted"]++
+		case services.DrainMigrationCreating:
+			summary["creating"]++
+			summary["migrating"]++
+		case services.DrainMigrationCompleted:
+			summary["completed"]++
+		case services.DrainMigrationFailed, services.DrainMigrationTimeout:
+			summary["failed"]++
+		case services.DrainMigrationIgnored:
+			summary["ignored"]++
+		}
+	}
+
+	return summary
+}

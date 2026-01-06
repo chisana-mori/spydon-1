@@ -68,6 +68,13 @@ type AWXConfig struct {
 	RebootTemplateID   int    `mapstructure:"reboot_template_id" json:"reboot_template_id" yaml:"reboot_template_id"`
 }
 
+// RedisConfig Redis 配置
+type RedisConfig struct {
+	URL      string `mapstructure:"url" json:"url" yaml:"url"`
+	PoolSize int    `mapstructure:"pool_size" json:"pool_size" yaml:"pool_size"`
+	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+}
+
 // Config 应用配置结构
 type Config struct {
 	Environment string `mapstructure:"environment" json:"environment" yaml:"environment"`
@@ -91,6 +98,7 @@ type Config struct {
 	Email     EmailConfig     `mapstructure:"email" json:"email" yaml:"email"`
 	MinIO     MinIOConfig     `mapstructure:"minio" json:"minio" yaml:"minio"`
 	AWX       AWXConfig       `mapstructure:"awx" json:"awx" yaml:"awx"`
+	Redis     RedisConfig     `mapstructure:"redis" json:"redis" yaml:"redis"`
 
 	RateLimitRPS int    `mapstructure:"rate_limit_rps" json:"rate_limit_rps" yaml:"rate_limit_rps"`
 	LogLevel     string `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
@@ -212,4 +220,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("awx.insecure", false)
 	v.SetDefault("awx.shutdown_template_id", 0)
 	v.SetDefault("awx.reboot_template_id", 0)
+
+	// Redis defaults
+	v.SetDefault("redis.url", "redis://localhost:6379")
+	v.SetDefault("redis.pool_size", 10)
+	v.SetDefault("redis.enabled", false)
 }

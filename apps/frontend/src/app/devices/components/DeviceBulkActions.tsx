@@ -394,11 +394,12 @@ export function DeviceBulkActions({
                         >
                             <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin text-orange-600 dark:text-orange-400" />
                             <span className="font-medium">
-                                Drain 进行中 ({activeDrains.length})
+                                Drain 任务 ({activeDrains.length})
                             </span>
                         </Button>
                     </>
-                )}
+                )
+                }
             </div>
 
             {/* Confirm Dialog */}

@@ -3,16 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { appConfig } from '@/config'
-import type { DrainPodMigrationInfo } from '@/types/safe-drain'
-
-// Drain 状态定义（与 auto-navy 对齐）
-export type DrainStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-
-export interface DrainLog {
-    timestamp: string
-    level: 'INFO' | 'WARN' | 'ERROR' | 'SUCCESS'
-    message: string
-}
+import type { DrainPodMigrationInfo, DrainStats, DrainStatus, DrainLog } from '@/types/safe-drain'
 
 export interface ActiveDrain {
     drainID: string
@@ -24,17 +15,7 @@ export interface ActiveDrain {
     logs: DrainLog[]
     startTime: number
     migrations: DrainPodMigrationInfo[]
-    stats?: Stats
-}
-
-// 迁移统计
-export interface Stats {
-    totalPods: number
-    migratedPods: number
-    failedPods: number
-    pendingPods: number
-    migratingPods: number
-    ignoredPods: number
+    stats?: DrainStats
 }
 
 interface SafeDrainContextType {
@@ -65,6 +46,30 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false)
     const [isMinimized, setIsMinimized] = useState(false)
 
+    // Load from localStorage on mount
+    useEffect(() => {
+        const saved = localStorage.getItem('navy_active_drains')
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved)
+                setActiveDrains(parsed)
+                // Reconnect to running drains
+                parsed.forEach((d: ActiveDrain) => {
+                    if (d.status === 'running' || d.status === 'pending') {
+                        connectToDrainStream(d.drainID)
+                    }
+                })
+            } catch (e) {
+                console.error('Failed to parse saved drains', e)
+            }
+        }
+    }, [])
+
+    // Save to localStorage on change
+    useEffect(() => {
+        localStorage.setItem('navy_active_drains', JSON.stringify(activeDrains))
+    }, [activeDrains])
+
     // SSE 连接管理 ref，避免重连
     const eventSourcesRef = useRef<Map<string, EventSource>>(new Map())
 
@@ -86,7 +91,7 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                 logs: [],
                 startTime: Date.now(),
                 migrations: [],
-                stats: { totalPods: 0, migratedPods: 0, failedPods: 0, pendingPods: 0, migratingPods: 0, ignoredPods: 0 }
+                stats: { totalPods: 0, migratedPods: 0, failedPods: 0, pendingPods: 0, migratingPods: 0, ignoredPods: 0, pdbCount: 0 }
             }]
         })
 
@@ -221,12 +226,18 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                     }
                     break
                 }
+                case 'drain_completed': // Handle explicit completion event if backend sends it
                 case 'completed': {
                     updated.status = 'completed'
                     updated.progress = 100
                     updated.currentStep = msg || 'Drain completed'
                     updated.logs = [...updated.logs, { timestamp: ts, level: 'SUCCESS', message: updated.currentStep }]
                     cleanupEventSource(drainID)
+
+                    // Auto-remove completed drain after 5 seconds
+                    /* setTimeout(() => {
+                        removeDrain(drainID)
+                    }, 5000) */
                     break
                 }
                 case 'cancelled': {
@@ -276,6 +287,23 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                     computeStats(updated)
                     break
                 }
+                case 'stats': {
+                    if (data) {
+                        updated.stats = {
+                            ...updated.stats,
+                            // Merge stats from server if provided, otherwise logic-computed stats prevail
+                            // Assuming server sends authoritative stats
+                            totalPods: data.totalPods ?? updated.stats?.totalPods,
+                            migratedPods: data.migrated ?? updated.stats?.migratedPods,
+                            failedPods: data.failed ?? updated.stats?.failedPods,
+                            pendingPods: data.pending ?? updated.stats?.pendingPods,
+                            migratingPods: (data.evicting ?? 0) + (data.creating ?? 0),
+                            ignoredPods: data.ignored ?? updated.stats?.ignoredPods,
+                            pdbCount: data.pdbCreated ?? updated.stats?.pdbCount ?? 0
+                        } as DrainStats
+                    }
+                    break
+                }
                 default: {
                     // 未知事件，忽略
                     break
@@ -306,7 +334,7 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
         const pending = drain.migrations.filter(m => m.status === 'pending').length
         const migrating = drain.migrations.filter(m => m.status === 'evicting' || m.status === 'creating').length
         const ignored = drain.migrations.filter(m => m.status === 'ignored').length
-        drain.stats = { totalPods: total, migratedPods: migrated, failedPods: failed, pendingPods: pending, migratingPods: migrating, ignoredPods: ignored }
+        drain.stats = { totalPods: total, migratedPods: migrated, failedPods: failed, pendingPods: pending, migratingPods: migrating, ignoredPods: ignored, pdbCount: 0 }
     }
 
     // 组件卸载时清理所有连接

@@ -1,17 +1,20 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { DrainPodMigrationInfo, DrainStatus, LogEntry } from '@/types/safe-drain';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, startTransition } from 'react';
+import { DrainPodMigrationInfo, DrainStatus, LogEntry, DrainStats, DrainPodMigrationStatus, SSEMessage } from '@/types/safe-drain';
 
+// --- 1. Define Context Types ---
 interface DrainContextType {
     drainId: string | null;
     status: DrainStatus;
     logs: LogEntry[];
     migrations: DrainPodMigrationInfo[];
+    stats: DrainStats;
     progress: number;
     progressMessage: string;
     isConnected: boolean;
     startDrain: (cluster: string, node: string) => Promise<void>;
     cancelDrain: () => Promise<void>;
     reset: () => void;
+    elapsedTime: number; // For timer
 }
 
 const DrainContext = createContext<DrainContextType | undefined>(undefined);
@@ -24,140 +27,317 @@ export const useDrain = () => {
     return context;
 };
 
+// --- 2. Helper Constants & Types ---
+const MAX_LOGS = 800;
+const FLUSH_WINDOW_MS = 250;
+
 export const DrainProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [drainId, setDrainId] = useState<string | null>(null);
     const [status, setStatus] = useState<DrainStatus>('pending');
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [migrations, setMigrations] = useState<DrainPodMigrationInfo[]>([]);
-    const [progress, setProgress] = useState(0);
-    const [progressMessage, setProgressMessage] = useState('');
     const [isConnected, setIsConnected] = useState(false);
 
-    // Store active connection to close it on cleanup
-    const eventSourceRef = useRef<EventSource | null>(null);
+    // Data States
+    const [realtimeLogs, setRealtimeLogs] = useState<LogEntry[]>([]);
+    const [migrations, setMigrations] = useState<DrainPodMigrationInfo[]>([]);
+    const [stats, setStats] = useState<DrainStats>({
+        totalPods: 0,
+        migratedPods: 0,
+        failedPods: 0,
+        pendingPods: 0,
+        migratingPods: 0,
+        ignoredPods: 0,
+        pdbCount: 0
+    });
+    const [progress, setProgress] = useState(0);
+    const [progressMessage, setProgressMessage] = useState('');
 
-    const addLog = useCallback((level: string, message: string) => {
-        setLogs(prev => [...prev, { timestamp: Date.now(), level, message }]);
+    // Timer State
+    const [startTime, setStartTime] = useState<number | null>(null);
+    const [elapsedTime, setElapsedTime] = useState(0);
+    const timerIntervalRef = useRef<number | null>(null);
+
+    // Refs for buffering and access in callbacks
+    const eventSourceRef = useRef<EventSource | null>(null);
+    const processedMessagesRef = useRef<Set<string>>(new Set());
+    const pendingLogsRef = useRef<LogEntry[]>([]);
+    const flushTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const migrationsRef = useRef<DrainPodMigrationInfo[]>([]);
+    // Keep a map for efficient updates: migrationId -> index in migrations array is not stable if we filter,
+    // so best to rebuild or use a map. Ideally we sync `migrations` state with this ref.
+
+    // Using a ref to track pending migration updates to batch them
+    const pendingMigsRef = useRef<Record<string, { payload: any }>>({});
+
+    useEffect(() => {
+        migrationsRef.current = migrations;
+    }, [migrations]);
+
+    // --- Timer Logic ---
+    const startTimer = useCallback(() => {
+        if (timerIntervalRef.current) return;
+        setStartTime(Date.now());
+        timerIntervalRef.current = window.setInterval(() => {
+            setElapsedTime(prev => prev + 1);
+        }, 1000);
     }, []);
 
-    const handleMessage = useCallback((event: MessageEvent) => {
-        try {
-            // Check if data is prefixed "data: " which usually browser handles, but if manually parsed...
-            // Browser EventSource automatically parses "data: " lines into event.data
-            const payload = JSON.parse(event.data);
+    const stopTimer = useCallback(() => {
+        if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+            timerIntervalRef.current = null;
+        }
+    }, []);
 
-            switch (payload.type) {
-                case 'log':
-                    addLog(payload.data?.level || 'INFO', payload.message + (payload.data?.category ? ` [${payload.data.category}]` : ''));
-                    if ((payload.message || '').includes('Drain not found or already completed')) {
-                        setStatus('completed');
-                    }
-                    break;
-                case 'started':
-                    setStatus('running');
-                    addLog('INFO', payload.message || 'Drain started');
-                    break;
-                case 'progress':
-                    const p = payload.data?.progress ?? 0;
-                    setProgress(p);
-                    setProgressMessage(payload.message || '');
-                    setStatus(prev => (p >= 100 ? 'completed' : (prev === 'failed' || prev === 'cancelled') ? prev : 'running'));
-                    break;
-                case 'completed':
-                    setProgress(100);
-                    setStatus('completed');
-                    addLog('SUCCESS', payload.message || 'Drain completed');
-                    break;
-                case 'failed':
-                    setStatus('failed');
-                    addLog('ERROR', payload.message || 'Drain failed');
-                    break;
-                case 'cancelled':
-                    setStatus('cancelled');
-                    addLog('WARN', payload.message || 'Drain cancelled');
-                    break;
-                case 'migration_update':
-                    if (payload.data?.migration) {
+    const resetTimer = useCallback(() => {
+        stopTimer();
+        setStartTime(null);
+        setElapsedTime(0);
+    }, [stopTimer]);
+
+
+    // --- Log Handling ---
+    const addLog = useCallback((level: string, message: string, category: string = 'GENERAL', customId?: string) => {
+        const messageId = customId || `${level}:${message}:${category}:${Date.now()}`;
+        if (processedMessagesRef.current.has(messageId) && customId) {
+            // Only dedup if customId is provided, otherwise allow dupes with different timestamps
+            return;
+        }
+        if (customId) processedMessagesRef.current.add(messageId);
+
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry: LogEntry = { id: messageId, timestamp, level, message, category };
+
+        pendingLogsRef.current.push(logEntry);
+
+        if (!flushTimerRef.current) {
+            flushTimerRef.current = setTimeout(() => {
+                flushTimerRef.current = null;
+
+                // Flush Logs
+                const newLogs = pendingLogsRef.current;
+                pendingLogsRef.current = [];
+                if (newLogs.length > 0) {
+                    setRealtimeLogs(prev => {
+                        const merged = [...newLogs, ...prev]; // Newest first
+                        return merged.slice(0, MAX_LOGS);
+                    });
+                }
+
+                // Flush Migrations
+                const migsDelta = pendingMigsRef.current;
+                pendingMigsRef.current = {};
+                const keys = Object.keys(migsDelta);
+
+                if (keys.length > 0) {
+                    startTransition(() => {
                         setMigrations(prev => {
-                            const exists = prev.findIndex(m => m.migrationId === payload.data.migration.migrationId);
-                            if (exists >= 0) {
-                                const newArr = [...prev];
-                                newArr[exists] = payload.data.migration;
-                                return newArr;
-                            }
-                            return [...prev, payload.data.migration];
+                            const list = [...prev];
+                            const idxMap = new Map<string, number>();
+                            list.forEach((m, i) => idxMap.set(m.migrationId, i));
+
+                            keys.forEach(k => {
+                                const { payload } = migsDelta[k];
+                                const migData = payload.migration;
+                                if (!migData) return;
+
+                                // Normalize incoming data to internal type
+                                const normalized: DrainPodMigrationInfo = {
+                                    migrationId: migData.migrationId || migData.MigrationID,
+                                    drainId: drainId || '',
+                                    sourcePod: {
+                                        name: migData.sourcePod?.name || migData.SourcePod?.Name || '',
+                                        namespace: migData.sourcePod?.namespace || migData.SourcePod?.Namespace || '',
+                                        nodeName: migData.sourcePod?.nodeName || migData.SourcePod?.NodeName || '',
+                                        uid: migData.sourcePod?.uid || '',
+                                        phase: migData.sourcePod?.phase || '',
+                                        // ... other fields if needed
+                                    },
+                                    targetPod: migData.targetPod ? {
+                                        name: migData.targetPod.name || migData.TargetPod?.Name || '',
+                                        namespace: migData.targetPod.namespace || migData.TargetPod?.Namespace || '',
+                                        nodeName: migData.targetPod.nodeName || migData.TargetPod?.NodeName || '',
+                                        uid: migData.targetPod.uid || '',
+                                        phase: migData.targetPod.phase || '',
+                                    } : undefined,
+                                    status: (migData.status || migData.Status || 'pending').toLowerCase() as DrainPodMigrationStatus,
+                                    errorMessage: migData.errorMessage || migData.ErrorMessage,
+                                    startTime: migData.startTime || migData.StartTime,
+                                    evictionTime: migData.evictionTime || migData.EvictionTime,
+                                    completionTime: migData.completionTime || migData.CompletionTime,
+                                };
+
+                                const idx = idxMap.get(normalized.migrationId);
+                                if (idx !== undefined) {
+                                    list[idx] = { ...list[idx], ...normalized };
+                                } else {
+                                    list.push(normalized);
+                                }
+                            });
+                            return list;
                         });
+
+                        // Recalculate derived stats after update if not server-provided
+                        // (Optional, backend sends 'stats' event usually)
+                    });
+                }
+
+            }, FLUSH_WINDOW_MS);
+        }
+    }, [drainId]);
+
+
+    // --- SSE Handling ---
+    const handleSSEMessage = useCallback((event: MessageEvent) => {
+        try {
+            const raw = JSON.parse(event.data);
+            const type = raw.type;
+            const data = raw.data || {};
+            const msg = raw.message || '';
+
+            switch (type) {
+                case 'started':
+                case 'drain_started':
+                    setStatus('running');
+                    addLog('INFO', msg || 'Drain started');
+                    startTimer();
+                    break;
+
+                case 'progress':
+                    if (typeof data.progress === 'number') setProgress(data.progress);
+                    setProgressMessage(msg);
+                    break;
+
+                case 'stats':
+                    setStats(prev => ({
+                        totalPods: data.totalPods ?? prev.totalPods,
+                        migratedPods: data.migrated ?? prev.migratedPods,
+                        failedPods: data.failed ?? prev.failedPods,
+                        pendingPods: data.pending ?? prev.pendingPods,
+                        migratingPods: (data.evicting ?? 0) + (data.creating ?? 0),
+                        ignoredPods: data.ignored ?? prev.ignoredPods,
+                        pdbCount: data.pdbCreated ?? prev.pdbCount
+                    }));
+                    if (data.totalPods) {
+                        // Ensure total pods is consistent
                     }
-                    if (payload.data?.migration?.status === 'completed' || payload.data?.migration?.status === 'failed') {
-                        // could trigger derived state update
+                    if (data.pdbCreated !== undefined) {
+                        // Check for completion? Logic handled in stream_closing or separate event
                     }
                     break;
+
+                case 'pod_snapshot_created': {
+                    const snap = data.snapshot;
+                    const total = snap?.pods?.length || snap?.totalPods || 0;
+                    setStats(prev => ({ ...prev, totalPods: total }));
+
+                    // Initialize migrations from snapshot
+                    if (Array.isArray(snap?.pods)) {
+                        const initialDetails: DrainPodMigrationInfo[] = snap.pods.map((pod: any) => ({
+                            migrationId: `${drainId}-${pod.namespace}-${pod.name}`, // Standardize ID gen
+                            drainId: drainId || '',
+                            sourcePod: {
+                                name: pod.name,
+                                namespace: pod.namespace,
+                                nodeName: pod.nodeName,
+                                uid: pod.uid,
+                                phase: pod.phase,
+                            },
+                            status: 'pending', // Default to pending, backend will update if ignored
+                            startTime: new Date().toISOString(),
+                        }));
+                        setMigrations(initialDetails);
+                    }
+                    addLog('INFO', `Snapshot created: ${total} pods found`, 'SNAPSHOT');
+                    break;
+                }
+
+                case 'migration_update':
                 case 'pod_eviction_started':
                 case 'pod_eviction_succeeded':
                 case 'pod_eviction_failed':
                 case 'pod_migration_ignored': {
-                    const mig = payload.data?.migration;
+                    const mig = data.migration;
                     if (mig) {
-                        setMigrations(prev => {
-                            const exists = prev.findIndex(m => m.migrationId === mig.migrationId);
-                            if (exists >= 0) {
-                                const newArr = [...prev];
-                                newArr[exists] = mig;
-                                return newArr;
-                            }
-                            return [...prev, mig];
-                        });
+                        const mid = mig.migrationId || mig.MigrationID;
+                        if (mid) {
+                            pendingMigsRef.current[mid] = { payload: data };
+                            // Trigger flush if not already running
+                            addLog('DEBUG', '', 'INTERNAL', `trig-${Date.now()}`); // Hack to trigger flush cycle if no logs
+                        }
                     }
-                    // also surface as a log line for readability
-                    const lvl = payload.data?.level || (payload.type === 'pod_eviction_failed' ? 'ERROR' : 'INFO');
-                    addLog(lvl, payload.message || `${payload.type}`);
+
+                    // Specific logging
+                    if (type === 'pod_eviction_failed') {
+                        addLog('ERROR', msg, 'MIGRATION');
+                    } else if (type === 'pod_migration_ignored') {
+                        addLog('INFO', msg, 'IGNORED');
+                    }
                     break;
                 }
-                case 'error':
-                    setStatus('failed');
-                    addLog('ERROR', payload.message);
-                    break;
-                default:
-                    console.log('Unknown event type', payload);
-            }
 
-            // Derive global status from progress/events if needed
-            if (payload.message === 'Drain completed successfully') {
-                setStatus('completed');
+                case 'pdb_event': {
+                    const action = data.action;
+                    if (action === 'created') {
+                        addLog('INFO', `PDB Created: ${data.namespace}/${data.pdbName}`, 'PDB');
+                        // Stats usually updated via 'stats' event, but can increment here locally if needed
+                    } else if (action === 'cleaned') {
+                        addLog('SUCCESS', `PDB Cleaned: ${data.namespace}/${data.pdbName}`, 'PDB');
+                    }
+                    break;
+                }
+
+                case 'stream_closing': {
+                    const reason = data.reason;
+                    if (reason === 'failed' || reason === 'cancelled') {
+                        setStatus(reason === 'cancelled' ? 'cancelled' : 'failed');
+                        addLog('WARN', msg || 'Drain stream closing (abnormal)', 'SYSTEM');
+                    } else {
+                        setStatus('completed');
+                        setProgress(100);
+                        addLog('SUCCESS', msg || 'Drain completed successfully', 'SYSTEM');
+                    }
+                    stopTimer();
+                    break;
+                }
+
+                case 'error':
+                    addLog('ERROR', msg || 'Unknown error', 'ERROR');
+                    break;
+
+                default:
+                // console.log('Unknown SSE type', type);
             }
 
         } catch (e) {
-            console.error('Failed to parse SSE message', e);
+            console.error('SSE Parse Error', e);
         }
-    }, [addLog]);
+    }, [addLog, drainId, startTimer, stopTimer]);
 
+
+    // --- Connection Logic ---
     const connectSSE = useCallback((id: string) => {
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close();
-        }
+        if (eventSourceRef.current) eventSourceRef.current.close();
 
-        // Adjust URL to match your backend API prefix
+        // Use same endpoint structure
         const url = `${process.env.NEXT_PUBLIC_API_URL || '/api'}/v1/navy/drain/${id}/events`;
-        // Note: Using relative path might require proxy setup or full URL
-
-        const es = new EventSource(url); // Add withCredentials if needed via polyfill or native if same origin
+        const es = new EventSource(url, { withCredentials: true });
 
         es.onopen = () => {
             setIsConnected(true);
-            addLog('INFO', 'Connected to drain event stream');
+            addLog('INFO', 'Connected to event stream', 'SYSTEM');
         };
 
-        es.onmessage = handleMessage;
+        es.onmessage = handleSSEMessage;
 
         es.onerror = (e) => {
             console.error('SSE Error', e);
-            setIsConnected(false);
-            addLog('ERROR', 'Connection to event stream lost (auto-retrying)');
-            // Do NOT call es.close(); native EventSource will auto-reconnect
+            // Don't auto-close, let browser retry. But if it persists, we might want manual intervention.
+            // addLog('WARN', 'Connection interrupted, retrying...', 'SYSTEM');
         };
 
         eventSourceRef.current = es;
-    }, [handleMessage, addLog]);
+    }, [handleSSEMessage, addLog]);
+
 
     const startDrain = async (cluster: string, node: string) => {
         reset();
@@ -175,13 +355,13 @@ export const DrainProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             const data = await res.json();
             setDrainId(data.drainId);
-            setStatus('running');
-            addLog('INFO', `Drain started: ${data.drainId}`);
+            setStatus('running'); // Optimistic
+            addLog('INFO', `Drain initiated. ID: ${data.drainId}`, 'SYSTEM');
             connectSSE(data.drainId);
 
         } catch (e: any) {
             setStatus('failed');
-            addLog('ERROR', e.message);
+            addLog('ERROR', e.message, 'SYSTEM');
             throw e;
         }
     };
@@ -192,39 +372,46 @@ export const DrainProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             await fetch(`${process.env.NEXT_PUBLIC_API_URL || '/api'}/v1/navy/drain/${drainId}/cancel`, {
                 method: 'POST'
             });
-            addLog('WARN', 'Cancellation requested...');
-            // Status update will come via SSE usually, but we can optimistically set it
-            setStatus('cancelled');
+            addLog('WARN', 'Cancellation requested...', 'SYSTEM');
         } catch (e: any) {
-            addLog('ERROR', `Failed to cancel: ${e.message}`);
+            addLog('ERROR', `Failed to cancel: ${e.message}`, 'SYSTEM');
         }
     };
 
-    const reset = () => {
+    const reset = useCallback(() => {
         if (eventSourceRef.current) {
             eventSourceRef.current.close();
             eventSourceRef.current = null;
         }
         setDrainId(null);
         setStatus('pending');
-        setLogs([]);
+        setRealtimeLogs([]);
         setMigrations([]);
+        setStats({
+            totalPods: 0, migratedPods: 0, failedPods: 0, pendingPods: 0,
+            migratingPods: 0, ignoredPods: 0, pdbCount: 0
+        });
         setProgress(0);
         setProgressMessage('');
         setIsConnected(false);
-    };
+        resetTimer();
+        processedMessagesRef.current.clear();
+        pendingMigsRef.current = {};
+        pendingLogsRef.current = [];
+    }, [resetTimer]);
 
     useEffect(() => {
         return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-            }
+            if (eventSourceRef.current) eventSourceRef.current.close();
+            if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
         };
     }, []);
 
     return (
         <DrainContext.Provider value={{
-            drainId, status, logs, migrations, progress, progressMessage, isConnected,
+            drainId, status, logs: realtimeLogs, migrations, stats,
+            progress, progressMessage, isConnected, elapsedTime,
             startDrain, cancelDrain, reset
         }}>
             {children}

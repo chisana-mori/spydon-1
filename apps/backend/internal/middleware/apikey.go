@@ -5,14 +5,14 @@ import (
 	"strings"
 
 	"robusta-web/backend/internal/config"
-	"robusta-web/backend/internal/services"
+	apikeyservice "robusta-web/backend/internal/features/apikey/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 // APIKeyMiddleware 校验入站请求的API Key（仅支持 Authorization: Bearer <token> 格式）
 // 优先使用数据库验证，如果数据库中没有找到，则回退到配置文件中的静态Key
-func APIKeyMiddleware(cfg *config.Config, apiKeyService *services.APIKeyService) gin.HandlerFunc {
+func APIKeyMiddleware(cfg *config.Config, apiKeyService *apikeyservice.APIKeyService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 如果配置的Key为空且没有数据库服务，跳过校验（开发模式）
 		if cfg.IngestAPIKey == "" && apiKeyService == nil {

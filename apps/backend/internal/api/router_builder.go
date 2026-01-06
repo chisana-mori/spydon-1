@@ -8,53 +8,76 @@ import (
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
+	apikeyservice "robusta-web/backend/internal/features/apikey/services"
+	apikeyhttp "robusta-web/backend/internal/features/apikey/transport/http"
+	authservice "robusta-web/backend/internal/features/auth/services"
+	authhttp "robusta-web/backend/internal/features/auth/transport/http"
+	healthhttp "robusta-web/backend/internal/features/health/transport/http"
+	holmesservice "robusta-web/backend/internal/features/holmes/services"
+	holmeshttp "robusta-web/backend/internal/features/holmes/transport/http"
+	ingestservice "robusta-web/backend/internal/features/ingest/services"
+	ingesthttp "robusta-web/backend/internal/features/ingest/transport/http"
+	knowledgeservice "robusta-web/backend/internal/features/knowledge/services"
+	knowledgehttp "robusta-web/backend/internal/features/knowledge/transport/http"
+	navyservice "robusta-web/backend/internal/features/navy/services"
+	navyhttp "robusta-web/backend/internal/features/navy/transport/http"
+	pipelineservice "robusta-web/backend/internal/features/pipeline/services"
+	pipelinehttp "robusta-web/backend/internal/features/pipeline/transport/http"
+	queryservice "robusta-web/backend/internal/features/query/services"
+	queryhttp "robusta-web/backend/internal/features/query/transport/http"
+	rcaservice "robusta-web/backend/internal/features/rca/services"
+	rcahttp "robusta-web/backend/internal/features/rca/transport/http"
+	sharedservices "robusta-web/backend/internal/features/shared/services"
+	systemsettingservice "robusta-web/backend/internal/features/systemsetting/services"
+	systemsettinghttp "robusta-web/backend/internal/features/systemsetting/transport/http"
+	userservice "robusta-web/backend/internal/features/user/services"
+	userhttp "robusta-web/backend/internal/features/user/transport/http"
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/middleware"
-	"robusta-web/backend/internal/services"
-	"robusta-web/backend/internal/services/nodesync"
+	"robusta-web/backend/internal/pkg/nodesync"
+
+	"robusta-web/backend/pkg/redis"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	cas "gopkg.in/cas.v2"
-	"k8s.io/client-go/kubernetes"
 )
 
 type handlerSet struct {
-	cfg           *config.Config
-	apiKeyService *services.APIKeyService
-	ingest        *IngestHandler
-	query         *QueryHandler
-	rca           *RCAHandler
-	holmesProxy   *HolmesProxyHandler
-	auth          *AuthHandler
-	user          *UserHandler
-	apiKey        *APIKeyHandler
-	health        *HealthHandler
-	knowledge     *KnowledgeHandler
-	systemSetting *SystemSettingHandler
-	pipeline      *PipelineHandler
-	navyDevice    *NavyDeviceHandler
-	deviceOps     *DeviceOperationsHandler
-	safeDrain     *SafeDrainHandler
-	k8sNodeManage *K8sNodeManageHandler
+	cfg              *config.Config
+	apiKeyService    *apikeyservice.APIKeyService
+	holmesService    *holmesservice.HolmesService
+	alertService     *ingestservice.AlertService
+	rcaService       *rcaservice.RCAService
+	authService      *authservice.AuthService
+	casClient        *cas.Client
+	userService      *userservice.UserService
+	systemSettingSvc *systemsettingservice.SystemSettingService
+	ingest           *ingesthttp.Handler
+	health           *healthhttp.Handler
+	query            *queryhttp.Handler
+	knowledge        *knowledgehttp.Handler
+	pipeline         *pipelinehttp.Handler
+	navy             *navyhttp.Handler
 }
 
 func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config, nodesyncManager *nodesync.Manager) (*handlerSet, error) {
-	clusterService := services.NewClusterService(database)
-	auditService := services.NewAuditService(database)
+	clusterService := queryservice.NewClusterService(database)
+	auditService := sharedservices.NewAuditService(database)
 
-	objectStorage, err := services.NewObjectStorageService(cfg)
+	objectStorage, err := sharedservices.NewObjectStorageService(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	knowledgeService := services.NewKnowledgeService(database, objectStorage)
-	systemSettingService := services.NewSystemSettingService(database)
-	holmesService := services.NewHolmesService(database, cfg, objectStorage, knowledgeService)
-	rcaService := services.NewRCAService(database, auditService, objectStorage, systemSettingService, holmesService, knowledgeService)
-	alertService := services.NewAlertService(database, clusterService, auditService, rcaService, objectStorage)
-	authService := services.NewAuthService(database, cfg)
-	userService := services.NewUserService(database)
-	apiKeyService := services.NewAPIKeyService(database)
+	knowledgeService := knowledgeservice.NewKnowledgeService(database, objectStorage)
+	systemSettingService := systemsettingservice.NewSystemSettingService(database)
+	holmesService := holmesservice.NewHolmesService(database, cfg, objectStorage, knowledgeService)
+	rcaService := rcaservice.NewRCAService(database, auditService, objectStorage, systemSettingService, holmesService, knowledgeService)
+	alertService := ingestservice.NewAlertService(database, clusterService, auditService, rcaService, objectStorage)
+	authService := authservice.NewAuthService(database, cfg)
+	userService := userservice.NewUserService(database)
+	apiKeyService := apikeyservice.NewAPIKeyService(database)
 
 	casClient, err := buildCASClient(cfg)
 	if err != nil {
@@ -62,25 +85,37 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 	}
 
 	// 创建流水线引擎 (使用 AWX 和 Prometheus 运行时)
-	awxRuntime := services.NewAWXRuntimeFromConfig(cfg)
-	prometheusRuntime := services.NewPrometheusRuntimeFromConfig()
-	pipelineEngine := services.NewPipelineEngine(
+	awxRuntime := pipelineservice.NewAWXRuntimeFromConfig(cfg)
+	prometheusRuntime := pipelineservice.NewPrometheusRuntimeFromConfig()
+	pipelineEngine := pipelineservice.NewPipelineEngine(
 		database,
 		cfg,
-		services.WithJobRuntime(awxRuntime),
-		services.WithMetricsRuntime(prometheusRuntime),
+		pipelineservice.WithJobRuntime(awxRuntime),
+		pipelineservice.WithMetricsRuntime(prometheusRuntime),
 	)
 
 	// Navy 设备服务
-	navyDeviceService := services.NewNavyDeviceService(navyDatabase, nodesyncManager)
+	navyDeviceService := navyservice.NewNavyDeviceService(navyDatabase, nodesyncManager)
 
 	// Safe Drain Service
-	safeDrainService := services.NewSafeDrainService(func(cluster string) (kubernetes.Interface, error) {
-		return clusterService.GetClient(cluster)
-	})
+	// Initialize Redis for Safe Drain
+	redisHandler, err := redis.NewHandler(cfg.Redis.URL, cfg.Redis.PoolSize)
+	if err != nil {
+		logger.L().Warn("Failed to initialize Redis for Safe Drain, drain features may be limited", zap.Error(err))
+		// Consider failure if Redis is critical or use a no-op/mock
+	}
+
+	// Cluster Connection Manager (implements K8sClientFactory for Safe Drain)
+	clusterConnectionManager := sharedservices.NewClusterConnectionManager(database.DB)
+	if err := clusterConnectionManager.Initialize(); err != nil {
+		logger.L().Warn("Failed to initialize ClusterConnectionManager", zap.Error(err))
+	}
+
+	// Safe Drain Service (SimpleDrainService)
+	safeDrainService := navyservice.NewSimpleDrainService(clusterConnectionManager, redisHandler)
 
 	// 设备批量操作服务
-	deviceOpsService := services.NewDeviceOperationsService(
+	deviceOpsService := navyservice.NewDeviceOperationsService(
 		navyDatabase,
 		database,
 		nodesyncManager,
@@ -91,35 +126,40 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 	)
 
 	// K8s 节点管理服务
-	k8sNodeManageService := services.NewK8sNodeManageService(database, nodesyncManager)
+	k8sNodeManageService := navyservice.NewK8sNodeManageService(database, nodesyncManager)
 
 	// Streamer needs raw access to AWX Client
-	awxStreamer := services.NewAWXStreamer(database.DB, awxRuntime.GetClient())
+	awxStreamer := pipelineservice.NewAWXStreamer(database.DB, awxRuntime.GetClient())
 
 	handlers := &handlerSet{
-		cfg:           cfg,
-		apiKeyService: apiKeyService,
-		ingest: NewIngestHandler(&IngestHandlerConfig{
-			AlertService:   alertService,
-			RCAService:     rcaService,
-			ClusterService: clusterService,
-			AuditService:   auditService,
-			StorageService: objectStorage,
-		}),
-		query:         NewQueryHandler(alertService, rcaService, clusterService, objectStorage),
-		rca:           NewRCAHandler(holmesService, rcaService),
-		holmesProxy:   NewHolmesProxyHandler(cfg, holmesService, alertService),
-		auth:          NewAuthHandler(authService, casClient, cfg),
-		user:          NewUserHandler(userService),
-		apiKey:        NewAPIKeyHandler(apiKeyService),
-		health:        NewHealthHandler(database),
-		knowledge:     NewKnowledgeHandler(knowledgeService),
-		systemSetting: NewSystemSettingHandler(systemSettingService, rcaService),
-		pipeline:      NewPipelineHandler(pipelineEngine, awxStreamer),
-		navyDevice:    NewNavyDeviceHandler(navyDeviceService),
-		deviceOps:     NewDeviceOperationsHandler(deviceOpsService),
-		safeDrain:     NewSafeDrainHandler(safeDrainService),
-		k8sNodeManage: NewK8sNodeManageHandler(k8sNodeManageService),
+		cfg:              cfg,
+		apiKeyService:    apiKeyService,
+		holmesService:    holmesService,
+		alertService:     alertService,
+		rcaService:       rcaService,
+		authService:      authService,
+		casClient:        casClient,
+		userService:      userService,
+		systemSettingSvc: systemSettingService,
+		ingest: ingesthttp.New(
+			alertService,
+			rcaService,
+			clusterService,
+			auditService,
+			objectStorage,
+		),
+		health:    healthhttp.New(database),
+		query:     queryhttp.New(alertService, rcaService, clusterService, objectStorage),
+		knowledge: knowledgehttp.New(knowledgeService),
+		pipeline:  pipelinehttp.New(pipelineEngine, awxStreamer),
+		navy: navyhttp.New(
+			cfg,
+			navyDatabase,
+			navyDeviceService,
+			deviceOpsService,
+			safeDrainService,
+			k8sNodeManageService,
+		),
 	}
 
 	return handlers, nil
@@ -165,16 +205,16 @@ func newRouteRegistrar(router *gin.Engine, cfg *config.Config, handlers *handler
 func (r *routeRegistrar) register() {
 	r.applyGlobalMiddleware()
 	r.registerHealthRoutes()
-	r.registerAuthRoutes()
-	r.registerCASRoutes()
 
 	v1 := r.router.Group(constants.APIVersionV1)
+
+	// Auth & profile routes are now handled by feature-first handler
+	authhttp.New(r.cfg, r.handlers.authService, r.handlers.casClient).RegisterRoutes(r.router, v1)
+
 	r.registerWebhookRoute(v1)
 	r.registerIngestRoutes(v1)
-	r.registerProfileRoutes(v1)
 	r.registerQueryRoutes(v1)
 	r.registerHolmesRoutes(v1)
-	r.registerAPIKeyRoutes(v1)
 	r.registerAdminRoutes(v1)
 	r.registerKnowledgeRoutes(v1)
 	r.registerPipelineRoutes(v1)
@@ -190,29 +230,7 @@ func (r *routeRegistrar) applyGlobalMiddleware() {
 }
 
 func (r *routeRegistrar) registerHealthRoutes() {
-	r.router.GET(constants.HealthPath, r.handlers.health.HealthCheck)
-	r.router.GET(constants.ReadyPath, r.handlers.health.ReadinessCheck)
-}
-
-func (r *routeRegistrar) registerAuthRoutes() {
-	authGroup := r.router.Group(constants.AuthPathBase)
-	authGroup.GET("/url", r.handlers.auth.GetAuthURL)
-	authGroup.POST("/callback", r.handlers.auth.HandleCallback)
-	authGroup.POST("/refresh", r.handlers.auth.RefreshToken)
-	authGroup.POST("/logout", r.handlers.auth.Logout)
-}
-
-func (r *routeRegistrar) registerCASRoutes() {
-	// 无论 CAS 是否启用，都注册登录与登出路由，由处理器自行判断
-	r.router.GET(constants.CASLoginPath, r.handlers.auth.CASLogin)
-
-	callbackPath := r.cfg.CAS.CallbackPath
-	if callbackPath == "" {
-		callbackPath = "/auth/cas/callback"
-	}
-
-	r.router.GET(callbackPath, r.handlers.auth.CASCallback)
-	r.router.GET(constants.CASLogoutPath, r.handlers.auth.CASLogout)
+	r.handlers.health.RegisterRoutes(r.router)
 }
 
 func (r *routeRegistrar) registerWebhookRoute(v1 *gin.RouterGroup) {
@@ -229,65 +247,31 @@ func (r *routeRegistrar) registerIngestRoutes(v1 *gin.RouterGroup) {
 	ingestGroup.POST("/alert", r.handlers.ingest.IngestAlert)
 }
 
-func (r *routeRegistrar) registerProfileRoutes(v1 *gin.RouterGroup) {
-	profileGroup := v1.Group("")
-	profileGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
-	profileGroup.Use(middleware.AuditLogMiddleware())
-	profileGroup.GET("/profile", r.handlers.auth.GetProfile)
-	profileGroup.PUT("/profile", r.handlers.auth.UpdateProfile)
-	profileGroup.POST("/profile/change-password", r.handlers.auth.ChangePassword)
-	profileGroup.GET("/profile/sessions", r.handlers.auth.GetUserSessions)
-	profileGroup.DELETE("/profile/sessions/:session_id", r.handlers.auth.RevokeSession)
-}
-
 func (r *routeRegistrar) registerQueryRoutes(v1 *gin.RouterGroup) {
+	// Create admin group with required middlewares
+	adminGroup := v1.Group("/admin")
+	adminGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	adminGroup.Use(middleware.RequireAdmin())
+
+	// Register query routes (alerts and clusters)
+	r.handlers.query.RegisterRoutes(v1, adminGroup)
+
+	// Register RCA routes (preserve existing middleware setup)
 	queryGroup := v1.Group("")
 	queryGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
 	queryGroup.Use(middleware.RequireAdmin())
 	queryGroup.Use(middleware.AuditLogMiddleware())
-
-	queryGroup.GET("/clusters/summary", r.handlers.query.GetClustersSummary)
-	queryGroup.GET("/clusters", r.handlers.query.GetClusters)
-	queryGroup.GET("/clusters/:id", r.handlers.query.GetCluster)
-	queryGroup.GET("/clusters/:id/nodes", r.handlers.query.GetClusterNodes)
-
-	queryGroup.GET("/alerts", r.handlers.query.GetAlerts)
-	queryGroup.GET("/alerts/trend", r.handlers.query.GetAlertTrend)
-	queryGroup.GET("/alerts/:id", r.handlers.query.GetAlert)
-	queryGroup.GET("/alerts/:id/raw-payload", r.handlers.query.GetAlertRawPayload)
-
 	r.registerRCARoutes(queryGroup)
-	queryGroup.GET("/events/stream", r.handlers.query.EventStream)
 }
 
 func (r *routeRegistrar) registerRCARoutes(queryGroup *gin.RouterGroup) {
-	rcaGroup := queryGroup.Group("/rca")
-	rcaGroup.GET("/:alert_id", r.handlers.rca.GetRCAByAlertID)
-	rcaGroup.GET("/:alert_id/stream", r.handlers.rca.StreamRCA)
-	rcaGroup.GET("/:alert_id/cache", r.handlers.rca.GetRCACacheByAlertID)
-	rcaGroup.POST("/:alert_id/trigger", r.handlers.query.TriggerRCA)
-	rcaGroup.POST("/trigger", r.handlers.rca.TriggerRCA)
-	rcaGroup.GET("/runs", r.handlers.rca.ListRCARuns)
-	rcaGroup.GET("/runs/:run_id", r.handlers.rca.GetRCARunStatus)
-	rcaGroup.GET("/stats", r.handlers.rca.GetRCAStats)
+	// RCA routes migrated to feature-first handler (preserve URL paths and middlewares)
+	rcahttp.New(r.handlers.holmesService, r.handlers.rcaService, r.handlers.alertService).RegisterRoutes(queryGroup)
 }
 
 func (r *routeRegistrar) registerHolmesRoutes(v1 *gin.RouterGroup) {
-	apiGroup := v1.Group("")
-	apiGroup.Use(middleware.APITokenMiddleware(r.cfg))
-	apiGroup.Use(middleware.AuditLogMiddleware())
-	apiGroup.GET("/holmesgpt/stream/investigate", r.handlers.holmesProxy.StreamInvestigate)
-	apiGroup.POST("/holmesgpt/stream/investigate/send", r.handlers.holmesProxy.SendApprovalDecision)
-}
-
-func (r *routeRegistrar) registerAPIKeyRoutes(v1 *gin.RouterGroup) {
-	apiKeyGroup := v1.Group("/apikeys")
-	apiKeyGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
-	apiKeyGroup.Use(middleware.AuditLogMiddleware())
-	apiKeyGroup.POST("", r.handlers.apiKey.CreateAPIKey)
-	apiKeyGroup.GET("", r.handlers.apiKey.ListAPIKeys)
-	apiKeyGroup.DELETE("/:id", r.handlers.apiKey.DeleteAPIKey)
-	apiKeyGroup.PUT("/:id/status", r.handlers.apiKey.UpdateAPIKeyStatus)
+	// Migrate to feature-first handler (preserve URL paths and middlewares)
+	holmeshttp.New(r.cfg, r.handlers.holmesService, r.handlers.alertService).RegisterRoutes(v1)
 }
 
 func (r *routeRegistrar) registerAdminRoutes(v1 *gin.RouterGroup) {
@@ -296,164 +280,38 @@ func (r *routeRegistrar) registerAdminRoutes(v1 *gin.RouterGroup) {
 	adminGroup.Use(middleware.RequireAdmin())
 	adminGroup.Use(middleware.AuditLogMiddleware())
 
-	adminGroup.GET("/audit-logs", r.handlers.query.GetAuditLogs)
-	adminGroup.POST("/clusters", r.handlers.query.CreateCluster)
-	adminGroup.PUT("/clusters/:id", r.handlers.query.UpdateCluster)
-	adminGroup.DELETE("/clusters/:id", r.handlers.query.DeleteCluster)
+	// User management routes migrated to feature-first handler (preserve URL paths)
+	userhttp.New(r.handlers.userService).RegisterRoutes(adminGroup)
 
-	adminGroup.GET("/users", r.handlers.user.GetUsers)
-	adminGroup.GET("/users/:id", r.handlers.user.GetUser)
-	adminGroup.PUT("/users/:id/admin", r.handlers.user.SetUserAdmin)
-	adminGroup.DELETE("/users/:id", r.handlers.user.DeleteUser)
+	// API Keys: migrate to feature-first handler (preserve URL paths)
+	apikeyhttp.New(r.cfg, r.handlers.apiKeyService).RegisterRoutes(v1, adminGroup)
 
-	adminGroup.GET("/apikeys", r.handlers.apiKey.ListAllAPIKeys)
-
-	adminGroup.GET("/settings", r.handlers.systemSetting.ListSettings)
-	adminGroup.PUT("/settings/:key", r.handlers.systemSetting.UpdateSetting)
-	adminGroup.GET("/settings/auto-rca", r.handlers.systemSetting.GetAutoRCAConfig)
-	adminGroup.POST("/settings/auto-rca/init", r.handlers.systemSetting.InitAutoRCAConfig)
+	// System Settings routes migrated to feature-first handler with self-registration
+	systemsettinghttp.New(r.handlers.systemSettingSvc, r.handlers.rcaService).RegisterRoutes(adminGroup)
 }
 
 func (r *routeRegistrar) registerKnowledgeRoutes(v1 *gin.RouterGroup) {
-	kbRead := v1.Group("/knowledge")
-	kbRead.Use(middleware.CookieAuthMiddleware(r.cfg))
-	kbRead.Use(middleware.AuditLogMiddleware())
-	kbRead.GET("", r.handlers.knowledge.List)
-	kbRead.GET(":id", r.handlers.knowledge.GetByID)
+	// Create admin group with required middlewares
+	adminGroup := v1.Group("/admin")
+	adminGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	adminGroup.Use(middleware.RequireAdmin())
 
-	kbWrite := v1.Group("/knowledge")
-	kbWrite.Use(middleware.CookieAuthMiddleware(r.cfg))
-	kbWrite.Use(middleware.RequireAdmin())
-	kbWrite.Use(middleware.AuditLogMiddleware())
-	kbWrite.POST("", r.handlers.knowledge.Create)
-	kbWrite.PUT(":id", r.handlers.knowledge.Update)
-	kbWrite.POST(":id/publish", r.handlers.knowledge.Publish)
-	kbWrite.POST("/upload/presign", r.handlers.knowledge.PresignUpload)
-	kbWrite.DELETE(":id", r.handlers.knowledge.Delete)
+	// Register knowledge routes
+	r.handlers.knowledge.RegisterRoutes(v1, adminGroup)
 }
 
 func (r *routeRegistrar) registerPipelineRoutes(v1 *gin.RouterGroup) {
-	// Pipeline Templates (管理员)
-	templateGroup := v1.Group("/pipelines/templates")
-	templateGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
-	templateGroup.Use(middleware.RequireAdmin())
-	templateGroup.Use(middleware.AuditLogMiddleware())
-	templateGroup.GET("", r.handlers.pipeline.ListTemplates)
-	templateGroup.GET("/:id", r.handlers.pipeline.GetTemplate)
-	templateGroup.POST("", r.handlers.pipeline.CreateTemplate)
-	templateGroup.PUT("/:id", r.handlers.pipeline.UpdateTemplate)
-	templateGroup.DELETE("/:id", r.handlers.pipeline.DeleteTemplate)
+	// Create admin group with required middlewares
+	adminGroup := v1.Group("/admin")
+	adminGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	adminGroup.Use(middleware.RequireAdmin())
 
-	// AWX Templates (管理员)
-	awxGroup := v1.Group("/pipelines/awx")
-	awxGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
-	awxGroup.Use(middleware.RequireAdmin())
-	awxGroup.GET("/templates", r.handlers.pipeline.ListAWXTemplates)
-	awxGroup.GET("/templates/:id", r.handlers.pipeline.GetAWXTemplate)
-	// AWX Inventory Variables
-	awxGroup.GET("/inventories/:name/variables", r.handlers.pipeline.GetInventoryVariables)
-	awxGroup.PUT("/inventories/:name/variables", r.handlers.pipeline.UpdateInventoryVariables)
-
-	// Pipeline Executions (需登录)
-	execGroup := v1.Group("/pipelines/executions")
-	execGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
-	execGroup.Use(middleware.AuditLogMiddleware())
-	execGroup.GET("", r.handlers.pipeline.GetExecutionHistory)
-	execGroup.GET("/active", r.handlers.pipeline.GetActiveExecutions)
-	execGroup.POST("", r.handlers.pipeline.StartExecution)
-	execGroup.GET("/:id", r.handlers.pipeline.GetExecution)
-	execGroup.POST("/:id/pause", r.handlers.pipeline.PauseExecution)
-	execGroup.POST("/:id/resume", r.handlers.pipeline.ResumeExecution)
-	execGroup.POST("/:id/cancel", r.handlers.pipeline.CancelExecution)
-	execGroup.POST("/:id/rollback", r.handlers.pipeline.RollbackExecution)
-	execGroup.POST("/:id/run", r.handlers.pipeline.RunPendingExecution)
-	execGroup.POST("/:id/clone", r.handlers.pipeline.CloneExecution)
-	execGroup.GET("/:id/sop", r.handlers.pipeline.GenerateSOPFlow) // AI-SOP 接口
+	// Register pipeline routes
+	r.handlers.pipeline.RegisterRoutes(v1, adminGroup)
 }
 
 func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {
-	navyGroup := v1.Group("/navy")
-	navyGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
-
-	deviceGroup := navyGroup.Group("/devices")
-	{
-		deviceGroup.GET("", r.handlers.navyDevice.List)
-		deviceGroup.POST("/query", r.handlers.navyDevice.Query)
-		deviceGroup.GET("/filter-options", r.handlers.navyDevice.GetFilterOptions)
-		deviceGroup.GET("/label-values", r.handlers.navyDevice.GetLabelValues)
-		deviceGroup.GET("/taint-values", r.handlers.navyDevice.GetTaintValues)
-		deviceGroup.GET("/device-field-values", r.handlers.navyDevice.GetDeviceFieldValues)
-		deviceGroup.POST("/features", r.handlers.navyDevice.GetDeviceFeatures)
-		deviceGroup.GET("/feature-details", r.handlers.navyDevice.GetFeatureDetails)
-		deviceGroup.GET("/export", r.handlers.navyDevice.Export)
-		deviceGroup.GET("/:id", r.handlers.navyDevice.Get)
-		deviceGroup.PATCH("/:id/role", r.handlers.navyDevice.UpdateRole)
-
-		deviceGroup.PATCH("/:id/group", r.handlers.navyDevice.UpdateGroup)
-
-		// Safe Drain
-		deviceGroup.POST("/:node/drain/start", r.handlers.safeDrain.StartDrain)
-		deviceGroup.POST("/:node/drain/cancel", r.handlers.safeDrain.CancelDrain) // Usually drainID, but if per node?
-		// User requirement "post /drain, post /drain/cancel".
-		// Let's stick to the route structure in plan: /clusters/:cluster/nodes/:node/drain/...
-		// But here we are under /navy/devices (which are nodes?).
-		// Let's add a separate group for drain under /navy for clarity or reuse existing.
-	}
-
-	// Safe Drain Routes
-	drainGroup := navyGroup.Group("/drain")
-	{
-		drainGroup.POST("/start", r.handlers.safeDrain.StartDrain)
-		drainGroup.POST("/:drain_id/cancel", r.handlers.safeDrain.CancelDrain)
-		drainGroup.GET("/:drain_id/events", r.handlers.safeDrain.DrainEvents)
-	}
-
-	// 模板管理
-	templateGroup := navyGroup.Group("/templates")
-	{
-		templateGroup.GET("", r.handlers.navyDevice.GetTemplates)
-		templateGroup.POST("", r.handlers.navyDevice.SaveTemplate)
-		templateGroup.GET("/:id", r.handlers.navyDevice.GetTemplate)
-		templateGroup.DELETE("/:id", r.handlers.navyDevice.DeleteTemplate)
-	}
-
-	// 设备批量操作 (需要管理员权限)
-	opsGroup := navyGroup.Group("/device-ops")
-	opsGroup.Use(middleware.RequireAdmin())
-	opsGroup.Use(middleware.AuditLogMiddleware())
-	{
-		// K8s 节点操作 (增加前置检查：节点必须存在且关联集群)
-		k8sOps := opsGroup.Group("")
-		k8sOps.Use(middleware.ValidateClusterAssociation(r.navyDatabase))
-		{
-			k8sOps.POST("/cordon", r.handlers.deviceOps.CordonNodes)
-			k8sOps.POST("/uncordon", r.handlers.deviceOps.UncordonNodes)
-			k8sOps.POST("/drain", r.handlers.deviceOps.DrainNodes)
-			k8sOps.POST("/taint", r.handlers.deviceOps.TaintNodes)
-			k8sOps.POST("/label", r.handlers.deviceOps.LabelNodes)
-		}
-
-		// 电源操作 (AWX) - 不需要关联 K8s 集群，只需要 IP
-		opsGroup.POST("/shutdown", r.handlers.deviceOps.ShutdownNodes)
-		opsGroup.POST("/reboot", r.handlers.deviceOps.RebootNodes)
-	}
-
-	// K8s 节点标签/污点实时管理 (需要管理员权限)
-	// 与 /devices/features (数据库查询) 不同，这里直接操作 K8s API
-	k8sNodeGroup := navyGroup.Group("/k8s-nodes")
-	k8sNodeGroup.Use(middleware.RequireAdmin())
-	k8sNodeGroup.Use(middleware.AuditLogMiddleware())
-	{
-		// 查询
-		k8sNodeGroup.GET("", r.handlers.k8sNodeManage.ListClusterNodes)
-		k8sNodeGroup.GET("/labels-taints", r.handlers.k8sNodeManage.GetNodeLabelsAndTaints)
-
-		// 标签操作
-		k8sNodeGroup.POST("/labels", r.handlers.k8sNodeManage.AddLabel)
-		k8sNodeGroup.DELETE("/labels", r.handlers.k8sNodeManage.RemoveLabel)
-
-		// 污点操作
-		k8sNodeGroup.POST("/taints", r.handlers.k8sNodeManage.AddTaint)
-		k8sNodeGroup.DELETE("/taints", r.handlers.k8sNodeManage.RemoveTaint)
-	}
+	// Navy routes migrated to feature-first handler while preserving
+	// URL paths and middleware semantics.
+	r.handlers.navy.RegisterRoutes(v1)
 }
