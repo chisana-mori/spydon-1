@@ -38,22 +38,7 @@ openssl pkcs12 -export \
   -out "$P12FILE"
 chmod 644 "$P12FILE"
 
-# Attempt to convert PKCS12 -> JKS using OpenJDK in Docker if available
-if command -v docker >/dev/null 2>&1; then
-  echo "[init] Converting PKCS12 to JKS using OpenJDK container"
-  docker run --rm -v "$CAS_DIR:/work" -w /work openjdk:17-jdk \
-    keytool -importkeystore \
-      -srckeystore thekeystore -srcstoretype PKCS12 -srcstorepass "$STOREPASS" \
-      -destkeystore thekeystore.jks -deststoretype JKS -deststorepass "$STOREPASS" || true
-  if [ -f "$CAS_DIR/thekeystore.jks" ]; then
-    mv "$CAS_DIR/thekeystore.jks" "$P12FILE"
-    echo "[init] Replaced $P12FILE with JKS keystore"
-  else
-    echo "[init] JKS conversion not completed, leaving PKCS12 as $P12FILE"
-  fi
-else
-  echo "[init] docker not available, skipping JKS conversion (PKCS12 will be used)"
-fi
+echo "[init] PKCS12 keystore created (no JKS conversion required)"
 
 echo "[init] Writing CAS static auth properties to $CONFIG_DIR/cas.properties"
 cat > "$CONFIG_DIR/cas.properties" <<EOF

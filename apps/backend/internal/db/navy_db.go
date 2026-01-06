@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"robusta-web/backend/internal/logger"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
@@ -14,15 +13,15 @@ type NavyDatabase struct {
 	*gorm.DB
 }
 
-// InitializeNavy 初始化 Navy 数据库连接 (SQLite)
+// InitializeNavy 初始化 Navy 数据库连接 (支持 SQLite 和 MySQL)
 func InitializeNavy(databaseURL string) (*NavyDatabase, error) {
 	// 配置GORM日志
 	gormConfig := &gorm.Config{
 		Logger: gormlogger.Default.LogMode(gormlogger.Info),
 	}
 
-	// 连接 SQLite 数据库
-	db, err := gorm.Open(sqlite.Open(databaseURL), gormConfig)
+	// 连接数据库
+	db, err := gorm.Open(getDialector(databaseURL), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("连接 Navy 数据库失败: %w", err)
 	}

@@ -23,6 +23,7 @@ import { DeviceSheet } from './components/DeviceSheet'
 import { SimpleQueryPanel } from './components/SimpleQueryPanel'
 import { AdvancedQueryPanel } from './components/AdvancedQueryPanel'
 import { TemplatePanel } from './components/TemplatePanel'
+import { DeviceBulkActions } from './components/DeviceBulkActions'
 import { cn } from '@/lib/utils'
 import {
     Pagination,
@@ -50,7 +51,10 @@ interface QueryState {
     templateName: string
 }
 
-export default function DevicesPage() {
+import { SafeDrainProvider } from './context/SafeDrainContext'
+import { SafeDrainDrawer } from './components/SafeDrainDrawer'
+
+function DevicesContent() {
     const searchParams = useSearchParams()
     const queryClient = useQueryClient()
 
@@ -72,9 +76,12 @@ export default function DevicesPage() {
     const [page, setPage] = useState(1)
     const [pageSize] = useState(20)
 
-    // 选中设备
+    // 选中设备（单个详情）
     const [selectedDevice, setSelectedDevice] = useState<NavyDevice | null>(null)
     const [sheetOpen, setSheetOpen] = useState(false)
+
+    // 批量选择的设备
+    const [selectedDevices, setSelectedDevices] = useState<Set<number>>(new Set())
 
     // 简单查询
     const simpleQuery = useQuery({
@@ -405,7 +412,6 @@ export default function DevicesPage() {
                             ...prev,
                             simpleOnlySpecial: !prev.simpleOnlySpecial
                         }))}
-                        className="max-w-4xl"
                     />
                 </TabsContent>
 
@@ -449,6 +455,14 @@ export default function DevicesPage() {
                 </TabsContent>
             </Tabs>
 
+            {/* 批量操作工具栏 */}
+            <DeviceBulkActions
+                selectedDevices={selectedDevices}
+                devices={processedDevices}
+                onClearSelection={() => setSelectedDevices(new Set())}
+                onRefresh={handleRefresh}
+            />
+
             {/* 设备列表 */}
             <DeviceDataTable
                 devices={processedDevices}
@@ -456,6 +470,8 @@ export default function DevicesPage() {
                 onSelect={handleDeviceSelect}
                 selectedId={selectedDevice?.id}
                 onRefresh={handleRefresh}
+                selectedDevices={selectedDevices}
+                onSelectionChange={setSelectedDevices}
             />
 
             {/* 分页 */}
@@ -531,9 +547,22 @@ export default function DevicesPage() {
             <DeviceSheet
                 device={selectedDevice}
                 open={sheetOpen}
-                onOpenChange={setSheetOpen}
+                onOpenChange={(open) => {
+                    setSheetOpen(open)
+                    if (!open) setTimeout(() => setSelectedDevice(null), 300) // 延迟清除以避免UI闪烁
+                }}
                 onUpdate={handleRefresh}
             />
         </div>
+
+    )
+}
+
+export default function DevicesPage() {
+    return (
+        <SafeDrainProvider>
+            <DevicesContent />
+            <SafeDrainDrawer />
+        </SafeDrainProvider>
     )
 }

@@ -291,3 +291,6 @@ CREATE TABLE IF NOT EXISTS `spydon_stage_runs` (
     `approval_notes` TEXT COMMENT '审批备注',
     INDEX `idx_spydon_sr_execution_id` (`execution_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='流水线阶段执行记录表';
+
+
+ALTER TABLE device ADD COLUMN k8s_status VARCHAR(50) DEFAULT '';

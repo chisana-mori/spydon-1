@@ -8,11 +8,14 @@ import (
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/middleware"
 	"robusta-web/backend/internal/services"
+	"robusta-web/backend/internal/services/nodesync"
 
 	"github.com/gin-gonic/gin"
 	cas "gopkg.in/cas.v2"
+	"k8s.io/client-go/kubernetes"
 )
 
 type handlerSet struct {
@@ -30,9 +33,12 @@ type handlerSet struct {
 	systemSetting *SystemSettingHandler
 	pipeline      *PipelineHandler
 	navyDevice    *NavyDeviceHandler
+	deviceOps     *DeviceOperationsHandler
+	safeDrain     *SafeDrainHandler
+	k8sNodeManage *K8sNodeManageHandler
 }
 
-func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config) (*handlerSet, error) {
+func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config, nodesyncManager *nodesync.Manager) (*handlerSet, error) {
 	clusterService := services.NewClusterService(database)
 	auditService := services.NewAuditService(database)
 
@@ -66,7 +72,26 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 	)
 
 	// Navy 设备服务
-	navyDeviceService := services.NewNavyDeviceService(navyDatabase)
+	navyDeviceService := services.NewNavyDeviceService(navyDatabase, nodesyncManager)
+
+	// Safe Drain Service
+	safeDrainService := services.NewSafeDrainService(func(cluster string) (kubernetes.Interface, error) {
+		return clusterService.GetClient(cluster)
+	})
+
+	// 设备批量操作服务
+	deviceOpsService := services.NewDeviceOperationsService(
+		navyDatabase,
+		database,
+		nodesyncManager,
+		awxRuntime,
+		cfg,
+		logger.L(),
+		safeDrainService,
+	)
+
+	// K8s 节点管理服务
+	k8sNodeManageService := services.NewK8sNodeManageService(database, nodesyncManager)
 
 	// Streamer needs raw access to AWX Client
 	awxStreamer := services.NewAWXStreamer(database.DB, awxRuntime.GetClient())
@@ -92,6 +117,9 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 		systemSetting: NewSystemSettingHandler(systemSettingService, rcaService),
 		pipeline:      NewPipelineHandler(pipelineEngine, awxStreamer),
 		navyDevice:    NewNavyDeviceHandler(navyDeviceService),
+		deviceOps:     NewDeviceOperationsHandler(deviceOpsService),
+		safeDrain:     NewSafeDrainHandler(safeDrainService),
+		k8sNodeManage: NewK8sNodeManageHandler(k8sNodeManageService),
 	}
 
 	return handlers, nil
@@ -124,13 +152,14 @@ func buildCASClient(cfg *config.Config) (*cas.Client, error) {
 }
 
 type routeRegistrar struct {
-	router   *gin.Engine
-	cfg      *config.Config
-	handlers *handlerSet
+	router       *gin.Engine
+	cfg          *config.Config
+	handlers     *handlerSet
+	navyDatabase *db.NavyDatabase
 }
 
-func newRouteRegistrar(router *gin.Engine, cfg *config.Config, handlers *handlerSet) *routeRegistrar {
-	return &routeRegistrar{router: router, cfg: cfg, handlers: handlers}
+func newRouteRegistrar(router *gin.Engine, cfg *config.Config, handlers *handlerSet, navyDatabase *db.NavyDatabase) *routeRegistrar {
+	return &routeRegistrar{router: router, cfg: cfg, handlers: handlers, navyDatabase: navyDatabase}
 }
 
 func (r *routeRegistrar) register() {
@@ -354,11 +383,29 @@ func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {
 		deviceGroup.GET("/label-values", r.handlers.navyDevice.GetLabelValues)
 		deviceGroup.GET("/taint-values", r.handlers.navyDevice.GetTaintValues)
 		deviceGroup.GET("/device-field-values", r.handlers.navyDevice.GetDeviceFieldValues)
+		deviceGroup.POST("/features", r.handlers.navyDevice.GetDeviceFeatures)
 		deviceGroup.GET("/feature-details", r.handlers.navyDevice.GetFeatureDetails)
 		deviceGroup.GET("/export", r.handlers.navyDevice.Export)
 		deviceGroup.GET("/:id", r.handlers.navyDevice.Get)
 		deviceGroup.PATCH("/:id/role", r.handlers.navyDevice.UpdateRole)
+
 		deviceGroup.PATCH("/:id/group", r.handlers.navyDevice.UpdateGroup)
+
+		// Safe Drain
+		deviceGroup.POST("/:node/drain/start", r.handlers.safeDrain.StartDrain)
+		deviceGroup.POST("/:node/drain/cancel", r.handlers.safeDrain.CancelDrain) // Usually drainID, but if per node?
+		// User requirement "post /drain, post /drain/cancel".
+		// Let's stick to the route structure in plan: /clusters/:cluster/nodes/:node/drain/...
+		// But here we are under /navy/devices (which are nodes?).
+		// Let's add a separate group for drain under /navy for clarity or reuse existing.
+	}
+
+	// Safe Drain Routes
+	drainGroup := navyGroup.Group("/drain")
+	{
+		drainGroup.POST("/start", r.handlers.safeDrain.StartDrain)
+		drainGroup.POST("/:drain_id/cancel", r.handlers.safeDrain.CancelDrain)
+		drainGroup.GET("/:drain_id/events", r.handlers.safeDrain.DrainEvents)
 	}
 
 	// 模板管理
@@ -368,5 +415,45 @@ func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {
 		templateGroup.POST("", r.handlers.navyDevice.SaveTemplate)
 		templateGroup.GET("/:id", r.handlers.navyDevice.GetTemplate)
 		templateGroup.DELETE("/:id", r.handlers.navyDevice.DeleteTemplate)
+	}
+
+	// 设备批量操作 (需要管理员权限)
+	opsGroup := navyGroup.Group("/device-ops")
+	opsGroup.Use(middleware.RequireAdmin())
+	opsGroup.Use(middleware.AuditLogMiddleware())
+	{
+		// K8s 节点操作 (增加前置检查：节点必须存在且关联集群)
+		k8sOps := opsGroup.Group("")
+		k8sOps.Use(middleware.ValidateClusterAssociation(r.navyDatabase))
+		{
+			k8sOps.POST("/cordon", r.handlers.deviceOps.CordonNodes)
+			k8sOps.POST("/uncordon", r.handlers.deviceOps.UncordonNodes)
+			k8sOps.POST("/drain", r.handlers.deviceOps.DrainNodes)
+			k8sOps.POST("/taint", r.handlers.deviceOps.TaintNodes)
+			k8sOps.POST("/label", r.handlers.deviceOps.LabelNodes)
+		}
+
+		// 电源操作 (AWX) - 不需要关联 K8s 集群，只需要 IP
+		opsGroup.POST("/shutdown", r.handlers.deviceOps.ShutdownNodes)
+		opsGroup.POST("/reboot", r.handlers.deviceOps.RebootNodes)
+	}
+
+	// K8s 节点标签/污点实时管理 (需要管理员权限)
+	// 与 /devices/features (数据库查询) 不同，这里直接操作 K8s API
+	k8sNodeGroup := navyGroup.Group("/k8s-nodes")
+	k8sNodeGroup.Use(middleware.RequireAdmin())
+	k8sNodeGroup.Use(middleware.AuditLogMiddleware())
+	{
+		// 查询
+		k8sNodeGroup.GET("", r.handlers.k8sNodeManage.ListClusterNodes)
+		k8sNodeGroup.GET("/labels-taints", r.handlers.k8sNodeManage.GetNodeLabelsAndTaints)
+
+		// 标签操作
+		k8sNodeGroup.POST("/labels", r.handlers.k8sNodeManage.AddLabel)
+		k8sNodeGroup.DELETE("/labels", r.handlers.k8sNodeManage.RemoveLabel)
+
+		// 污点操作
+		k8sNodeGroup.POST("/taints", r.handlers.k8sNodeManage.AddTaint)
+		k8sNodeGroup.DELETE("/taints", r.handlers.k8sNodeManage.RemoveTaint)
 	}
 }

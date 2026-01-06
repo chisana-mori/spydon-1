@@ -27,6 +27,7 @@ export interface NavyDevice {
     os_kernel: string
     status: string
     role: string
+    k8s_status: string
     cluster: string
     cluster_id: number
     acceptance_time: string
@@ -131,8 +132,19 @@ export interface QueryTemplate {
 }
 
 export interface DeviceFeatureDetails {
+    labels: { key: string; value: string; nodes: string[] }[]
+    taints: { key: string; value: string; effect: string; nodes: string[] }[]
+}
+
+// K8s 节点实时标签/污点响应 (使用新的 /k8s-nodes API)
+export interface NodeLabelTaintResponse {
+    nodeName: string
+    clusterName: string
+    clusterId: number
     labels: { key: string; value: string }[]
     taints: { key: string; value: string; effect: string }[]
+    updatedAt: string
+    conditions: string[]
 }
 
 // 污点值

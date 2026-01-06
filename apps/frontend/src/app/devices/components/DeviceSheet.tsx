@@ -10,7 +10,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -22,9 +22,6 @@ import {
     Server,
     Tag,
     AlertTriangle,
-    Pencil,
-    Save,
-    X,
     Copy,
     Check,
     Star,
@@ -35,11 +32,22 @@ import {
     Database,
     ExternalLink,
     CloudOff,
+    Plus,
+    X,
+    Loader2,
 } from 'lucide-react'
 import { NavyDevice, DeviceFeatureDetails } from "@/types/navy"
 import { cn } from "@/lib/utils"
 import RobustaAPI from '@/lib/api'
 import { toast } from 'sonner'
+import { Input } from "@/components/ui/input"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 interface DeviceSheetProps {
     device: NavyDevice | null
@@ -75,26 +83,20 @@ function InfoRow({ label, value, copyable }: { label: string; value: string | nu
 }
 
 export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceSheetProps) {
-    const [isEditing, setIsEditing] = useState(false)
-    const [editGroup, setEditGroup] = useState('')
-    const [editRole, setEditRole] = useState('')
-    const [isSaving, setIsSaving] = useState(false)
+
     const [features, setFeatures] = useState<DeviceFeatureDetails | null>(null)
     const [loadingFeatures, setLoadingFeatures] = useState(false)
 
     useEffect(() => {
-        if (device) {
-            setEditGroup(device.group || '')
-            setEditRole(device.role || '')
-            setIsEditing(false)
-            loadFeatures(device.id)
+        if (device && device.ci_code) {
+            loadFeatures(device.ci_code)
         }
     }, [device])
 
-    const loadFeatures = async (deviceId: number) => {
+    const loadFeatures = async (ciCode: string) => {
         setLoadingFeatures(true)
         try {
-            const data = await RobustaAPI.getNavyDeviceFeatures(String(deviceId))
+            const data = await RobustaAPI.getBatchDeviceFeatures([ciCode])
             setFeatures(data)
         } catch (err) {
             console.error('加载特性失败:', err)
@@ -103,31 +105,13 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceShee
         }
     }
 
-    const handleSave = async () => {
-        if (!device) return
-        setIsSaving(true)
-        try {
-            if (editGroup !== device.group) {
-                await RobustaAPI.updateNavyDeviceGroup(device.id, editGroup)
-            }
-            if (editRole !== device.role) {
-                await RobustaAPI.updateNavyDeviceRole(device.id, editRole)
-            }
-            toast.success('保存成功')
-            setIsEditing(false)
-            onUpdate?.()
-        } catch (err) {
-            toast.error('保存失败')
-        } finally {
-            setIsSaving(false)
-        }
-    }
+
 
     if (!device) return null
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="w-[540px] sm:max-w-[600px] p-0 border-l border-border/40 shadow-2xl flex flex-col h-full">
+            <SheetContent className="w-[800px] sm:max-w-[800px] p-0 border-l border-border/40 shadow-2xl flex flex-col h-full">
                 {/* Modern Header Design */}
                 <div className="flex-none p-6 pb-2 bg-gradient-to-b from-muted/50 to-background border-b z-20">
                     <div className="flex items-start justify-between mb-4">
@@ -166,23 +150,7 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceShee
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-2">
-                            {!isEditing ? (
-                                <Button variant="ghost" size="icon" onClick={() => setIsEditing(true)} className="h-8 w-8 hover:bg-muted">
-                                    <Pencil className="h-4 w-4 text-muted-foreground" />
-                                </Button>
-                            ) : (
-                                <div className="flex items-center gap-2 bg-background shadow-sm border rounded-lg p-1">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setIsEditing(false)}>
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                    <Separator orientation="vertical" className="h-4" />
-                                    <Button size="icon" className="h-7 w-7" onClick={handleSave} disabled={isSaving}>
-                                        <Save className="h-3.5 w-3.5" />
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
+
                     </div>
                 </div>
 
@@ -212,43 +180,20 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceShee
                                 <div className="space-y-3">
                                     <SectionTitle icon={Shield} title="角色信息" />
                                     <div className="grid grid-cols-1 gap-3">
-                                        {isEditing ? (
-                                            <>
-                                                <div className="space-y-2 p-3 bg-background border rounded-lg border-dashed border-primary/50">
-                                                    <Label className="text-xs text-primary font-medium">机器用途</Label>
-                                                    <Input
-                                                        value={editGroup}
-                                                        onChange={(e) => setEditGroup(e.target.value)}
-                                                        className="h-8 shadow-sm"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2 p-3 bg-background border rounded-lg border-dashed border-primary/50">
-                                                    <Label className="text-xs text-primary font-medium">集群角色</Label>
-                                                    <Input
-                                                        value={editRole}
-                                                        onChange={(e) => setEditRole(e.target.value)}
-                                                        className="h-8 shadow-sm"
-                                                    />
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div className="p-3 bg-white dark:bg-card border rounded-lg shadow-sm flex items-center justify-between">
-                                                    <div>
-                                                        <span className="text-xs text-muted-foreground block mb-1">机器用途</span>
-                                                        <span className="font-medium text-sm">{device.group || '未设置'}</span>
-                                                    </div>
-                                                    <Badge variant="outline" className="font-mono bg-muted/50 text-muted-foreground font-normal">GROUP</Badge>
-                                                </div>
-                                                <div className="p-3 bg-white dark:bg-card border rounded-lg shadow-sm flex items-center justify-between">
-                                                    <div>
-                                                        <span className="text-xs text-muted-foreground block mb-1">集群角色</span>
-                                                        <span className="font-medium text-sm">{device.role || '未设置'}</span>
-                                                    </div>
-                                                    <Badge variant="outline" className="font-mono bg-muted/50 text-muted-foreground font-normal">ROLE</Badge>
-                                                </div>
-                                            </>
-                                        )}
+                                        <div className="p-3 bg-white dark:bg-card border rounded-lg shadow-sm flex items-center justify-between">
+                                            <div>
+                                                <span className="text-xs text-muted-foreground block mb-1">机器用途</span>
+                                                <span className="font-medium text-sm">{device.group || '未设置'}</span>
+                                            </div>
+                                            <Badge variant="outline" className="font-mono bg-muted/50 text-muted-foreground font-normal">GROUP</Badge>
+                                        </div>
+                                        <div className="p-3 bg-white dark:bg-card border rounded-lg shadow-sm flex items-center justify-between">
+                                            <div>
+                                                <span className="text-xs text-muted-foreground block mb-1">集群角色</span>
+                                                <span className="font-medium text-sm">{device.role || '未设置'}</span>
+                                            </div>
+                                            <Badge variant="outline" className="font-mono bg-muted/50 text-muted-foreground font-normal">ROLE</Badge>
+                                        </div>
                                         {device.cluster && (
                                             <div className="p-3 bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-900 rounded-lg flex items-center gap-3">
                                                 <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
@@ -324,62 +269,12 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceShee
                             </TabsContent>
 
                             <TabsContent value="k8s" className="mt-0 space-y-6 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
-                                {loadingFeatures ? (
-                                    <div className="flex flex-col items-center justify-center py-12 space-y-3">
-                                        <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
-                                        <p className="text-sm text-muted-foreground">正在从 Kubernetes 获取实时数据...</p>
-                                    </div>
-                                ) : features ? (
-                                    <div className="space-y-6">
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <SectionTitle icon={Tag} title="节点标签 (Labels)" />
-                                                <Badge variant="secondary" className="font-mono text-[10px]">{features.labels?.length || 0}</Badge>
-                                            </div>
-                                            {features.labels && features.labels.length > 0 ? (
-                                                <div className="grid grid-cols-1 gap-2">
-                                                    {features.labels.map((label, i) => (
-                                                        <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border bg-card/50 hover:bg-card hover:shadow-sm transition-all text-sm gap-2">
-                                                            <span className="font-mono text-muted-foreground tracking-tight text-xs break-all">{label.key}</span>
-                                                            <Separator orientation="horizontal" className="sm:hidden w-full" />
-                                                            <code className="font-mono text-foreground bg-muted/50 px-1.5 py-0.5 rounded text-xs break-all sm:text-right">{label.value}</code>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <EmptyState text="暂无标签数据" />
-                                            )}
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <SectionTitle icon={AlertTriangle} title="节点污点 (Taints)" />
-                                                <Badge variant="secondary" className="font-mono text-[10px]">{features.taints?.length || 0}</Badge>
-                                            </div>
-                                            {features.taints && features.taints.length > 0 ? (
-                                                <div className="space-y-2">
-                                                    {features.taints.map((taint, i) => (
-                                                        <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-orange-100 bg-orange-50/50 dark:border-orange-900/50 dark:bg-orange-950/20">
-                                                            <div className="flex flex-col">
-                                                                <span className="font-medium text-sm text-orange-900 dark:text-orange-100">{taint.key}</span>
-                                                                {taint.value && <span className="text-xs text-orange-700/70 dark:text-orange-400/70 mt-0.5">{taint.value}</span>}
-                                                            </div>
-                                                            <Badge variant="outline" className="border-orange-200 text-orange-600 bg-white/50">{taint.effect}</Badge>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <EmptyState text="无污点" />
-                                            )}
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="rounded-xl border border-dashed p-8 text-center flex flex-col items-center justify-center bg-muted/20">
-                                        <CloudOff className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                                        <p className="text-sm font-medium text-foreground">无法获取 K8s 数据</p>
-                                        <p className="text-xs text-muted-foreground mt-1 max-w-[200px]">该设备可能未加入集群或 API 服务暂时不可用</p>
-                                    </div>
-                                )}
+                                <K8sFeatureEditor
+                                    device={device}
+                                    features={features}
+                                    loading={loadingFeatures}
+                                    onRefresh={() => loadFeatures(device.ci_code)}
+                                />
                             </TabsContent>
                         </div>
                     </ScrollArea>
@@ -442,6 +337,286 @@ function EmptyState({ text }: { text: string }) {
     return (
         <div className="text-center py-6 border rounded-lg bg-muted/10 border-dashed">
             <p className="text-xs text-muted-foreground">{text}</p>
+        </div>
+    )
+}
+
+// K8s Feature Editor Component
+function K8sFeatureEditor({
+    device,
+    features,
+    loading,
+    onRefresh,
+}: {
+    device: NavyDevice
+    features: DeviceFeatureDetails | null
+    loading: boolean
+    onRefresh: () => void
+}) {
+    const [showAddLabel, setShowAddLabel] = useState(false)
+    const [showAddTaint, setShowAddTaint] = useState(false)
+    const [labelKey, setLabelKey] = useState('')
+    const [labelValue, setLabelValue] = useState('')
+    const [taintKey, setTaintKey] = useState('')
+    const [taintValue, setTaintValue] = useState('')
+    const [taintEffect, setTaintEffect] = useState<'NoSchedule' | 'PreferNoSchedule' | 'NoExecute'>('NoSchedule')
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
+    const resetLabelForm = () => {
+        setLabelKey('')
+        setLabelValue('')
+        setShowAddLabel(false)
+    }
+
+    const resetTaintForm = () => {
+        setTaintKey('')
+        setTaintValue('')
+        setTaintEffect('NoSchedule')
+        setShowAddTaint(false)
+    }
+
+    const handleAddLabel = async () => {
+        if (!labelKey.trim()) {
+            toast.error('请输入 Label Key')
+            return
+        }
+        setIsSubmitting(true)
+        try {
+            await RobustaAPI.labelNodes([device.ci_code], { [labelKey]: labelValue }, 'add')
+            toast.success('Label 添加成功')
+            resetLabelForm()
+            onRefresh()
+        } catch (err) {
+            toast.error('Label 添加失败')
+            console.error(err)
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    const handleRemoveLabel = async (key: string) => {
+        setIsSubmitting(true)
+        try {
+            await RobustaAPI.labelNodes([device.ci_code], { [key]: '' }, 'remove')
+            toast.success('Label 已删除')
+            onRefresh()
+        } catch (err) {
+            toast.error('Label 删除失败')
+            console.error(err)
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    const handleAddTaint = async () => {
+        if (!taintKey.trim()) {
+            toast.error('请输入 Taint Key')
+            return
+        }
+        setIsSubmitting(true)
+        try {
+            await RobustaAPI.taintNodes([device.ci_code], taintKey, taintValue, taintEffect, 'add')
+            toast.success('Taint 添加成功')
+            resetTaintForm()
+            onRefresh()
+        } catch (err) {
+            toast.error('Taint 添加失败')
+            console.error(err)
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    const handleRemoveTaint = async (key: string, effect: string) => {
+        setIsSubmitting(true)
+        try {
+            await RobustaAPI.taintNodes([device.ci_code], key, '', effect as 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute', 'remove')
+            toast.success('Taint 已删除')
+            onRefresh()
+        } catch (err) {
+            toast.error('Taint 删除失败')
+            console.error(err)
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
+                <p className="text-sm text-muted-foreground">正在从 Kubernetes 获取实时数据...</p>
+            </div>
+        )
+    }
+
+    if (!features) {
+        return (
+            <div className="rounded-xl border border-dashed p-8 text-center flex flex-col items-center justify-center bg-muted/20">
+                <CloudOff className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                <p className="text-sm font-medium text-foreground">无法获取 K8s 数据</p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-[200px]">该设备可能未加入集群或 API 服务暂时不可用</p>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Labels Section */}
+            <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                    <SectionTitle icon={Tag} title="节点标签 (Labels)" />
+                    <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="font-mono text-[10px]">{features.labels?.length || 0}</Badge>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => setShowAddLabel(!showAddLabel)}
+                            disabled={isSubmitting}
+                        >
+                            <Plus className="h-3 w-3 mr-1" />
+                            添加
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Add Label Form */}
+                {showAddLabel && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+                        <Input
+                            placeholder="key"
+                            value={labelKey}
+                            onChange={e => setLabelKey(e.target.value)}
+                            className="h-8 text-xs font-mono flex-1"
+                        />
+                        <span className="text-muted-foreground">=</span>
+                        <Input
+                            placeholder="value"
+                            value={labelValue}
+                            onChange={e => setLabelValue(e.target.value)}
+                            className="h-8 text-xs font-mono flex-1"
+                        />
+                        <Button size="sm" className="h-8 px-3" onClick={handleAddLabel} disabled={isSubmitting}>
+                            {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-8 px-2" onClick={resetLabelForm}>
+                            <X className="h-3 w-3" />
+                        </Button>
+                    </div>
+                )}
+
+                {features.labels && features.labels.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                        {features.labels.map((label, i) => (
+                            <div key={i} className="group flex items-center justify-between p-3 rounded-lg border bg-card/50 hover:bg-card hover:shadow-sm transition-all text-sm">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className="font-mono text-muted-foreground tracking-tight text-xs truncate">{label.key}</span>
+                                    <span className="text-muted-foreground">=</span>
+                                    <code className="font-mono text-foreground bg-muted/50 px-1.5 py-0.5 rounded text-xs truncate">{label.value}</code>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => handleRemoveLabel(label.key)}
+                                    disabled={isSubmitting}
+                                >
+                                    <X className="h-3 w-3" />
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <EmptyState text="暂无标签数据" />
+                )}
+            </div>
+
+            {/* Taints Section */}
+            <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                    <SectionTitle icon={AlertTriangle} title="节点污点 (Taints)" />
+                    <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="font-mono text-[10px]">{features.taints?.length || 0}</Badge>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => setShowAddTaint(!showAddTaint)}
+                            disabled={isSubmitting}
+                        >
+                            <Plus className="h-3 w-3 mr-1" />
+                            添加
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Add Taint Form */}
+                {showAddTaint && (
+                    <div className="flex flex-col gap-2 p-3 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/20">
+                        <div className="flex items-center gap-2">
+                            <Input
+                                placeholder="key"
+                                value={taintKey}
+                                onChange={e => setTaintKey(e.target.value)}
+                                className="h-8 text-xs font-mono flex-1"
+                            />
+                            <span className="text-muted-foreground">=</span>
+                            <Input
+                                placeholder="value (可选)"
+                                value={taintValue}
+                                onChange={e => setTaintValue(e.target.value)}
+                                className="h-8 text-xs font-mono flex-1"
+                            />
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Select value={taintEffect} onValueChange={(v) => setTaintEffect(v as typeof taintEffect)}>
+                                <SelectTrigger className="h-8 text-xs flex-1">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="NoSchedule">NoSchedule</SelectItem>
+                                    <SelectItem value="PreferNoSchedule">PreferNoSchedule</SelectItem>
+                                    <SelectItem value="NoExecute">NoExecute</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <Button size="sm" className="h-8 px-3" onClick={handleAddTaint} disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={resetTaintForm}>
+                                <X className="h-3 w-3" />
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {features.taints && features.taints.length > 0 ? (
+                    <div className="space-y-2">
+                        {features.taints.map((taint, i) => (
+                            <div key={i} className="group flex items-center justify-between p-3 rounded-lg border border-orange-100 bg-orange-50/50 dark:border-orange-900/50 dark:bg-orange-950/20">
+                                <div className="flex flex-col">
+                                    <span className="font-medium text-sm text-orange-900 dark:text-orange-100">{taint.key}</span>
+                                    {taint.value && <span className="text-xs text-orange-700/70 dark:text-orange-400/70 mt-0.5">{taint.value}</span>}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="border-orange-200 text-orange-600 bg-white/50">{taint.effect}</Badge>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                                        onClick={() => handleRemoveTaint(taint.key, taint.effect)}
+                                        disabled={isSubmitting}
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <EmptyState text="无污点" />
+                )}
+            </div>
         </div>
     )
 }

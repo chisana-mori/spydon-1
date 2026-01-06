@@ -1,0 +1,167 @@
+package nodesync
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"robusta-web/backend/internal/db"
+	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/internal/models/navy"
+
+	"gorm.io/gorm"
+	corev1 "k8s.io/api/core/v1"
+)
+
+// UpdateDeviceFromNode 根据节点信息更新 device 表
+// 通过 nodename 匹配 ci_code 进行关联
+// 注意：仅更新 cluster 名称，不更新 cluster_id（cluster_id 由其他系统管理）
+func UpdateDeviceFromNode(ctx context.Context, navyDB *db.NavyDatabase, clusterName string, node *corev1.Node) error {
+	nodeName := node.Name
+	role, k8sStatus := ExtractNodeInfo(node)
+
+	// 通过 ci_code 查找设备
+	var device navy.Device
+	result := navyDB.WithContext(ctx).Where("ci_code = ?", nodeName).First(&device)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			// 设备不存在，跳过（不新建，不算错误）
+			logger.S().Debugw("未找到匹配设备，跳过",
+				"cluster", clusterName,
+				"nodename", nodeName)
+			return nil
+		}
+		// 其他数据库错误需要返回
+		return result.Error
+	}
+
+	// 比较后仅在有变化时更新（不更新 cluster_id）
+	updates := map[string]interface{}{}
+	if device.Cluster != clusterName {
+		updates["cluster"] = clusterName
+	}
+	if device.K8sStatus != k8sStatus {
+		updates["k8s_status"] = k8sStatus
+	}
+	// 只在 role 非空且发生变化时更新，避免覆盖已有数据
+	if role != "" && device.Role != role {
+		updates["role"] = role
+	}
+
+	if len(updates) == 0 {
+		// 无变化，跳过更新
+		logger.S().Debugw("设备集群信息未变化，跳过更新",
+			"device_id", device.ID,
+			"ci_code", nodeName,
+			"cluster", clusterName,
+			"k8s_status", k8sStatus,
+			"role", role)
+		return nil
+	}
+
+	if err := navyDB.WithContext(ctx).Model(&navy.Device{}).
+		Where("id = ?", device.ID).
+		Updates(updates).Error; err != nil {
+		return err
+	}
+
+	logger.S().Infow("设备集群信息已更新",
+		"device_id", device.ID,
+		"ci_code", nodeName,
+		"cluster", clusterName,
+		"k8s_status", k8sStatus,
+		"role", role)
+
+	return nil
+}
+
+// ClearDeviceClusterInfo 清除设备的集群关联信息
+// 当节点从集群中删除时调用
+func ClearDeviceClusterInfo(ctx context.Context, navyDB *db.NavyDatabase, ciCode string) error {
+	result := navyDB.WithContext(ctx).Model(&navy.Device{}).
+		Where("ci_code = ?", ciCode).
+		Updates(map[string]interface{}{
+			"cluster":    "",
+			"cluster_id": 0,
+			"k8s_status": "",
+			"role":       "",
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected > 0 {
+		logger.S().Infow("设备集群关联已清除", "ci_code", ciCode)
+	}
+
+	return nil
+}
+
+// CleanOrphanDevices 清理孤儿设备
+// 对于指定集群，清除那些在集群中找不到对应节点的设备的集群关联信息
+func CleanOrphanDevices(ctx context.Context, navyDB *db.NavyDatabase, clusterID int, activeNodeNames []string) error {
+	if len(activeNodeNames) == 0 {
+		// 没有活跃节点，清除该集群所有设备的关联
+		return navyDB.WithContext(ctx).Model(&navy.Device{}).
+			Where("cluster_id = ?", clusterID).
+			Updates(map[string]interface{}{
+				"cluster":    "",
+				"cluster_id": 0,
+				"k8s_status": "",
+				"role":       "",
+			}).Error
+	}
+
+	// 清除不在活跃节点列表中的设备
+	return navyDB.WithContext(ctx).Model(&navy.Device{}).
+		Where("cluster_id = ? AND ci_code NOT IN ?", clusterID, activeNodeNames).
+		Updates(map[string]interface{}{
+			"cluster":    "",
+			"cluster_id": 0,
+			"k8s_status": "",
+			"role":       "",
+		}).Error
+}
+
+// ExtractNodeInfo 从 Node 对象提取同步所需信息
+func ExtractNodeInfo(node *corev1.Node) (role, k8sStatus string) {
+	// 提取角色：从 node-role.kubernetes.io/* 标签
+	for key := range node.Labels {
+		if strings.HasPrefix(key, "node-role.kubernetes.io/") {
+			roleName := strings.TrimPrefix(key, "node-role.kubernetes.io/")
+			if roleName != "" {
+				if role != "" {
+					role += ","
+				}
+				role += roleName
+			}
+		}
+	}
+
+	// 提取状态
+	k8sStatus = getNodeStatus(node)
+
+	return role, k8sStatus
+}
+
+// getNodeStatus 获取节点状态
+// 优先级: Unschedulable > Ready > NotReady
+func getNodeStatus(node *corev1.Node) string {
+	// 优先判断是否被标记为不可调度
+	if node.Spec.Unschedulable {
+		return "Unschedulable"
+	}
+
+	// 检查 Ready condition
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady {
+			if condition.Status == corev1.ConditionTrue {
+				return "Ready"
+			}
+			return "NotReady"
+		}
+	}
+
+	return "Unknown"
+}

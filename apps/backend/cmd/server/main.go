@@ -15,6 +15,7 @@ import (
 	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/internal/services/nodesync"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -69,8 +70,17 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
+	// 启动节点同步管理器
+	nodeSyncMgr := nodesync.NewManager(database, navyDatabase)
+	nodeSyncCtx, nodeSyncCancel := context.WithCancel(context.Background())
+	go func() {
+		if err := nodeSyncMgr.Start(nodeSyncCtx); err != nil {
+			logger.L().Error("节点同步管理器启动失败", zap.Error(err))
+		}
+	}()
+
 	// 设置API路由
-	if err := api.SetupRoutes(router, database, navyDatabase, cfg); err != nil {
+	if err := api.SetupRoutes(router, database, navyDatabase, cfg, nodeSyncMgr); err != nil {
 		logger.L().Fatal("初始化路由失败", zap.Error(err))
 	}
 
@@ -99,6 +109,11 @@ func main() {
 	<-quit
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// 停止节点同步管理器
+	nodeSyncCancel()
+	nodeSyncMgr.Stop()
+
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.L().Error("服务优雅关闭失败", zap.Error(err))
 	}

@@ -36,6 +36,7 @@ type Device struct {
 	Role           string  `gorm:"column:role;type:varchar(100)" json:"role"`
 	Cluster        string  `gorm:"column:cluster;type:varchar(255)" json:"cluster"`
 	ClusterID      int     `gorm:"column:cluster_id;type:int" json:"cluster_id"`
+	K8sStatus      string  `gorm:"column:k8s_status;type:varchar(50)" json:"k8s_status"` // K8s 节点状态: Ready/NotReady/Unschedulable
 	AcceptanceTime string  `gorm:"column:acceptance_time;type:varchar(100)" json:"acceptance_time"`
 	DiskCount      int     `gorm:"column:disk_count" json:"disk_count"`
 	DiskDetail     string  `gorm:"column:disk_detail" json:"disk_detail"`

@@ -29,6 +29,7 @@ import {
     Edit,
     Search,
     Play,
+    ExternalLink,
 } from 'lucide-react'
 import { NavyDevice, DeviceFeatureDetails } from "@/types/navy"
 import { formatDistanceToNow } from 'date-fns'
@@ -47,6 +48,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Checkbox } from '@/components/ui/checkbox'
 
 
 interface DeviceDataTableProps {
@@ -55,6 +57,8 @@ interface DeviceDataTableProps {
     onSelect: (device: NavyDevice) => void
     onRefresh: () => void
     selectedId?: number
+    selectedDevices: Set<number>
+    onSelectionChange: (selected: Set<number>) => void
 }
 
 // 特殊设备悬浮卡片组件
@@ -71,7 +75,7 @@ function SpecialDeviceHoverCard({ device }: { device: NavyDevice }) {
 
             // 并行加载特性详情和筛选选项
             Promise.all([
-                RobustaAPI.getNavyDeviceFeatures(device.ci_code),
+                RobustaAPI.getBatchDeviceFeatures([device.ci_code]),
                 RobustaAPI.getNavyFilterOptions()
             ])
                 .then(([details, options]) => {
@@ -330,9 +334,36 @@ function EditGroupDialog({
     )
 }
 
-export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selectedId }: DeviceDataTableProps) {
+export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selectedId, selectedDevices, onSelectionChange }: DeviceDataTableProps) {
     const [editingDevice, setEditingDevice] = useState<NavyDevice | null>(null)
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+
+    // 可选中的设备（非虚拟设备）
+    const selectableDevices = devices.filter(d => !d.isVirtual)
+    const allSelected = selectableDevices.length > 0 && selectableDevices.every(d => selectedDevices.has(d.id))
+    const someSelected = selectableDevices.some(d => selectedDevices.has(d.id))
+
+    const handleSelectAll = (checked: boolean) => {
+        if (checked) {
+            const newSelected = new Set(selectedDevices)
+            selectableDevices.forEach(d => newSelected.add(d.id))
+            onSelectionChange(newSelected)
+        } else {
+            const newSelected = new Set(selectedDevices)
+            selectableDevices.forEach(d => newSelected.delete(d.id))
+            onSelectionChange(newSelected)
+        }
+    }
+
+    const handleSelectOne = (deviceId: number, checked: boolean) => {
+        const newSelected = new Set(selectedDevices)
+        if (checked) {
+            newSelected.add(deviceId)
+        } else {
+            newSelected.delete(deviceId)
+        }
+        onSelectionChange(newSelected)
+    }
 
     const copyToClipboard = (text: string, label: string) => {
         navigator.clipboard.writeText(text)
@@ -357,7 +388,7 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
 
     const getRowClassName = (device: NavyDevice) => {
         const isSelected = selectedId === device.id
-        if (isSelected) return "bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800"
+        if (isSelected) return "bg-blue-100/60 dark:bg-blue-900/40 border-blue-300 dark:border-blue-700"
         if (device.isVirtual) return "opacity-60 bg-muted/30"
 
         // 1. 特殊设备或有应用名称：浅黄色 (Amber)
@@ -388,6 +419,14 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
             <Table>
                 <TableHeader className="bg-muted/30">
                     <TableRow className="hover:bg-transparent border-border/50">
+                        <TableHead className="w-10 text-center">
+                            <Checkbox
+                                checked={allSelected}
+                                onCheckedChange={handleSelectAll}
+                                aria-label="全选"
+                                className={cn(someSelected && !allSelected && "data-[state=checked]:bg-primary/50")}
+                            />
+                        </TableHead>
                         <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground min-w-[200px]">
                             <div className="flex items-center gap-1.5">
                                 设备ID
@@ -407,7 +446,7 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                         </TableHead>
                         <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-40">
                             <div className="flex items-center gap-1.5">
-                                IP & 架构
+                                IP
                                 <Button
                                     variant="ghost"
                                     size="icon"
@@ -418,15 +457,15 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                 </Button>
                             </div>
                         </TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground min-w-[150px]">用途</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground">IDC / 房间</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground">Zone</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground">关联集群</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground">AppID</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[100px]">K8s 状态</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[120px]">角色</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[120px]">关联集群</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[150px]">用途</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[140px]">IDC / 房间</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[80px]">Zone</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[100px]">AppID</TableHead>
                         <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground whitespace-nowrap">国产化</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground">角色</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground">状态</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[80px]">状态</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -436,6 +475,16 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                             className={cn("cursor-pointer transition-colors border-border/40", getRowClassName(device))}
                             onClick={() => onSelect(device)}
                         >
+                            <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                {!device.isVirtual && (
+                                    <Checkbox
+                                        checked={selectedDevices.has(device.id)}
+                                        onCheckedChange={(checked) => handleSelectOne(device.id, checked as boolean)}
+                                        aria-label={`选择 ${device.ci_code}`}
+                                        className="mt-0.5"
+                                    />
+                                )}
+                            </TableCell>
                             <TableCell>
                                 <div className="flex items-start gap-2 max-w-[220px]">
                                     {device.isVirtual ? (
@@ -446,17 +495,26 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         <Laptop className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                                     )}
                                     <div className="min-w-0 flex-1">
-                                        <p className={cn("font-mono text-sm truncate", device.isVirtual && "text-muted-foreground italic")}>
-                                            {device.isVirtual ? device.originalKeyword : device.ci_code}
-                                            {device.isExactMatch && !device.isVirtual && device.ci_code?.toLowerCase() === device.originalKeyword?.toLowerCase() && (
-                                                <Check className="inline-block w-3.5 h-3.5 ml-1.5 text-green-600 align-middle mb-0.5" strokeWidth={3} />
-                                            )}
-                                        </p>
-                                        {!device.isVirtual && device.os_name && (
-                                            <p className="text-[10px] text-muted-foreground truncate mt-0.5 opacity-70">
-                                                {device.os_name} {device.os_issue}
+                                        <div className="flex items-center gap-2">
+                                            <p className={cn("font-mono text-sm truncate", device.isVirtual && "text-muted-foreground italic")}>
+                                                {device.isVirtual ? device.originalKeyword : device.ci_code}
+                                                {device.isExactMatch && !device.isVirtual && device.ci_code?.toLowerCase() === device.originalKeyword?.toLowerCase() && (
+                                                    <Check className="inline-block w-3.5 h-3.5 ml-1.5 text-green-600 align-middle mb-0.5" strokeWidth={3} />
+                                                )}
                                             </p>
-                                        )}
+                                            {!device.isVirtual && device.cluster && (
+                                                <a
+                                                    href={`/kite/nodes/${device.ci_code}?tab=overview&cluster=${device.cluster}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="inline-flex items-center justify-center h-5 w-5 rounded-md hover:bg-muted text-muted-foreground hover:text-primary transition-colors ml-1"
+                                                    title="在新窗口查看节点详情"
+                                                >
+                                                    <ExternalLink className="h-3 w-3" />
+                                                </a>
+                                            )}
+                                        </div>
                                         {device.isVirtual && (
                                             <p className="text-xs text-destructive truncate mt-0.5">未找到匹配项</p>
                                         )}
@@ -474,8 +532,43 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         {device.isExactMatch && !device.isVirtual && device.ip?.toLowerCase() === device.originalKeyword?.toLowerCase() && (
                                             <Check className="w-3.5 h-3.5 text-green-600" strokeWidth={3} />
                                         )}
-                                        {getArchBadge(device.arch_type)}
                                     </div>
+                                )}
+                            </TableCell>
+                            <TableCell>
+                                {device.isVirtual ? (
+                                    <span className="text-muted-foreground">-</span>
+                                ) : device.k8s_status ? (
+                                    <Badge
+                                        variant="outline"
+                                        className={cn(
+                                            "text-[10px] h-5",
+                                            device.k8s_status === 'Ready'
+                                                ? "border-emerald-300 text-emerald-800 bg-emerald-100/80 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800/50"
+                                                : device.k8s_status === 'NotReady'
+                                                    ? "border-amber-300 text-amber-800 bg-amber-100/80 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800/50"
+                                                    : "border-muted text-muted-foreground"
+                                        )}
+                                    >
+                                        {device.k8s_status}
+                                    </Badge>
+                                ) : (
+                                    <span className="text-muted-foreground text-xs">-</span>
+                                )}
+                            </TableCell>
+                            <TableCell>
+                                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{device.isVirtual ? '-' : (device.role || '-')}</span>
+                            </TableCell>
+                            <TableCell>
+                                {device.isVirtual ? (
+                                    <span className="text-muted-foreground">-</span>
+                                ) : device.cluster ? (
+                                    <div className="flex items-center gap-1.5">
+                                        <Database className="h-3.5 w-3.5 text-emerald-500" />
+                                        <span className="text-xs font-semibold">{device.cluster}</span>
+                                    </div>
+                                ) : (
+                                    <span className="text-muted-foreground text-xs font-mono">-</span>
                                 )}
                             </TableCell>
                             <TableCell onClick={(e) => {
@@ -524,18 +617,6 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                 <span className="text-xs text-muted-foreground">{device.isVirtual ? '-' : (device.net_zone || '-')}</span>
                             </TableCell>
                             <TableCell>
-                                {device.isVirtual ? (
-                                    <span className="text-muted-foreground">-</span>
-                                ) : device.cluster ? (
-                                    <div className="flex items-center gap-1.5">
-                                        <Database className="h-3.5 w-3.5 text-emerald-500" />
-                                        <span className="text-xs font-semibold">{device.cluster}</span>
-                                    </div>
-                                ) : (
-                                    <span className="text-muted-foreground text-xs font-mono">None</span>
-                                )}
-                            </TableCell>
-                            <TableCell>
                                 <span className="text-xs font-mono text-muted-foreground">{device.isVirtual ? '-' : (device.appid || '-')}</span>
                             </TableCell>
                             <TableCell>
@@ -552,9 +633,6 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         {device.is_localization ? '是' : '否'}
                                     </Badge>
                                 )}
-                            </TableCell>
-                            <TableCell>
-                                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{device.isVirtual ? '-' : (device.role || '-')}</span>
                             </TableCell>
                             <TableCell>
                                 {device.isVirtual ? (
@@ -575,25 +653,10 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                     </Badge>
                                 )}
                             </TableCell>
-                            <TableCell>
-                                <div className="flex justify-end">
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            onSelect(device)
-                                        }}
-                                    >
-                                        <Search className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            </TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
-            </Table>
+            </Table >
 
             <EditGroupDialog
                 device={editingDevice}
@@ -601,6 +664,6 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                 onOpenChange={setIsEditDialogOpen}
                 onSuccess={onRefresh}
             />
-        </div>
+        </div >
     )
 }

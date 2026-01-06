@@ -8,6 +8,7 @@ import (
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -16,6 +17,16 @@ import (
 // Database 数据库连接包装器
 type Database struct {
 	*gorm.DB
+}
+
+// getDialector 根据 URL 自动检测并返回 GORM Dialector
+func getDialector(databaseURL string) gorm.Dialector {
+	// 简单的启发式检测：MySQL DSN 通常包含 @tcp( 或 @unix( 或 Protocol=tcp
+	if strings.Contains(databaseURL, "@tcp(") || strings.Contains(databaseURL, "@unix(") || strings.Contains(databaseURL, "Protocol=tcp") {
+		return mysql.Open(databaseURL)
+	}
+	// 默认为 SQLite (File)
+	return sqlite.Open(databaseURL)
 }
 
 // Initialize 初始化数据库连接
@@ -27,7 +38,7 @@ func Initialize(databaseURL string) (*Database, error) {
 	}
 
 	// 连接数据库
-	db, err := gorm.Open(mysql.Open(databaseURL), gormConfig)
+	db, err := gorm.Open(getDialector(databaseURL), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}

@@ -33,3 +33,6 @@ HolmesGPT-*.md
 **gocache**
 **var/gomod**
 **.log**
+
+# Backend config
+apps/backend/config/config.yaml

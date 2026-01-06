@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models/navy"
+	"robusta-web/backend/internal/services/nodesync"
 	"strings"
 	"time"
 
@@ -16,12 +16,16 @@ import (
 
 // NavyDeviceService Navy 设备管理服务
 type NavyDeviceService struct {
-	db *db.NavyDatabase
+	db              *db.NavyDatabase
+	nodesyncManager *nodesync.Manager
 }
 
 // NewNavyDeviceService 创建 Navy 设备管理服务
-func NewNavyDeviceService(db *db.NavyDatabase) *NavyDeviceService {
-	return &NavyDeviceService{db: db}
+func NewNavyDeviceService(db *db.NavyDatabase, nodesyncManager *nodesync.Manager) *NavyDeviceService {
+	return &NavyDeviceService{
+		db:              db,
+		nodesyncManager: nodesyncManager,
+	}
 }
 
 // SpecialDeviceCondition 特殊设备判断条件 (移植自 auto-navy)
@@ -633,52 +637,194 @@ func (s *NavyDeviceService) convertToResponse(m navy.Device) DeviceResponse {
 	}
 }
 
-// GetDeviceFeatureDetails 获取设备特性详情（只返回受管理的标签和污点）
-func (s *NavyDeviceService) GetDeviceFeatureDetails(ctx context.Context, ciCode string) (map[string]interface{}, error) {
-	res := make(map[string]interface{})
+// DeviceFeaturesRequest 批量获取设备特性请求
+type DeviceFeaturesRequest struct {
+	CICodes []string `json:"ci_codes"`
+}
 
-	// 先根据 ci_code 或 nodename 找到对应的节点
-	var node navy.K8sNode
-	err := s.db.WithContext(ctx).Table("k8s_node").
-		Where("LOWER(nodename) = LOWER(?) OR LOWER(hostip) = LOWER(?)", ciCode, ciCode).
-		First(&node).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 如果没找到节点，返回空结果
-			res["labels"] = []LabelValue{}
-			res["taints"] = []TaintValue{}
-			return res, nil
+// AggregatedLabel 聚合后的 Label
+type AggregatedLabel struct {
+	Key   string   `json:"key"`
+	Value string   `json:"value"`
+	Nodes []string `json:"nodes"` // 拥有此 Label 的节点名称列表
+}
+
+// AggregatedTaint 聚合后的 Taint
+type AggregatedTaint struct {
+	Key    string   `json:"key"`
+	Value  string   `json:"value"`
+	Effect string   `json:"effect"`
+	Nodes  []string `json:"nodes"` // 拥有此 Taint 的节点名称列表
+}
+
+// GetBatchDeviceFeatures 批量获取设备特性（受管理的 Labels 和 Taints）
+// 移植自 auto-navy，只返回在 label_feature 和 taint_feature 表中定义的"受管理特性"
+func (s *NavyDeviceService) GetBatchDeviceFeatures(ctx context.Context, ciCodes []string) (map[string]interface{}, error) {
+	if len(ciCodes) == 0 {
+		return map[string]interface{}{
+			"labels": []LabelValue{},
+			"taints": []TaintValue{},
+		}, nil
+	}
+
+	// 对于单个设备，使用优化的 UNION ALL 查询（与 auto-navy 一致）
+	if len(ciCodes) == 1 {
+		return s.getDeviceFeatureDetails(ctx, ciCodes[0])
+	}
+
+	// 对于多个设备，聚合查询
+	return s.getBatchDeviceFeaturesAggregated(ctx, ciCodes)
+}
+
+// getDeviceFeatureDetails 获取单个设备的特性详情（与 auto-navy 的 GetDeviceFeatureDetails 一致）
+func (s *NavyDeviceService) getDeviceFeatureDetails(ctx context.Context, ciCode string) (map[string]interface{}, error) {
+	// 定义结果结构体
+	type FeatureResult struct {
+		Type   string `gorm:"column:type"`
+		Key    string `gorm:"column:key"`
+		Value  string `gorm:"column:value"`
+		Effect string `gorm:"column:effect"`
+	}
+
+	var results []FeatureResult
+
+	// 构建 UNION ALL 查询
+	// 注意：robusta-web 使用 hostip 关联，而 auto-navy 使用 nodename
+	// 这里同时支持两种关联方式
+	query := `
+		WITH node_id AS (
+			SELECT id FROM k8s_node
+			WHERE LOWER(hostip) = LOWER(?) OR LOWER(nodename) = LOWER(?)
+			LIMIT 1
+		)
+
+		SELECT 'label' as type, knl.` + "`key`" + ` as ` + "`key`" + `, knl.value as value, '' as effect
+		FROM node_id n
+		JOIN k8s_node_label knl ON n.id = knl.node_id
+		JOIN label_feature lf ON knl.` + "`key`" + ` = lf.` + "`key`" + `
+
+		UNION ALL
+
+		SELECT 'taint' as type, knt.` + "`key`" + ` as ` + "`key`" + `, knt.value as value, knt.effect as effect
+		FROM node_id n
+		JOIN k8s_node_taint knt ON n.id = knt.node_id
+		JOIN taint_feature tf ON knt.` + "`key`" + ` = tf.` + "`key`" + `
+	`
+
+	// 执行查询
+	if err := s.db.WithContext(ctx).Raw(query, ciCode, ciCode).Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("查询设备特性失败: %w", err)
+	}
+
+	// 分类结果
+	labels := make([]LabelValue, 0)
+	taints := make([]TaintValue, 0)
+
+	for _, r := range results {
+		if r.Type == "label" {
+			labels = append(labels, LabelValue{
+				Key:   r.Key,
+				Value: r.Value,
+			})
+		} else {
+			taints = append(taints, TaintValue{
+				Key:    r.Key,
+				Value:  r.Value,
+				Effect: r.Effect,
+			})
 		}
-		return nil, err
 	}
 
-	// 只查询受管理的标签（通过 JOIN label_feature 表）
-	var labels []LabelValue
-	if err := s.db.WithContext(ctx).Table("k8s_node_label knl").
-		Select("knl.`key`, knl.value").
-		Joins("JOIN label_feature lf ON knl.`key` = lf.`key`").
-		Where("knl.node_id = ?", node.ID).
-		Order("knl.`key`").
-		Find(&labels).Error; err == nil {
-		res["labels"] = labels
-	} else {
-		res["labels"] = []LabelValue{}
+	return map[string]interface{}{
+		"labels": labels,
+		"taints": taints,
+	}, nil
+}
+
+// getBatchDeviceFeaturesAggregated 批量获取设备特性（聚合模式，用于多个设备）
+func (s *NavyDeviceService) getBatchDeviceFeaturesAggregated(ctx context.Context, ciCodes []string) (map[string]interface{}, error) {
+	// 定义结果结构体
+	type FeatureResult struct {
+		NodeName string `gorm:"column:nodename"`
+		Type     string `gorm:"column:type"`
+		Key      string `gorm:"column:key"`
+		Value    string `gorm:"column:value"`
+		Effect   string `gorm:"column:effect"`
 	}
 
-	// 只查询受管理的污点（通过 JOIN taint_feature 表）
-	var taints []TaintValue
-	if err := s.db.WithContext(ctx).Table("k8s_node_taint knt").
-		Select("knt.`key`, knt.value, knt.effect").
-		Joins("JOIN taint_feature tf ON knt.`key` = tf.`key`").
-		Where("knt.node_id = ?", node.ID).
-		Order("knt.`key`").
-		Find(&taints).Error; err == nil {
-		res["taints"] = taints
-	} else {
-		res["taints"] = []TaintValue{}
+	var results []FeatureResult
+
+	// 构建批量查询
+	query := `
+		SELECT kn.nodename, 'label' as type, knl.` + "`key`" + ` as ` + "`key`" + `, knl.value as value, '' as effect
+		FROM k8s_node kn
+		JOIN k8s_node_label knl ON kn.id = knl.node_id
+		JOIN label_feature lf ON knl.` + "`key`" + ` = lf.` + "`key`" + `
+		WHERE LOWER(kn.hostip) IN (?) OR LOWER(kn.nodename) IN (?)
+
+		UNION ALL
+
+		SELECT kn.nodename, 'taint' as type, knt.` + "`key`" + ` as ` + "`key`" + `, knt.value as value, knt.effect as effect
+		FROM k8s_node kn
+		JOIN k8s_node_taint knt ON kn.id = knt.node_id
+		JOIN taint_feature tf ON knt.` + "`key`" + ` = tf.` + "`key`" + `
+		WHERE LOWER(kn.hostip) IN (?) OR LOWER(kn.nodename) IN (?)
+	`
+
+	// 转换为小写以进行不区分大小写的匹配
+	lowerCodes := make([]string, len(ciCodes))
+	for i, c := range ciCodes {
+		lowerCodes[i] = strings.ToLower(c)
 	}
 
-	return res, nil
+	if err := s.db.WithContext(ctx).Raw(query, lowerCodes, lowerCodes, lowerCodes, lowerCodes).Scan(&results).Error; err != nil {
+		return nil, fmt.Errorf("查询设备特性失败: %w", err)
+	}
+
+	// 聚合 Labels
+	labelMap := make(map[string]*AggregatedLabel)
+	taintMap := make(map[string]*AggregatedTaint)
+
+	for _, r := range results {
+		if r.Type == "label" {
+			mapKey := fmt.Sprintf("%s=%s", r.Key, r.Value)
+			if _, exists := labelMap[mapKey]; !exists {
+				labelMap[mapKey] = &AggregatedLabel{
+					Key:   r.Key,
+					Value: r.Value,
+					Nodes: []string{},
+				}
+			}
+			labelMap[mapKey].Nodes = append(labelMap[mapKey].Nodes, r.NodeName)
+		} else {
+			mapKey := fmt.Sprintf("%s=%s:%s", r.Key, r.Value, r.Effect)
+			if _, exists := taintMap[mapKey]; !exists {
+				taintMap[mapKey] = &AggregatedTaint{
+					Key:    r.Key,
+					Value:  r.Value,
+					Effect: r.Effect,
+					Nodes:  []string{},
+				}
+			}
+			taintMap[mapKey].Nodes = append(taintMap[mapKey].Nodes, r.NodeName)
+		}
+	}
+
+	// 转换为列表
+	labels := make([]AggregatedLabel, 0, len(labelMap))
+	for _, l := range labelMap {
+		labels = append(labels, *l)
+	}
+
+	taints := make([]AggregatedTaint, 0, len(taintMap))
+	for _, t := range taintMap {
+		taints = append(taints, *t)
+	}
+
+	return map[string]interface{}{
+		"labels": labels,
+		"taints": taints,
+	}, nil
 }
 
 // SaveQueryTemplate 保存查询模板

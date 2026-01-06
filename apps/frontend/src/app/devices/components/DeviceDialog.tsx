@@ -82,7 +82,7 @@ export function DeviceDialog({
     const fetchFeatures = async (ciCode: string) => {
         setLoadingFeatures(true)
         try {
-            const data = await RobustaAPI.getNavyDeviceFeatures(ciCode)
+            const data = await RobustaAPI.getBatchDeviceFeatures([ciCode])
             setFeatureDetails(data)
         } catch (err) {
             console.error(err)

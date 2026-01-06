@@ -30,6 +30,7 @@ import type {
     NavyFilterOptions,
     QueryTemplate,
     DeviceFeatureDetails,
+    NodeLabelTaintResponse,
 } from '@/types/navy'
 
 // 获取 API Base URL
@@ -374,6 +375,10 @@ export class RobustaAPI {
         return handleResponse(apiClient.get('/navy/devices/feature-details', { params: { ci_code: ciCode } }))
     }
 
+    static async getBatchDeviceFeatures(ciCodes: string[]): Promise<DeviceFeatureDetails> {
+        return handleResponse(apiClient.post('/navy/devices/features', { ci_codes: ciCodes }))
+    }
+
     static async updateNavyDeviceRole(id: number, role: string): Promise<void> {
         await apiClient.patch(`/navy/devices/${id}/role`, { role })
     }
@@ -402,6 +407,147 @@ export class RobustaAPI {
     static getNavyExportUrl(): string {
         return `${getApiBaseUrl()}/navy/devices/export`
     }
+
+    // ============ Device Bulk Operations ============
+    static async cordonNodes(ciCodes: string[]): Promise<BatchOperationResult> {
+        return handleResponse(apiClient.post('/navy/device-ops/cordon', { ci_codes: ciCodes }))
+    }
+
+    static async uncordonNodes(ciCodes: string[]): Promise<BatchOperationResult> {
+        return handleResponse(apiClient.post('/navy/device-ops/uncordon', { ci_codes: ciCodes }))
+    }
+
+    static async drainNodes(
+        ciCodes: string[],
+        options?: {
+            force?: boolean
+            ignore_daemonsets?: boolean
+            delete_local_data?: boolean
+            timeout?: number
+        }
+    ): Promise<BatchOperationResult> {
+        return handleResponse(
+            apiClient.post('/navy/device-ops/drain', {
+                ci_codes: ciCodes,
+                ...options,
+            })
+        )
+    }
+
+    static async taintNodes(
+        ciCodes: string[],
+        key: string,
+        value: string,
+        effect: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute',
+        action: 'add' | 'remove'
+    ): Promise<BatchOperationResult> {
+        return handleResponse(
+            apiClient.post('/navy/device-ops/taint', {
+                ci_codes: ciCodes,
+                key,
+                value,
+                effect,
+                action,
+            })
+        )
+    }
+
+    static async labelNodes(
+        ciCodes: string[],
+        labels: Record<string, string>,
+        action: 'add' | 'remove'
+    ): Promise<BatchOperationResult> {
+        return handleResponse(
+            apiClient.post('/navy/device-ops/label', {
+                ci_codes: ciCodes,
+                labels,
+                action,
+            })
+        )
+    }
+
+    static async shutdownNodes(ciCodes: string[]): Promise<{ job_id: number; message: string }> {
+        return handleResponse(apiClient.post('/navy/device-ops/shutdown', { ci_codes: ciCodes }))
+    }
+
+    static async rebootNodes(ciCodes: string[]): Promise<{ job_id: number; message: string }> {
+        return handleResponse(apiClient.post('/navy/device-ops/reboot', { ci_codes: ciCodes }))
+    }
+
+    // ============ K8s Node Real-Time Management ============
+    // 这些 API 直接从 K8s API 获取实时数据，用于 Taint/Label 管理
+    static async getNodeLabelsAndTaints(clusterName: string, ciCode: string): Promise<NodeLabelTaintResponse> {
+        return handleResponse(
+            apiClient.get('/navy/k8s-nodes/labels-taints', {
+                params: { cluster: clusterName, ciCode },
+            })
+        )
+    }
+
+    static async listClusterNodes(clusterName: string): Promise<NodeLabelTaintResponse[]> {
+        return handleResponse(apiClient.get('/navy/k8s-nodes', { params: { cluster: clusterName } }))
+    }
+
+    static async addNodeLabel(
+        clusterName: string,
+        ciCode: string,
+        key: string,
+        value: string
+    ): Promise<void> {
+        await apiClient.post('/navy/k8s-nodes/labels', {
+            clusterName,
+            ciCode,
+            key,
+            value,
+        })
+    }
+
+    static async removeNodeLabel(clusterName: string, ciCode: string, key: string): Promise<void> {
+        await apiClient.delete('/navy/k8s-nodes/labels', {
+            data: { clusterName, ciCode, key },
+        })
+    }
+
+    static async addNodeTaint(
+        clusterName: string,
+        ciCode: string,
+        key: string,
+        value: string,
+        effect: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute'
+    ): Promise<void> {
+        await apiClient.post('/navy/k8s-nodes/taints', {
+            clusterName,
+            ciCode,
+            key,
+            value,
+            effect,
+        })
+    }
+
+    static async removeNodeTaint(
+        clusterName: string,
+        ciCode: string,
+        key: string,
+        effect?: string
+    ): Promise<void> {
+        await apiClient.delete('/navy/k8s-nodes/taints', {
+            data: { clusterName, ciCode, key, effect },
+        })
+    }
+}
+
+// Batch operation result type
+export interface BatchOperationResult {
+    total: number
+    succeeded: number
+    failed: number
+    results: Array<{
+        ci_code: string
+        success: boolean
+        message?: string
+        error?: string
+        drain_id?: string
+    }>
 }
 
 

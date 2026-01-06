@@ -58,12 +58,14 @@ type MinIOConfig struct {
 
 // AWXConfig AWX 集成配置
 type AWXConfig struct {
-	URL      string `mapstructure:"url" json:"url" yaml:"url"`
-	Username string `mapstructure:"username" json:"username" yaml:"username"`
-	Password string `mapstructure:"password" json:"password" yaml:"password"`
-	Token    string `mapstructure:"token" json:"token" yaml:"token"`
-	Timeout  int    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
-	Insecure bool   `mapstructure:"insecure" json:"insecure" yaml:"insecure"`
+	URL                string `mapstructure:"url" json:"url" yaml:"url"`
+	Username           string `mapstructure:"username" json:"username" yaml:"username"`
+	Password           string `mapstructure:"password" json:"password" yaml:"password"`
+	Token              string `mapstructure:"token" json:"token" yaml:"token"`
+	Timeout            int    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	Insecure           bool   `mapstructure:"insecure" json:"insecure" yaml:"insecure"`
+	ShutdownTemplateID int    `mapstructure:"shutdown_template_id" json:"shutdown_template_id" yaml:"shutdown_template_id"`
+	RebootTemplateID   int    `mapstructure:"reboot_template_id" json:"reboot_template_id" yaml:"reboot_template_id"`
 }
 
 // Config 应用配置结构
@@ -208,4 +210,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("awx.token", "")
 	v.SetDefault("awx.timeout", 60)
 	v.SetDefault("awx.insecure", false)
+	v.SetDefault("awx.shutdown_template_id", 0)
+	v.SetDefault("awx.reboot_template_id", 0)
 }

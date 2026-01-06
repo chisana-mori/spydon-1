@@ -325,3 +325,24 @@ func (s *ClusterService) GetClusterNodes(ctx context.Context, clusterName string
 
 	return nodeNames, nil
 }
+
+// GetClient 获取集群的 Kubernetes Client
+func (s *ClusterService) GetClient(clusterName string) (kubernetes.Interface, error) {
+	cluster, err := s.GetClusterByID(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	if cluster.Config == "" {
+		return nil, fmt.Errorf("cluster has no kubeconfig")
+	}
+
+	config, err := clientcmd.RESTConfigFromKubeConfig([]byte(cluster.Config))
+	if err != nil {
+		return nil, fmt.Errorf("invalid kubeconfig: %w", err)
+	}
+	// 设置超时
+	config.Timeout = 10 * time.Second
+
+	return kubernetes.NewForConfig(config)
+}

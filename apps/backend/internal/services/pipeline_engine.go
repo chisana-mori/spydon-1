@@ -1580,6 +1580,14 @@ func (e *PipelineEngine) GenerateSOPFlow(ctx context.Context, executionID uint64
 				ApproverRoles: stage.Config.ApproverRoles,
 				Timeout:       stage.Config.TimeoutMinutes,
 			}
+
+		case models.StageTypeDelay,
+			models.StageTypeCondition,
+			models.StageTypePreCheck,
+			models.StageTypePostCheck,
+			models.StageTypeRollback:
+			// These stage types don't have specific SOP detail structures yet
+			// They will be captured with their base stage info
 		}
 
 		sopFlow.Stages = append(sopFlow.Stages, sopStage)

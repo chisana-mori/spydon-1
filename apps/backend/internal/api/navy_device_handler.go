@@ -138,9 +138,26 @@ func (h *NavyDeviceHandler) GetFeatureDetails(c *gin.Context) {
 		return
 	}
 
-	res, err := h.service.GetDeviceFeatureDetails(c.Request.Context(), ciCode)
+	res, err := h.service.GetBatchDeviceFeatures(c.Request.Context(), []string{ciCode})
 	if err != nil {
 		InternalError(c, "GET_FEATURE_DETAILS_ERROR", err.Error())
+		return
+	}
+
+	Success(c, res)
+}
+
+// GetDeviceFeatures 批量获取设备特性
+func (h *NavyDeviceHandler) GetDeviceFeatures(c *gin.Context) {
+	var req services.DeviceFeaturesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		BadRequest(c, "INVALID_REQUEST", err.Error())
+		return
+	}
+
+	res, err := h.service.GetBatchDeviceFeatures(c.Request.Context(), req.CICodes)
+	if err != nil {
+		InternalError(c, "GET_DEVICE_FEATURES_ERROR", err.Error())
 		return
 	}
 
