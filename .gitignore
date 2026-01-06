@@ -12,7 +12,7 @@ venv/
 env/
 ENV/
 infrastructure/cas/runtime/
-CAS*
+CAS
 test-cas*
 
 # Robusta specific
