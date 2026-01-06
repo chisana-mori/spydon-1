@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -25,22 +26,31 @@ type Client interface {
 
 // Handler is the Redis client implementation
 type Handler struct {
-	client *goredis.Client
+	client goredis.UniversalClient
 	ctx    context.Context
 }
 
 // NewHandler creates a new Redis handler
 func NewHandler(redisURL string, poolSize int) (*Handler, error) {
-	opts, err := goredis.ParseURL(redisURL)
-	if err != nil {
-		return nil, err
-	}
-	if poolSize > 0 {
-		opts.PoolSize = poolSize
-	}
-
-	client := goredis.NewClient(opts)
+	var client goredis.UniversalClient
 	ctx := context.Background()
+
+	if strings.Contains(redisURL, ",") {
+		univOpts := parseClusterOptions(redisURL)
+		if poolSize > 0 {
+			univOpts.PoolSize = poolSize
+		}
+		client = goredis.NewUniversalClient(univOpts)
+	} else {
+		opts, err := goredis.ParseURL(redisURL)
+		if err != nil {
+			return nil, err
+		}
+		if poolSize > 0 {
+			opts.PoolSize = poolSize
+		}
+		client = goredis.NewClient(opts)
+	}
 
 	// Test connection
 	if err := client.Ping(ctx).Err(); err != nil {
@@ -136,3 +146,41 @@ func (h *Handler) Close() error {
 
 // Ensure Handler implements Client interface
 var _ Client = (*Handler)(nil)
+
+// parseClusterOptions parses a comma-separated Redis URL string into UniversalOptions
+func parseClusterOptions(redisURL string) *goredis.UniversalOptions {
+	addrs := strings.Split(redisURL, ",")
+	var universalAddrs []string
+	var baseOpts *goredis.Options
+
+	for _, addr := range addrs {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+
+		// Try to parse to see if it's a full URL
+		opts, err := goredis.ParseURL(addr)
+		if err == nil {
+			universalAddrs = append(universalAddrs, opts.Addr)
+			if baseOpts == nil {
+				baseOpts = opts
+			}
+		} else {
+			universalAddrs = append(universalAddrs, addr)
+		}
+	}
+
+	univOpts := &goredis.UniversalOptions{
+		Addrs: universalAddrs,
+	}
+
+	if baseOpts != nil {
+		univOpts.Password = baseOpts.Password
+		univOpts.Username = baseOpts.Username
+		univOpts.DB = baseOpts.DB
+		univOpts.TLSConfig = baseOpts.TLSConfig
+	}
+
+	return univOpts
+}

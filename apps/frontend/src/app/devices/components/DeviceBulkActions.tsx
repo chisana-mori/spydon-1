@@ -101,7 +101,9 @@ export function DeviceBulkActions({
     const [taintLabelSheetOpen, setTaintLabelSheetOpen] = useState(false)
 
     const selectedCount = selectedDevices.size
-    const hasActiveDrains = activeDrains.length > 0 && !isDrawerOpen
+    const runningDrains = activeDrains.filter(d => d.status === 'running')
+    const completedOrFailedDrains = activeDrains.filter(d => d.status !== 'running')
+    const hasActiveDrains = runningDrains.length > 0 && !isDrawerOpen
 
     // 获取选中设备的 ci_codes
     const getSelectedCICodes = (): string[] => {
@@ -383,6 +385,7 @@ export function DeviceBulkActions({
                 ) : null}
 
                 {/* Minimized Drain Indicator */}
+                {/* Minimized Drain Indicator: Only show if there are RUNNING drains */}
                 {hasActiveDrains && (
                     <>
                         {selectedCount > 0 && <div className="w-px h-5 bg-border/60 mx-1" />}
@@ -394,7 +397,7 @@ export function DeviceBulkActions({
                         >
                             <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin text-orange-600 dark:text-orange-400" />
                             <span className="font-medium">
-                                Drain 任务 ({activeDrains.length})
+                                Drain 任务 ({runningDrains.length})
                             </span>
                         </Button>
                     </>
@@ -444,7 +447,6 @@ export function DeviceBulkActions({
                 devices={devices.filter(d => selectedDevices.has(d.id))}
                 onSuccess={() => {
                     onRefresh()
-                    setTaintLabelSheetOpen(false)
                 }}
             />
         </>

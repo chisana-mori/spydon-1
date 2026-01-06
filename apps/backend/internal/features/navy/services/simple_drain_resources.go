@@ -211,6 +211,11 @@ func (drm *DrainResourceManager) migInfoKey(migrationID string) string {
 
 var migrationTTL = 24 * time.Hour
 
+// drainLeaseReuseMinAge defines the minimum age required before an existing
+// drain Lease can be reused by a new safe-drain operation on the same node.
+// This enforces the ">= 1 day before reuse" safety semantics.
+const drainLeaseReuseMinAge = 24 * time.Hour
+
 func (drm *DrainResourceManager) saveMigrationInfo(m *DrainPodMigrationInfo) {
 	if drm.redisHandler == nil || m == nil {
 		return
@@ -352,11 +357,16 @@ func (drm *DrainResourceManager) CreatePDB(ctx context.Context, drainID, cluster
 	if drm.pdbExists(drainID, pdbKey) {
 		return pdbKey, nil
 	}
-
 	matchLabels := drm.generatePDBSelectorFromPods(pods)
 	pdb := drm.buildPDB(drainID, namespace, pdbName, rsName, rsUID, matchLabels, ownerLease)
 
 	if err := drm.createPDBResource(ctx, reader, clusterName, pdb); err != nil {
+		return "", err
+	}
+
+	// Ensure the PDB records this node's Lease as an owner reference even when the
+	// PDB already existed before this drain (multi-node safe-drain case).
+	if err := drm.ensureLeaseOwnerRefOnPDB(ctx, clusterName, namespace, pdbName, ownerLease); err != nil {
 		return "", err
 	}
 
@@ -401,14 +411,23 @@ func (drm *DrainResourceManager) CleanupPDB(ctx context.Context, drainID, cluste
 	}
 
 	if nodeName != "" {
-		// 收集涉及的 namespace
+		leaseName := fmt.Sprintf("drain-lease-%s", nodeName)
+
+		// 先从所有 PDB 上移除当前节点对应的 Lease ownerReference，确保
+		// 其他节点仍然持有的 Lease 不会被误删导致 PDB 提前 GC。
+		for _, info := range infos {
+			if err := drm.removeLeaseOwnerRefFromPDB(ctx, clusterName, info.Namespace, info.Name, leaseName); err != nil {
+				log.Printf("Warning: Failed to remove lease ownerRef from PDB %s/%s: %v", info.Namespace, info.Name, err)
+			}
+		}
+
+		// 然后按 namespace 删除当前节点的 Lease，本节点对共享 PDB 的引用
+		// 将被释放，但其他节点的 Lease 仍然可以保护 PDB。
 		namespaces := make(map[string]struct{})
 		for _, info := range infos {
 			namespaces[info.Namespace] = struct{}{}
 		}
-
 		for ns := range namespaces {
-			// 删除 Lease，PDB 会被 GC
 			if err := drm.DeleteNodeLease(ctx, clusterName, ns, nodeName); err != nil {
 				log.Printf("Warning: Failed to delete lease in %s: %v", ns, err)
 			}
@@ -433,13 +452,31 @@ func (drm *DrainResourceManager) EnsureNodeLease(ctx context.Context, clusterNam
 	holderIdentity := drainID
 	leaseDuration := int32(600) // 10 minutes
 
+	now := time.Now()
+
 	// Try to get existing lease
 	existing, err := client.CoordinationV1().Leases(namespace).Get(ctx, leaseName, metav1.GetOptions{})
 	if err == nil {
-		// Update existing
+		// Enforce "older than 1 day" rule before reusing an existing Lease for a
+		// new drain on the same node.
+		leaseTime := existing.CreationTimestamp.Time
+		if leaseTime.IsZero() && existing.Spec.AcquireTime != nil {
+			leaseTime = existing.Spec.AcquireTime.Time
+		}
+		if leaseTime.IsZero() && existing.Spec.RenewTime != nil {
+			leaseTime = existing.Spec.RenewTime.Time
+		}
+		if leaseTime.IsZero() {
+			return nil, fmt.Errorf("existing drain lease %s/%s has no timestamp, refusing to reuse", namespace, leaseName)
+		}
+		if now.Sub(leaseTime) < drainLeaseReuseMinAge {
+			return nil, fmt.Errorf("existing drain lease %s/%s is too recent to reuse (age %s < %s)", namespace, leaseName, now.Sub(leaseTime), drainLeaseReuseMinAge)
+		}
+
+		// Safe to reuse: update holder identity and renew time.
 		existing.Spec.HolderIdentity = &holderIdentity
 		existing.Spec.LeaseDurationSeconds = &leaseDuration
-		existing.Spec.RenewTime = &metav1.MicroTime{Time: time.Now()}
+		existing.Spec.RenewTime = &metav1.MicroTime{Time: now}
 		return client.CoordinationV1().Leases(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	}
 
@@ -457,8 +494,8 @@ func (drm *DrainResourceManager) EnsureNodeLease(ctx context.Context, clusterNam
 		Spec: coordinationv1.LeaseSpec{
 			HolderIdentity:       &holderIdentity,
 			LeaseDurationSeconds: &leaseDuration,
-			AcquireTime:          &metav1.MicroTime{Time: time.Now()},
-			RenewTime:            &metav1.MicroTime{Time: time.Now()},
+			AcquireTime:          &metav1.MicroTime{Time: now},
+			RenewTime:            &metav1.MicroTime{Time: now},
 		},
 	}
 
@@ -480,6 +517,148 @@ func (drm *DrainResourceManager) DeleteNodeLease(ctx context.Context, clusterNam
 	return err
 }
 
+// ensureLeaseOwnerRefOnPDB makes sure the given PDB has an OwnerReference
+// pointing to the provided Lease. It is safe to call multiple times.
+func (drm *DrainResourceManager) ensureLeaseOwnerRefOnPDB(ctx context.Context, clusterName, namespace, pdbName string, ownerLease *coordinationv1.Lease) error {
+	if ownerLease == nil {
+		return nil
+	}
+
+	client, err := drm.clientFactory.GetClient(clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to get K8s client for pdb lease attachment: %w", err)
+	}
+
+	useBeta := drm.versionCache != nil && drm.versionCache.ShouldUsePolicyV1beta1(clusterName, client)
+	leaseName := ownerLease.Name
+	leaseUID := ownerLease.UID
+
+	if useBeta {
+		pdb, gerr := client.PolicyV1beta1().PodDisruptionBudgets(namespace).Get(ctx, pdbName, metav1.GetOptions{})
+		if apierrors.IsNotFound(gerr) {
+			return nil
+		}
+		if gerr != nil {
+			return fmt.Errorf("failed to get pdb(v1beta1) %s/%s: %w", namespace, pdbName, gerr)
+		}
+
+		updatedRefs, changed := appendLeaseOwnerRefIfMissing(pdb.OwnerReferences, leaseName, leaseUID)
+		if !changed {
+			return nil
+		}
+		pdb.OwnerReferences = updatedRefs
+		if _, uerr := client.PolicyV1beta1().PodDisruptionBudgets(namespace).Update(ctx, pdb, metav1.UpdateOptions{}); uerr != nil && !apierrors.IsNotFound(uerr) {
+			return fmt.Errorf("failed to update pdb(v1beta1) %s/%s: %w", namespace, pdbName, uerr)
+		}
+		return nil
+	}
+
+	pdb, gerr := client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, pdbName, metav1.GetOptions{})
+	if apierrors.IsNotFound(gerr) {
+		return nil
+	}
+	if gerr != nil {
+		return fmt.Errorf("failed to get pdb %s/%s: %w", namespace, pdbName, gerr)
+	}
+
+	updatedRefs, changed := appendLeaseOwnerRefIfMissing(pdb.OwnerReferences, leaseName, leaseUID)
+	if !changed {
+		return nil
+	}
+	pdb.OwnerReferences = updatedRefs
+	if _, uerr := client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, pdb, metav1.UpdateOptions{}); uerr != nil && !apierrors.IsNotFound(uerr) {
+		return fmt.Errorf("failed to update pdb %s/%s: %w", namespace, pdbName, uerr)
+	}
+	return nil
+}
+
+// removeLeaseOwnerRefFromPDB removes the OwnerReference that points to the
+// given Lease from the specified PDB, if present.
+func (drm *DrainResourceManager) removeLeaseOwnerRefFromPDB(ctx context.Context, clusterName, namespace, pdbName, leaseName string) error {
+	client, err := drm.clientFactory.GetClient(clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to get K8s client for pdb lease cleanup: %w", err)
+	}
+
+	useBeta := drm.versionCache != nil && drm.versionCache.ShouldUsePolicyV1beta1(clusterName, client)
+
+	if useBeta {
+		pdb, gerr := client.PolicyV1beta1().PodDisruptionBudgets(namespace).Get(ctx, pdbName, metav1.GetOptions{})
+		if apierrors.IsNotFound(gerr) {
+			return nil
+		}
+		if gerr != nil {
+			return fmt.Errorf("failed to get pdb(v1beta1) %s/%s: %w", namespace, pdbName, gerr)
+		}
+
+		updatedRefs, changed := removeLeaseOwnerRef(pdb.OwnerReferences, leaseName)
+		if !changed {
+			return nil
+		}
+		pdb.OwnerReferences = updatedRefs
+		if _, uerr := client.PolicyV1beta1().PodDisruptionBudgets(namespace).Update(ctx, pdb, metav1.UpdateOptions{}); uerr != nil && !apierrors.IsNotFound(uerr) {
+			return fmt.Errorf("failed to update pdb(v1beta1) %s/%s: %w", namespace, pdbName, uerr)
+		}
+		return nil
+	}
+
+	pdb, gerr := client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, pdbName, metav1.GetOptions{})
+	if apierrors.IsNotFound(gerr) {
+		return nil
+	}
+	if gerr != nil {
+		return fmt.Errorf("failed to get pdb %s/%s: %w", namespace, pdbName, gerr)
+	}
+
+	updatedRefs, changed := removeLeaseOwnerRef(pdb.OwnerReferences, leaseName)
+	if !changed {
+		return nil
+	}
+	pdb.OwnerReferences = updatedRefs
+	if _, uerr := client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, pdb, metav1.UpdateOptions{}); uerr != nil && !apierrors.IsNotFound(uerr) {
+		return fmt.Errorf("failed to update pdb %s/%s: %w", namespace, pdbName, uerr)
+	}
+	return nil
+}
+
+// appendLeaseOwnerRefIfMissing appends a Lease OwnerReference when it does
+// not already exist. It returns the potentially updated slice and whether a
+// change was made.
+func appendLeaseOwnerRefIfMissing(refs []metav1.OwnerReference, leaseName string, leaseUID types.UID) ([]metav1.OwnerReference, bool) {
+	for _, ref := range refs {
+		if ref.Kind == "Lease" && ref.Name == leaseName {
+			return refs, false
+		}
+	}
+	blockOwnerDeletion := true
+	refs = append(refs, metav1.OwnerReference{
+		APIVersion:         "coordination.k8s.io/v1",
+		Kind:               "Lease",
+		Name:               leaseName,
+		UID:                leaseUID,
+		BlockOwnerDeletion: &blockOwnerDeletion,
+	})
+	return refs, true
+}
+
+// removeLeaseOwnerRef removes the Lease OwnerReference by name if present and
+// reports whether a change was made.
+func removeLeaseOwnerRef(refs []metav1.OwnerReference, leaseName string) ([]metav1.OwnerReference, bool) {
+	if len(refs) == 0 {
+		return refs, false
+	}
+	filtered := refs[:0]
+	removed := false
+	for _, ref := range refs {
+		if ref.Kind == "Lease" && ref.Name == leaseName {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	return filtered, removed
+}
+
 // StartPodMigrationTracking 初始化所有 Pod 的迁移跟踪
 func (drm *DrainResourceManager) StartPodMigrationTracking(ctx context.Context, drainID, clusterName string, pods []DrainPodInfo) error {
 	drm.trackerMutex.Lock()
@@ -493,8 +672,10 @@ func (drm *DrainResourceManager) StartPodMigrationTracking(ctx context.Context, 
 			MigrationID:    migrationID,
 			OwnerReference: drm.extractOwnerReference(&pod),
 		}
-		if drm.isDaemonSetOwner(pod.OwnerReferences) || drm.isStatefulSetOwner(pod.OwnerReferences) || len(pod.OwnerReferences) == 0 {
-			drm.updatePodMigrationStatusInternal(migrationID, DrainMigrationIgnored, "daemonset/statefulset/static pod ignored")
+		// Check for system namespaces and owner references to determine if the pod should be ignored
+		isSystemNamespace := pod.Namespace == "kube-system" || pod.Namespace == "kube-public" || pod.Namespace == "kube-node-lease"
+		if isSystemNamespace || drm.isDaemonSetOwner(pod.OwnerReferences) || drm.isStatefulSetOwner(pod.OwnerReferences) || len(pod.OwnerReferences) == 0 {
+			drm.updatePodMigrationStatusInternal(migrationID, DrainMigrationIgnored, "daemonset/statefulset/static/system pod ignored")
 		}
 		// Persist to Redis index and detail
 		drm.appendMigrationID(drainID, migrationID)
@@ -969,6 +1150,80 @@ func (drm *DrainResourceManager) sendMigrationEvent(migration *DrainPodMigration
 	}
 }
 
+// handleExistingTargetPodUpdate 处理已分配 targetPod 的 Pod 更新事件
+// 这个函数在 watcher 收到的事件中，Pod 正是某个 migration 的 targetPod 时被调用
+// 用于补充 monitorNewPod 可能遗漏的事件
+func (drm *DrainResourceManager) handleExistingTargetPodUpdate(migration *DrainPodMigrationInfo, pod *corev1.Pod) {
+	if migration == nil || pod == nil {
+		return
+	}
+
+	// 如果已经是终态，不再处理
+	if migration.Status == DrainMigrationCompleted || migration.Status == DrainMigrationFailed ||
+		migration.Status == DrainMigrationIgnored || migration.Status == DrainMigrationTimeout {
+		return
+	}
+
+	// 更新 targetPod 信息
+	phaseReason := drm.deriveKubectlLikeStatus(pod)
+	info := DrainPodInfo{
+		Name:            pod.Name,
+		Namespace:       pod.Namespace,
+		NodeName:        pod.Spec.NodeName,
+		Labels:          pod.Labels,
+		Annotations:     pod.Annotations,
+		UID:             string(pod.UID),
+		Phase:           string(pod.Status.Phase),
+		PhaseReason:     phaseReason,
+		CreatedAt:       pod.CreationTimestamp.Time,
+		OwnerReferences: pod.OwnerReferences,
+	}
+
+	phaseChanged := false
+	var migrationCopy *DrainPodMigrationInfo
+
+	// 检查是否需要更新状态
+	if migration.TargetPod == nil ||
+		migration.TargetPod.Phase != info.Phase ||
+		migration.TargetPod.PhaseReason != info.PhaseReason {
+		phaseChanged = true
+	}
+
+	// 更新 tracker 中的数据
+	migration.TargetPod = &info
+
+	// 检查 Pod 状态并决定迁移状态
+	if pod.Status.Phase == corev1.PodFailed {
+		drm.updatePodMigrationStatusInternal(migration.MigrationID, DrainMigrationFailed, "new pod failed to start")
+		migrationCopy = new(DrainPodMigrationInfo)
+		*migrationCopy = *migration
+	} else if isPodStablyReady(pod, 8*time.Second) {
+		drm.updatePodMigrationStatusInternal(migration.MigrationID, DrainMigrationCompleted, "")
+		migrationCopy = new(DrainPodMigrationInfo)
+		*migrationCopy = *migration
+	} else {
+		// 即使不是终态，如果有变化，也应该保存，以防 API 读取到旧数据
+		if phaseChanged {
+			migrationCopy = new(DrainPodMigrationInfo)
+			*migrationCopy = *migration
+		}
+	}
+
+	// 发送 phase 更新事件
+	if phaseChanged {
+		drm.eventManager.SendPodPhaseUpdated(migration.DrainID, migration)
+	}
+
+	// 保存并发送 stats
+	if migrationCopy != nil {
+		go drm.saveMigrationInfo(migrationCopy)
+		// 只有在产生实质性变化时才发送 stats 更新，避免过于频繁
+		if phaseChanged || migrationCopy.Status == DrainMigrationCompleted || migrationCopy.Status == DrainMigrationFailed {
+			go drm.sendMigrationStats(migration.DrainID)
+		}
+	}
+}
+
 // sendMigrationStats 统计迁移数据并发送
 func (drm *DrainResourceManager) sendMigrationStats(drainID string) {
 	// throttle: at most once per 200ms per drainID
@@ -1094,17 +1349,21 @@ func (drm *DrainResourceManager) watchPodsInNamespace(ctx context.Context, cs ku
 
 			watcher, err := cs.CoreV1().Pods(namespace).Watch(ctx, listOpts)
 			if err != nil {
+				log.Printf("[PodWatcher] Failed to start watch for namespace=%s, selector=%s: %v", namespace, selector, err)
 				time.Sleep(5 * time.Second)
 				continue
 			}
+			log.Printf("[PodWatcher] Started watching namespace=%s, selector=%s", namespace, selector)
 
 			for event := range watcher.ResultChan() {
 				if event.Type == watch.Added || event.Type == watch.Modified {
 					if pod, ok := event.Object.(*corev1.Pod); ok {
+						log.Printf("[PodWatcher] %s: pod=%s/%s, phase=%s, nodeName=%s", event.Type, pod.Namespace, pod.Name, pod.Status.Phase, pod.Spec.NodeName)
 						drm.checkForReplacement(ctx, drainID, clusterName, pod)
 					}
 				}
 			}
+			log.Printf("[PodWatcher] Watch closed for namespace=%s, will restart", namespace)
 			watcher.Stop()
 		}
 	}
@@ -1122,17 +1381,35 @@ func (drm *DrainResourceManager) checkForReplacement(ctx context.Context, drainI
 	}, 0, len(drm.migrationTracker))
 
 	drm.trackerMutex.Lock()
+	trackerCount := 0
 	for _, migration := range drm.migrationTracker {
-		if migration.DrainID != drainID || migration.TargetPod != nil || migration.SourcePod.Namespace != newPod.Namespace {
+		if migration.DrainID != drainID {
+			continue
+		}
+		trackerCount++
+
+		// 对于已分配 targetPod 的 migration，检查收到的 Pod 是否就是其 targetPod
+		// 如果是，则更新其状态（这补充了 monitorNewPod 可能遗漏的事件）
+		if migration.TargetPod != nil {
+			if migration.TargetPod.UID == string(newPod.UID) {
+				// 这是已分配的 targetPod 的更新事件，处理状态更新
+				log.Printf("[checkForReplacement] Updating existing targetPod for %s, phase=%s", migration.MigrationID, newPod.Status.Phase)
+				drm.handleExistingTargetPodUpdate(migration, newPod)
+			}
+			continue
+		}
+		if migration.SourcePod.Namespace != newPod.Namespace {
 			continue
 		}
 
 		ownerMatched := drm.isOwnerMatch(migration.SourcePod.OwnerReferences, newPod.OwnerReferences)
 		labelRSMatch := drm.isSameReplicaSetByLabel(migration.SourcePod.Labels, newPod.Labels)
 		if !(ownerMatched || labelRSMatch) {
+			log.Printf("[checkForReplacement] Skip %s: owner/label not match (ownerMatch=%v, labelRSMatch=%v)", migration.MigrationID, ownerMatched, labelRSMatch)
 			continue
 		}
 
+		log.Printf("[checkForReplacement] Candidate found: migration=%s, sourcePod=%s, status=%s", migration.MigrationID, migration.SourcePod.Name, migration.Status)
 		candidateMigrations = append(candidateMigrations, struct {
 			migrationID string
 			sourcePod   DrainPodInfo
@@ -1146,6 +1423,8 @@ func (drm *DrainResourceManager) checkForReplacement(ctx context.Context, drainI
 		})
 	}
 	drm.trackerMutex.Unlock()
+
+	log.Printf("[checkForReplacement] drainID=%s, newPod=%s/%s, trackerCount=%d, candidates=%d", drainID, newPod.Namespace, newPod.Name, trackerCount, len(candidateMigrations))
 
 	// 在锁外进行K8s API调用
 	var validMigrations []string

@@ -8,13 +8,14 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { ShieldAlert, Timer } from "lucide-react";
-import { DrainProvider, useDrain } from './DrainContext';
+import { ShieldAlert, Timer, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { DrainProvider, useDrain, useProgress } from './DrainContext';
 import { DrainProgress } from './DrainProgress';
 import { LogViewer } from './LogViewer';
 import { MigrationsTable } from './MigrationsTable';
 import { DrainStatsView } from './DrainStatsView';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 
 interface SafeDrainDialogProps {
     open: boolean;
@@ -29,8 +30,28 @@ const formatTime = (seconds: number) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+const SSEStatusIndicator: React.FC = () => {
+    const { sseStatus } = useProgress();
+
+    const config = {
+        connecting: { icon: RefreshCw, className: "text-yellow-500 animate-spin", label: "连接中" },
+        open: { icon: Wifi, className: "text-green-500", label: "已连接" },
+        retrying: { icon: RefreshCw, className: "text-orange-500 animate-spin", label: "重连中" },
+        closed: { icon: WifiOff, className: "text-zinc-400", label: "已断开" },
+    };
+
+    const { icon: Icon, className, label } = config[sseStatus];
+
+    return (
+        <Badge variant="outline" className="text-xs gap-1">
+            <Icon className={`h-3 w-3 ${className}`} />
+            {label}
+        </Badge>
+    );
+};
+
 const SafeDrainContent: React.FC<{ clusterName: string; nodeName: string, onClose: () => void }> = ({ clusterName, nodeName, onClose }) => {
-    const { startDrain, cancelDrain, status, drainId, migrations, elapsedTime } = useDrain();
+    const { startDrain, cancelDrain, status, drainId, elapsedTime } = useDrain();
     const [isStarting, setIsStarting] = useState(false);
 
     const handleStart = async () => {
@@ -70,9 +91,9 @@ const SafeDrainContent: React.FC<{ clusterName: string; nodeName: string, onClos
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <div className={`text-sm font-medium px-2 py-1 rounded-md ${status === 'running' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                                    status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
-                                        status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
-                                            'bg-zinc-100 text-zinc-700'
+                                status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
+                                    status === 'failed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+                                        'bg-zinc-100 text-zinc-700'
                                 }`}>
                                 {status === 'running' ? '正在执行' :
                                     status === 'completed' ? '执行完成' :
@@ -85,6 +106,7 @@ const SafeDrainContent: React.FC<{ clusterName: string; nodeName: string, onClos
                                     {formatTime(elapsedTime)}
                                 </div>
                             )}
+                            <SSEStatusIndicator />
                         </div>
                     </div>
 
@@ -110,13 +132,9 @@ const SafeDrainContent: React.FC<{ clusterName: string; nodeName: string, onClos
 
             {/* Migrations Table - Flex grow */}
             {drainId && (
-                <div className="space-y-2 flex-1 overflow-hidden flex flex-col min-h-0">
-                    <div className="flex items-center justify-between px-1">
-                        <h3 className="text-sm font-medium">迁移详情</h3>
-                        <span className="text-xs text-muted-foreground">{migrations.length} 个 Pod</span>
-                    </div>
-                    <div className="flex-1 overflow-auto border rounded-md bg-white dark:bg-zinc-950">
-                        <MigrationsTable migrations={migrations} />
+                <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+                    <div className="flex-1 overflow-auto">
+                        <MigrationsTable />
                     </div>
                 </div>
             )}

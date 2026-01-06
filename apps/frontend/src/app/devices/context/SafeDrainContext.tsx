@@ -53,10 +53,14 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
             try {
                 const parsed = JSON.parse(saved)
                 setActiveDrains(parsed)
-                // Reconnect to running drains
+                // Reconnect to running drains and load migrations
                 parsed.forEach((d: ActiveDrain) => {
                     if (d.status === 'running' || d.status === 'pending') {
                         connectToDrainStream(d.drainID)
+                    }
+                    // 如果 migrations 为空但 stats 显示有数据，尝试从 API 获取
+                    if (d.migrations.length === 0 && (d.stats?.totalPods || 0) > 0) {
+                        loadMigrationsFromAPI(d.drainID)
                     }
                 })
             } catch (e) {
@@ -81,7 +85,20 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
         setActiveDrains(prev => {
             // 避免重复添加
             if (prev.some(d => d.drainID === drainID)) return prev
-            return [...prev, {
+
+            // 清理逻辑：
+            // 1. 清理所有已完成、失败、取消的历史任务，避免干扰
+            // 2. 清理针对同一节点+集群的旧任务（无论状态如何），确保显示最新的
+            const cleanPrev = prev.filter(d => {
+                const isTerminal = ['completed', 'failed', 'cancelled', 'timeout'].includes(d.status)
+                const isSameTarget = d.nodeName === nodeName && d.clusterName === clusterName
+
+                // 如果是终端状态，或者是同一个目标的旧任务，则移除
+                if (isTerminal || isSameTarget) return false
+                return true
+            })
+
+            return [...cleanPrev, {
                 drainID,
                 nodeName,
                 clusterName,
@@ -98,6 +115,8 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
         // 建立 SSE 连接
         connectToDrainStream(drainID)
     }, [])
+
+
 
     const removeDrain = useCallback((drainID: string) => {
         setActiveDrains(prev => prev.filter(d => d.drainID !== drainID))
@@ -156,12 +175,80 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
         }
     }
 
+    // 从 API 加载迁移数据（作为 SSE 的补充）
+    const loadMigrationsFromAPI = async (drainID: string) => {
+        try {
+            console.log(`[SafeDrain] Loading migrations from API for drain: ${drainID}`)
+            const res = await fetch(`${appConfig.apiBaseUrl}/navy/drain/${drainID}/migrations`, {
+                credentials: 'include',
+            })
+            if (!res.ok) {
+                console.warn(`[SafeDrain] Failed to load migrations for ${drainID}: ${res.status}`)
+                return
+            }
+            const result = await res.json()
+            console.log(`[SafeDrain] API response for ${drainID}:`, result)
+
+            // 后端 API 返回格式: { success, message, data: { drainId, migrations, summary } }
+            const migrations = result.data?.migrations || result.migrations || []
+            console.log(`[SafeDrain] Extracted ${migrations.length} migrations`)
+
+            if (Array.isArray(migrations) && migrations.length > 0) {
+                setActiveDrains(prev => prev.map(drain => {
+                    if (drain.drainID !== drainID) return drain
+                    // 合并迁移数据
+                    const updatedMigrations = [...drain.migrations]
+                    migrations.forEach((mig: DrainPodMigrationInfo) => {
+                        const idx = updatedMigrations.findIndex(m => m.migrationId === mig.migrationId)
+                        if (idx >= 0) {
+                            updatedMigrations[idx] = { ...updatedMigrations[idx], ...mig }
+                        } else {
+                            updatedMigrations.push(mig)
+                        }
+                    })
+                    console.log(`[SafeDrain] Updated drain ${drainID} with ${updatedMigrations.length} migrations`)
+
+                    // 重新计算统计
+                    const newDrain = { ...drain, migrations: updatedMigrations }
+                    computeStatsForDrain(newDrain)
+                    return newDrain
+                }))
+            }
+        } catch (err) {
+            console.error(`[SafeDrain] Error loading migrations for ${drainID}:`, err)
+        }
+    }
+
+    // 为指定的 drain 计算统计（独立函数，用于 API 加载后重新计算）
+    const computeStatsForDrain = (drain: ActiveDrain) => {
+        const total = drain.migrations.length
+        const migrated = drain.migrations.filter(m => m.status === 'completed').length
+        const failed = drain.migrations.filter(m => m.status === 'failed' || m.status === 'timeout').length
+        const pending = drain.migrations.filter(m => m.status === 'pending').length
+        const migrating = drain.migrations.filter(m => m.status === 'evicting' || m.status === 'evicted' || m.status === 'creating').length
+        const ignored = drain.migrations.filter(m => m.status === 'ignored').length
+        drain.stats = {
+            totalPods: total,
+            migratedPods: migrated,
+            failedPods: failed,
+            pendingPods: pending,
+            migratingPods: migrating,
+            ignoredPods: ignored,
+            pdbCount: drain.stats?.pdbCount ?? 0
+        }
+    }
+
     // 连接 SSE
     const connectToDrainStream = (drainID: string) => {
         if (eventSourcesRef.current.has(drainID)) return
 
         const url = `${appConfig.apiBaseUrl}/navy/drain/${drainID}/events`
         const es = new EventSource(url, { withCredentials: true })
+
+        es.onopen = () => {
+            // SSE 连接成功后，尝试从 API 加载迁移数据（以防 SSE 事件丢失）
+            loadMigrationsFromAPI(drainID)
+        }
 
         es.onmessage = (event) => {
             try {
@@ -174,9 +261,22 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
         }
 
         es.onerror = (err) => {
-            console.error(`SSE error for drain ${drainID}`, err)
+            console.warn(`SSE error for drain ${drainID}, will retry in 2s...`, err)
             es.close()
             eventSourcesRef.current.delete(drainID)
+
+            // 检查是否应该重连（只为运行中的 drain 重连）
+            setActiveDrains(prev => {
+                const drain = prev.find(d => d.drainID === drainID)
+                if (drain && drain.status === 'running') {
+                    // 延迟重连，避免立即重连打到错误的后端实例
+                    setTimeout(() => {
+                        console.log(`[SafeDrain] Reconnecting SSE for ${drainID}...`)
+                        connectToDrainStream(drainID)
+                    }, 2000)
+                }
+                return prev
+            })
         }
 
         eventSourcesRef.current.set(drainID, es)
@@ -220,10 +320,19 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                     const pct = Number(data?.progress ?? data?.percent ?? 0)
                     updated.progress = isNaN(pct) ? 0 : pct
                     updated.currentStep = msg || updated.currentStep
-                    if (updated.progress >= 100) {
+                    // 不再根据 progress >= 100 自动完成，因为这可能只是 Eviction 进度。
+                    // 只有明确收到 completion 事件才结束。
+                    break
+                }
+                case 'stream_closing': {
+                    const reason = data?.reason
+                    if (reason !== 'failed' && reason !== 'cancelled') {
                         updated.status = 'completed'
-                        cleanupEventSource(drainID)
+                        updated.progress = 100
+                        updated.currentStep = 'Drain operation finished'
+                        updated.logs = [...updated.logs, { timestamp: ts, level: 'SUCCESS', message: 'Drain operation finished' }]
                     }
+                    cleanupEventSource(drainID)
                     break
                 }
                 case 'drain_completed': // Handle explicit completion event if backend sends it
@@ -266,6 +375,65 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                     cleanupEventSource(drainID)
                     break
                 }
+                case 'pod_snapshot_created': {
+                    // 处理初始快照 - 这是填充迁移数据的关键事件
+                    const snapshot = data?.snapshot
+                    if (snapshot?.pods && Array.isArray(snapshot.pods)) {
+                        console.log('[SafeDrain] Processing snapshot pods:', snapshot.pods.length);
+                        const initialMigrations: DrainPodMigrationInfo[] = snapshot.pods.map((pod: any) => {
+                            const owners = (pod.ownerReferences || pod.OwnerReferences || []) as any[];
+                            const hasOwners = Array.isArray(owners) && owners.length > 0;
+                            const ownerKinds = hasOwners ? owners.map((o) => (o?.kind || o?.Kind || '') as string) : [];
+
+                            // Debug logs for specific system pods
+                            if (pod.name?.includes('kindnet') || pod.name?.includes('kube-proxy')) {
+                                console.log(`[SafeDrain] Inspecting system pod: ${pod.name}`, {
+                                    owners,
+                                    ownerKinds,
+                                    hasOwners
+                                });
+                            }
+
+                            const looksDaemonSet = ownerKinds.some(k => k === 'DaemonSet' || k === 'daemonset');
+                            const looksStatefulSet = ownerKinds.some(k => k === 'StatefulSet' || k === 'statefulset');
+                            const looksStatic = !hasOwners;
+                            const shouldIgnore = looksDaemonSet || looksStatefulSet || looksStatic;
+
+                            if ((pod.name?.includes('kindnet') || pod.name?.includes('kube-proxy')) && !shouldIgnore) {
+                                console.warn(`[SafeDrain] System pod ${pod.name} NOT ignored!`, {
+                                    looksDaemonSet,
+                                    looksStatefulSet,
+                                    looksStatic,
+                                    ownerKinds
+                                });
+                            }
+
+                            return {
+                                migrationId: `${drainID}-${pod.namespace}-${pod.name}`,
+                                drainId: drainID,
+                                sourcePod: {
+                                    name: pod.name,
+                                    namespace: pod.namespace,
+                                    nodeName: pod.nodeName,
+                                    uid: pod.uid,
+                                    phase: pod.phase,
+                                },
+                                status: shouldIgnore ? 'ignored' : 'pending' as const,
+                                startTime: ts,
+                            };
+                        })
+                        updated.migrations = initialMigrations
+                        const ignoredCount = initialMigrations.filter(m => m.status === 'ignored').length;
+                        updated.stats = {
+                            ...updated.stats,
+                            totalPods: initialMigrations.length,
+                            pendingPods: initialMigrations.length - ignoredCount,
+                            ignoredPods: ignoredCount,
+                        } as DrainStats
+                    }
+                    updated.logs = [...updated.logs, { timestamp: ts, level: 'INFO', message: msg || `Snapshot created: ${snapshot?.pods?.length || 0} pods` }]
+                    break
+                }
                 case 'migration_update': {
                     const mig = data?.migration as DrainPodMigrationInfo | undefined
                     if (mig) {
@@ -277,12 +445,21 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                 case 'pod_eviction_started':
                 case 'pod_eviction_succeeded':
                 case 'pod_eviction_failed':
-                case 'pod_migration_ignored': {
+                case 'pod_migration_started':
+                case 'pod_migration_completed':
+                case 'pod_migration_failed':
+                case 'pod_migration_ignored':
+                case 'new_pod_detected':
+                case 'pod_phase_updated':
+                case 'pod_pending':
+                case 'new_pod_running':
+                case 'new_pod_ready': {
                     const mig = data?.migration as DrainPodMigrationInfo | undefined
                     if (mig) {
                         upsertMigration(updated, mig)
                     }
-                    const level = (type === 'pod_eviction_failed') ? 'ERROR' : 'INFO'
+                    const level = type.includes('failed') ? 'ERROR' :
+                        type.includes('completed') || type.includes('ready') || type.includes('running') ? 'SUCCESS' : 'INFO'
                     updated.logs = [...updated.logs, { timestamp: ts, level: level as any, message: msg || type }]
                     computeStats(updated)
                     break
@@ -294,7 +471,7 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                             // Merge stats from server if provided, otherwise logic-computed stats prevail
                             // Assuming server sends authoritative stats
                             totalPods: data.totalPods ?? updated.stats?.totalPods,
-                            migratedPods: data.migrated ?? updated.stats?.migratedPods,
+                            migratedPods: data.migrated ?? data.completed ?? updated.stats?.migratedPods,
                             failedPods: data.failed ?? updated.stats?.failedPods,
                             pendingPods: data.pending ?? updated.stats?.pendingPods,
                             migratingPods: (data.evicting ?? 0) + (data.creating ?? 0),
@@ -305,7 +482,10 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
                     break
                 }
                 default: {
-                    // 未知事件，忽略
+                    // 未知事件也记录日志便于调试
+                    if (msg) {
+                        updated.logs = [...updated.logs, { timestamp: ts, level: 'INFO', message: `[${type}] ${msg}` }]
+                    }
                     break
                 }
             }
@@ -326,15 +506,25 @@ export function SafeDrainProvider({ children }: { children: React.ReactNode }) {
         }
     }
 
-    // 计算统计
+    // 计算统计（大小写不敏感的状态比较）
     const computeStats = (drain: ActiveDrain) => {
+        const normalize = (s: string) => (s || '').toLowerCase()
         const total = drain.migrations.length
-        const migrated = drain.migrations.filter(m => m.status === 'completed' || m.status === 'evicted').length
-        const failed = drain.migrations.filter(m => m.status === 'failed').length
-        const pending = drain.migrations.filter(m => m.status === 'pending').length
-        const migrating = drain.migrations.filter(m => m.status === 'evicting' || m.status === 'creating').length
-        const ignored = drain.migrations.filter(m => m.status === 'ignored').length
-        drain.stats = { totalPods: total, migratedPods: migrated, failedPods: failed, pendingPods: pending, migratingPods: migrating, ignoredPods: ignored, pdbCount: 0 }
+        const migrated = drain.migrations.filter(m => {
+            const s = normalize(m.status as string)
+            return s === 'completed'
+        }).length
+        const failed = drain.migrations.filter(m => {
+            const s = normalize(m.status as string)
+            return s === 'failed' || s === 'timeout'
+        }).length
+        const pending = drain.migrations.filter(m => normalize(m.status as string) === 'pending').length
+        const migrating = drain.migrations.filter(m => {
+            const s = normalize(m.status as string)
+            return s === 'evicting' || s === 'evicted' || s === 'creating'
+        }).length
+        const ignored = drain.migrations.filter(m => normalize(m.status as string) === 'ignored').length
+        drain.stats = { totalPods: total, migratedPods: migrated, failedPods: failed, pendingPods: pending, migratingPods: migrating, ignoredPods: ignored, pdbCount: drain.stats?.pdbCount ?? 0 }
     }
 
     // 组件卸载时清理所有连接

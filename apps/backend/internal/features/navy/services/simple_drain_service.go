@@ -747,13 +747,16 @@ func (sds *SimpleDrainService) HandleSSE(c *gin.Context) {
 			})
 		}
 
+		// 发送当前迁移数据（注意：这里只发送，不修改状态！）
+		// 之前的逻辑错误地将非终态迁移标记为 canceled，导致进行中的 drain 被意外取消
 		if len(migs) > 0 {
+			// 发送每个迁移的当前状态，让前端可以恢复/显示正确的状态
 			for _, m := range migs {
-				switch m.Status {
-				case DrainMigrationCompleted, DrainMigrationFailed, DrainMigrationIgnored:
-					continue
-				case DrainMigrationPending, DrainMigrationTimeout, DrainMigrationEvicting, DrainMigrationEvicted, DrainMigrationCreating:
-					sds.resourceManager.UpdatePodMigrationStatus(m.MigrationID, DrainMigrationFailed, "drain canceled")
+				if m != nil {
+					sds.eventManager.SendMessage(id, "migration_update", "migration status", map[string]interface{}{
+						"migration": m,
+						"bootstrap": true,
+					})
 				}
 			}
 		}
@@ -840,7 +843,7 @@ func (sds *SimpleDrainService) buildDetailedEvictionError(pod *DrainPodInfo, gro
 
 // generateDrainID 生成 Drain ID
 func generateDrainID() string {
-	return fmt.Sprintf("drain-%d", time.Now().UnixNano())
+	return fmt.Sprintf("drain-%d-%d", time.Now().UnixNano(), rand.Int63())
 }
 
 // isPDBBlockError 判断错误是否为 PDB 阻塞
@@ -1105,7 +1108,11 @@ func (sds *SimpleDrainService) shouldIgnorePod(pod *DrainPodInfo) bool {
 	}
 
 	// 检查是否为系统命名空间的Pod
-	systemNamespaces := map[string]bool{"kube-system": true, "kube-public": true, "kube-node-lease": true}
+	systemNamespaces := map[string]bool{
+		"kube-system":     true,
+		"kube-public":     true,
+		"kube-node-lease": true,
+	}
 	if systemNamespaces[pod.Namespace] {
 		return true
 	}
