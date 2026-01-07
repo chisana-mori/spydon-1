@@ -27,6 +27,7 @@ import {
     SheetHeader,
     SheetTitle,
 } from '@/components/ui/sheet'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from '@/components/ui/input'
 import {
     Select,
@@ -67,6 +68,8 @@ import RobustaAPI, { BatchOperationResult } from '@/lib/api'
 import { DeviceFeatureDetails, NodeLabelTaintResponse } from '@/types/navy'
 import { NavyDevice } from '@/types/navy'
 import { cn } from '@/lib/utils'
+import { ConfigCombobox } from '@/components/common/ConfigCombobox'
+import { Separator } from "@/components/ui/separator"
 
 interface DeviceBulkActionsProps {
     selectedDevices: Set<number>
@@ -921,110 +924,162 @@ function TaintLabelSheet({
                         </div>
                     )}
 
-                    <div className="h-px bg-border" />
+                    <Separator />
 
-                    {/* 模式选择 - Only for Adding */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">添加新项</label>
-                        <div className="grid grid-cols-2 gap-2">
-                            <Button
-                                variant={mode === 'label' ? 'default' : 'outline'}
-                                size="sm"
-                                onClick={() => setMode('label')}
-                                className="h-9"
-                            >
+
+                    <Tabs defaultValue="label" className="w-full">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="label" onClick={() => setMode('label')}>
                                 <Tag className="h-4 w-4 mr-2" />
-                                Label
-                            </Button>
-                            <Button
-                                variant={mode === 'taint' ? 'default' : 'outline'}
-                                size="sm"
-                                onClick={() => setMode('taint')}
-                                className="h-9"
-                            >
+                                Label 管理
+                            </TabsTrigger>
+                            <TabsTrigger value="taint" onClick={() => setMode('taint')}>
                                 <AlertTriangle className="h-4 w-4 mr-2" />
-                                Taint
-                            </Button>
-                        </div>
-                    </div>
+                                Taint 管理
+                            </TabsTrigger>
+                        </TabsList>
 
-                    {/* Form Input */}
-                    {mode === 'label' ? (
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Key</label>
-                                <Input
-                                    placeholder="例如: app, env, team"
-                                    value={labelKey}
-                                    onChange={(e) => setLabelKey(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Value</label>
-                                <Input
-                                    placeholder="例如: nginx, production"
-                                    value={labelValue}
-                                    onChange={(e) => setLabelValue(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Key</label>
-                                <Input
-                                    placeholder="例如: node-role.kubernetes.io/master"
-                                    value={taintKey}
-                                    onChange={(e) => setTaintKey(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Value</label>
-                                <Input
-                                    placeholder="可选"
-                                    value={taintValue}
-                                    onChange={(e) => setTaintValue(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Effect</label>
-                                <Select
-                                    value={taintEffect}
-                                    onValueChange={(v: any) => setTaintEffect(v)}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="NoSchedule">NoSchedule</SelectItem>
-                                        <SelectItem value="PreferNoSchedule">PreferNoSchedule</SelectItem>
-                                        <SelectItem value="NoExecute">NoExecute</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                    )}
+                        <div className="mt-4 bg-muted/30 p-4 rounded-xl border space-y-4">
+                            <TabsContent value="label" className="mt-0 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 shadow-sm">
+                                        <button
+                                            onClick={() => setAction('add')}
+                                            className={cn(
+                                                "relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
+                                                action === 'add'
+                                                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/25"
+                                                    : "text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                            )}
+                                        >
+                                            添加 / 更新
+                                        </button>
+                                        <button
+                                            onClick={() => setAction('remove')}
+                                            className={cn(
+                                                "relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
+                                                action === 'remove'
+                                                    ? "bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-md shadow-rose-500/25"
+                                                    : "text-slate-600 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                            )}
+                                        >
+                                            批量删除
+                                        </button>
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">
+                                        {action === 'add' ? '添加或更新所选节点的 Label' : '移除所选节点的特定 Label'}
+                                    </span>
+                                </div>
 
-                    <div className="flex gap-2 justify-end pt-2">
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>
-                            取消
-                        </Button>
-                        <Button
-                            onClick={() => {
-                                setAction('add')
-                                handleSubmit()
-                            }}
-                            disabled={isSubmitting}
-                            className={mode === 'label' ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-600 hover:bg-orange-700"}
-                        >
-                            {isSubmitting ? (
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                            ) : (
-                                <Plus className="h-4 w-4 mr-2" />
-                            )}
-                            添加 {mode === 'label' ? 'Label' : 'Taint'}
-                        </Button>
-                    </div>
+                                <div className="flex items-center gap-2 animate-in fade-in duration-200">
+                                    <ConfigCombobox
+                                        type="label"
+                                        value={labelKey}
+                                        onChange={setLabelKey}
+                                        placeholder="Label Key (select or type)"
+                                        className="flex-1"
+                                    />
+                                    <span className="text-muted-foreground">=</span>
+                                    <ConfigCombobox
+                                        type="label-value"
+                                        parentKey={labelKey}
+                                        value={labelValue}
+                                        onChange={setLabelValue}
+                                        placeholder="Label Value"
+                                        className="flex-1"
+                                        disabled={action === 'remove'}
+                                    />
+                                    <Button onClick={handleSubmit} disabled={isSubmitting}>
+                                        {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                        执行
+                                    </Button>
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="taint" className="mt-0 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 shadow-sm">
+                                        <button
+                                            onClick={() => setAction('add')}
+                                            className={cn(
+                                                "relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
+                                                action === 'add'
+                                                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/25"
+                                                    : "text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                            )}
+                                        >
+                                            添加 / 更新
+                                        </button>
+                                        <button
+                                            onClick={() => setAction('remove')}
+                                            className={cn(
+                                                "relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200",
+                                                action === 'remove'
+                                                    ? "bg-gradient-to-r from-rose-500 to-red-500 text-white shadow-md shadow-rose-500/25"
+                                                    : "text-slate-600 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                            )}
+                                        >
+                                            批量删除
+                                        </button>
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">
+                                        {action === 'add' ? '设置或更新所选节点的 Taint' : '移除所选节点的特定 Taint'}
+                                    </span>
+                                </div>
+
+                                <div className="space-y-4 animate-in fade-in duration-200">
+                                    <div className="flex items-center gap-2">
+                                        <ConfigCombobox
+                                            type="taint"
+                                            value={taintKey}
+                                            onChange={setTaintKey}
+                                            placeholder="Taint Key"
+                                            className="flex-[2]"
+                                        />
+                                        <span className="text-muted-foreground font-light">=</span>
+                                        <ConfigCombobox
+                                            type="taint-value"
+                                            parentKey={taintKey}
+                                            value={taintValue}
+                                            onChange={setTaintValue}
+                                            placeholder="Value"
+                                            className="flex-[2]"
+                                            disabled={action === 'remove'}
+                                        />
+                                        <span className="text-muted-foreground font-light">:</span>
+                                        <Select value={taintEffect} onValueChange={(v) => setTaintEffect(v as any)}>
+                                            <SelectTrigger className="flex-[1.5] min-w-[140px]">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="NoSchedule">NoSchedule</SelectItem>
+                                                <SelectItem value="PreferNoSchedule">PreferNoSchedule</SelectItem>
+                                                <SelectItem value="NoExecute">NoExecute</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <Button
+                                            onClick={handleSubmit}
+                                            disabled={isSubmitting}
+                                            className={cn(
+                                                "w-full sm:w-auto min-w-[120px]",
+                                                action === 'remove' ? "bg-destructive hover:bg-destructive/90" : ""
+                                            )}
+                                        >
+                                            {isSubmitting ? (
+                                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                            ) : (
+                                                action === 'remove' ? <X className="h-4 w-4 mr-2" /> : <Check className="h-4 w-4 mr-2" />
+                                            )}
+                                            {action === 'remove' ? '确认移除' : '执行操作'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </div>
+                    </Tabs>
                 </div>
             </SheetContent>
         </Sheet>

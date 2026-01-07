@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Server } from 'lucide-react'
 import yaml from 'js-yaml'
 
 import { Button } from '@/components/ui/button'
@@ -161,9 +161,14 @@ export function ClusterDialog({
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-hidden flex flex-col p-0">
-                <DialogHeader className="px-6 pt-6 pb-2">
-                    <DialogTitle>{isEdit ? '编辑集群' : '创建集群'}</DialogTitle>
-                    <DialogDescription>
+                <DialogHeader className="px-6 pt-6 pb-2 border-b">
+                    <DialogTitle className="flex items-center gap-3 text-xl">
+                        <div className="p-2.5 bg-blue-500/10 rounded-xl ring-1 ring-blue-500/20">
+                            <Server className="w-5 h-5 text-blue-500" />
+                        </div>
+                        {isEdit ? '编辑集群' : '创建集群'}
+                    </DialogTitle>
+                    <DialogDescription className="text-sm mt-1.5 ml-1">
                         {isEdit
                             ? '修改集群的基本信息。'
                             : '添加一个新的Kubernetes集群进行监控。'}

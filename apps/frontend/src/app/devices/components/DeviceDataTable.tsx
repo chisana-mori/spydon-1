@@ -155,7 +155,7 @@ function SpecialDeviceHoverCard({ device }: { device: NavyDevice }) {
                                                 <Badge
                                                     key={i}
                                                     variant="secondary"
-                                                    className="px-1.5 h-5 text-[10px] bg-blue-50 text-blue-700 border-none dark:bg-blue-900/30 dark:text-blue-300"
+                                                    className="px-1.5 h-5 text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/20"
                                                 >
                                                     {l.key}: {l.value}
                                                 </Badge>
@@ -175,7 +175,7 @@ function SpecialDeviceHoverCard({ device }: { device: NavyDevice }) {
                                                 <Badge
                                                     key={i}
                                                     variant="secondary"
-                                                    className="px-1.5 h-5 text-[10px] bg-orange-50 text-orange-700 border-none dark:bg-orange-900/30 dark:text-orange-300"
+                                                    className="px-1.5 h-5 text-[10px] bg-orange-500/10 text-orange-600 border border-orange-500/20"
                                                 >
                                                     {t.key}={t.value}:{t.effect}
                                                 </Badge>
@@ -544,12 +544,12 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         className={cn(
                                             "text-[10px] h-5",
                                             device.k8s_status === 'Ready'
-                                                ? "border-emerald-300 text-emerald-800 bg-emerald-100/80 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800/50"
+                                                ? "border-green-500/20 text-green-600 bg-green-500/10"
                                                 : device.k8s_status === 'Unschedulable'
-                                                    ? "border-amber-300 text-amber-800 bg-amber-100/80 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800/50"
+                                                    ? "border-amber-500/20 text-amber-600 bg-amber-500/10"
                                                     : device.k8s_status === 'NotReady'
-                                                        ? "border-red-300 text-red-800 bg-red-100/80 dark:bg-red-900/40 dark:text-red-400 dark:border-red-800/50"
-                                                        : "border-muted text-muted-foreground"
+                                                        ? "border-red-500/20 text-red-500 bg-red-500/10"
+                                                        : "border-muted text-muted-foreground bg-muted/30"
                                         )}
                                     >
                                         {device.k8s_status}
@@ -628,8 +628,8 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         className={cn(
                                             "text-[10px] h-5 transition-colors min-w-[32px] justify-center",
                                             device.is_localization
-                                                ? "border-emerald-200 bg-emerald-100/80 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800/50"
-                                                : "border-red-200 bg-red-100/80 text-red-800 dark:bg-red-900/40 dark:text-red-300 dark:border-red-800/50"
+                                                ? "border-green-500/20 bg-green-500/10 text-green-600"
+                                                : "border-red-500/20 bg-red-500/10 text-red-500"
                                         )}
                                     >
                                         {device.is_localization ? '是' : '否'}
@@ -647,8 +647,8 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         className={cn(
                                             "text-[10px] h-5",
                                             device.status === 'online' || device.status === '活跃' || device.status === 'Running' || device.status === 'READY'
-                                                ? "border-emerald-300 text-emerald-800 bg-emerald-100/80 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800/50"
-                                                : "border-muted text-muted-foreground"
+                                                ? "border-green-500/20 text-green-600 bg-green-500/10"
+                                                : "border-muted text-muted-foreground bg-muted/30"
                                         )}
                                     >
                                         {device.status || '未知'}

@@ -204,8 +204,8 @@ export function DictionaryItems({ items, onChange, keySameAsValue }: DictionaryI
         <div className="flex flex-col h-full bg-background space-y-4">
             <div className="flex-1 overflow-auto">
                 <Table>
-                    <TableHeader className="bg-muted/50 sticky top-0 z-10 shadow-sm">
-                        <TableRow>
+                    <TableHeader className="bg-muted/30 sticky top-0 z-10 shadow-sm backdrop-blur-sm">
+                        <TableRow className="hover:bg-transparent">
                             <TableHead className="w-[40px]"></TableHead>
                             <TableHead className="">显示值 (Value)</TableHead>
                             <TableHead className="">存储值 (Key)</TableHead>
@@ -246,7 +246,7 @@ export function DictionaryItems({ items, onChange, keySameAsValue }: DictionaryI
                             <TableCell colSpan={6} className="p-2">
                                 <Button
                                     variant="ghost"
-                                    className="w-full border-2 border-dashed border-muted hover:border-primary/50 hover:bg-primary/5 text-muted-foreground hover:text-primary h-12 flex items-center justify-center gap-2 transition-all mt-2"
+                                    className="w-full border border-dashed border-muted-foreground/25 hover:border-primary/50 hover:bg-blue-500/5 hover:text-blue-600 h-10 flex items-center justify-center gap-2 transition-all mt-2 rounded-lg"
                                     onClick={handleAddItem}
                                 >
                                     <Plus className="h-4 w-4" />

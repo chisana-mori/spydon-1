@@ -344,22 +344,22 @@ function DevicesContent() {
             {/* 页面标题 */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10">
-                        <Server className="h-6 w-6 text-primary" />
+                    <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+                        <Server className="h-6 w-6" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold">设备管理</h1>
-                        <p className="text-sm text-muted-foreground">
+                        <h1 className="text-2xl font-bold tracking-tight">设备管理</h1>
+                        <p className="text-sm text-muted-foreground mt-0.5">
                             管理和查询数据中心的物理设备资产
                         </p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={handleRefresh}>
+                    <Button variant="outline" size="sm" onClick={handleRefresh} className="shadow-sm hover:shadow transition-all">
                         <RefreshCw className="h-4 w-4 mr-2" />
                         刷新
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handleExport}>
+                    <Button variant="outline" size="sm" onClick={handleExport} className="shadow-sm hover:shadow transition-all">
                         <Download className="h-4 w-4 mr-2" />
                         导出
                     </Button>

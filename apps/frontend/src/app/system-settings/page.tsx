@@ -133,11 +133,13 @@ export default function SystemSettingsPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <SettingsIcon className="h-6 w-6 text-primary" />
+                <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+                        <SettingsIcon className="h-6 w-6" />
+                    </div>
                     <div>
-                        <h1 className="text-2xl font-semibold">系统设置</h1>
-                        <p className="text-sm text-muted-foreground">
+                        <h1 className="text-2xl font-bold tracking-tight">系统设置</h1>
+                        <p className="text-sm text-muted-foreground mt-0.5">
                             配置系统的全局设置和功能开关
                         </p>
                     </div>

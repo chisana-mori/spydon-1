@@ -1,0 +1,115 @@
+
+'use client';
+
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+    Plus,
+    Search,
+    BookOpen,
+    MoreHorizontal,
+    Edit,
+    Trash,
+    Loader2
+} from 'lucide-react';
+import { Dictionary, DictionaryListParams } from '@/types/dictionary';
+import { listDictionaries, deleteDictionary } from '@/lib/api/dictionaries';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
+import { DictionaryDrawer } from './components/DictionaryDrawer';
+import { toast } from 'sonner';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+
+export default function DictionariesPage() {
+    const queryClient = useQueryClient();
+    const [queryParams, setQueryParams] = useState<DictionaryListParams>({
+        page: 1,
+        page_size: 10,
+        keyword: '',
+        module: '',
+    });
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [selectedDictId, setSelectedDictId] = useState<number | null>(null);
+    const [deleteId, setDeleteId] = useState<number | null>(null);
+
+    const { data, isLoading, isError } = useQuery({
+        queryKey: ['dictionaries', queryParams],
+        queryFn: () => listDictionaries(queryParams),
+    });
+
+    // Handle delete
+    const deleteMutation = useMutation({
+        mutationFn: deleteDictionary,
+        onSuccess: () => {
+            toast.success('字典已删除');
+            queryClient.invalidateQueries({ queryKey: ['dictionaries'] });
+            setDeleteId(null);
+        },
+        onError: (error) => {
+            console.error(error);
+            toast.error('删除失败');
+        },
+    });
+
+    const handleEdit = (id: number) => {
+        setSelectedDictId(id);
+        setDrawerOpen(true);
+    };
+
+    const handleCreate = () => {
+        setSelectedDictId(null);
+        setDrawerOpen(true);
+    };
+
+    const handleConfirmDelete = () => {
+        if (deleteId) {
+            deleteMutation.mutate(deleteId);
+        }
+    };
+
+    const dictionaries = data?.items || [];
+    // If backend returns plain array instead of { items, total }, adjust here.
+    // Based on previous API code, it returns data.data which is likely list or object.
+    // Assuming object with items for now. If actually array, we need to adapt.
+    // Safe check:
+    const safeDictionaries = Array.isArray(data) ? data : (data?.items || []);
+    const total = Array.isArray(data) ? data.length : (data?.total || 0);
+
+    return (
+        <div className="space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent flex items-center gap-2">
+                        <BookOpen className="w-8 h-8 text-primary" />
+                        字典管理
+                    </h1>
+                    <p className="text-muted-foreground mt-2">
+                        管理系统中的枚举值、下拉选项及配置参数。
+                    </p>
+                </div>
+                <Button onClick={handleCreate} className="shadow-lg hover:shadow-xl transition-all">

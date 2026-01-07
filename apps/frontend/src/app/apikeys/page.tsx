@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { appConfig } from '@/config'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -195,13 +196,18 @@ export default function APIKeysPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">API Key 管理</h1>
-          <p className="text-muted-foreground mt-2">
-            管理您的API密钥，用于程序化访问系统
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+            <Key className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">API Key 管理</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              管理您的API密钥，用于程序化访问系统
+            </p>
+          </div>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
+        <Button onClick={() => setShowCreateDialog(true)} className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
           <Plus className="h-4 w-4 mr-2" />
           创建 API Key
         </Button>
@@ -248,15 +254,19 @@ export default function APIKeysPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <div className="text-muted-foreground">权限</div>
-                    <div className="font-medium">{getPermissionLabel(apiKey.permissions)}</div>
+                    <div className="mt-1">
+                      <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20 font-normal">
+                        {getPermissionLabel(apiKey.permissions)}
+                      </Badge>
+                    </div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">状态</div>
-                    <div className="font-medium">
+                    <div className="mt-1">
                       {apiKey.is_active ? (
-                        <span className="text-green-600">激活</span>
+                        <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20 font-normal">激活</Badge>
                       ) : (
-                        <span className="text-red-600">禁用</span>
+                        <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20 font-normal">禁用</Badge>
                       )}
                     </div>
                   </div>

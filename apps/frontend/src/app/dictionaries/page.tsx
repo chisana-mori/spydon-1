@@ -103,16 +103,18 @@ export default function DictionariesPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent flex items-center gap-2">
-                        <BookOpen className="w-8 h-8 text-primary" />
-                        字典管理
-                    </h1>
-                    <p className="text-muted-foreground mt-2">
-                        管理系统中的枚举值、下拉选项及配置参数。
-                    </p>
+                <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+                        <BookOpen className="h-6 w-6" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight">字典管理</h1>
+                        <p className="text-sm text-muted-foreground mt-0.5">
+                            管理系统中的枚举值、下拉选项及配置参数。
+                        </p>
+                    </div>
                 </div>
-                <Button onClick={handleCreate} className="shadow-lg hover:shadow-xl transition-all">
+                <Button onClick={handleCreate} className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
                     <Plus className="w-4 h-4 mr-2" /> 新建字典
                 </Button>
             </div>
@@ -189,7 +191,7 @@ export default function DictionariesPage() {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant="outline" className="bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary">
+                                        <Badge variant="outline" className="bg-blue-500/10 border-blue-500/20 text-blue-600 hover:bg-blue-500/20">
                                             {dict.module}
                                         </Badge>
                                     </TableCell>
@@ -199,7 +201,7 @@ export default function DictionariesPage() {
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant={dict.is_enabled ? "default" : "destructive"} className={!dict.is_enabled ? "bg-destructive/10 text-destructive hover:bg-destructive/20 border-destructive/20" : "bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/20 shadow-none"}>
+                                        <Badge variant={dict.is_enabled ? "default" : "destructive"} className={!dict.is_enabled ? "bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/20 shadow-none" : "bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/20 shadow-none"}>
                                             {dict.is_enabled ? '已启用' : '已禁用'}
                                         </Badge>
                                     </TableCell>

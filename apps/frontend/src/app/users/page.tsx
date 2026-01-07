@@ -112,13 +112,18 @@ export default function UsersPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">用户管理</h1>
-          <p className="text-muted-foreground mt-2">
-            管理平台用户及其管理员权限
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+            <Users className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">用户管理</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              管理平台用户及其管理员权限
+            </p>
+          </div>
         </div>
-        <Button onClick={() => refetch()} variant="outline">
+        <Button onClick={() => refetch()} variant="outline" className="shadow-sm hover:shadow transition-all">
           <RefreshCw className="w-4 h-4 mr-2" />
           刷新
         </Button>
@@ -183,12 +188,12 @@ export default function UsersPage() {
                       <TableCell>{user.name || '-'}</TableCell>
                       <TableCell>
                         {user.is_admin ? (
-                          <Badge variant="default" className="gap-1">
+                          <Badge variant="outline" className="gap-1 bg-red-500/10 text-red-600 border-red-500/20">
                             <Shield className="w-3 h-3" />
                             管理员
                           </Badge>
                         ) : (
-                          <Badge variant="secondary">普通用户</Badge>
+                          <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">普通用户</Badge>
                         )}
                       </TableCell>
                       <TableCell>

@@ -139,21 +139,22 @@ function KnowledgeHomePageContent() {
   return (
     <div className="space-y-6">
       {/* Header Section */}
+      {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
-              <BookOpen className="w-5 h-5 text-primary" />
-            </div>
-            经验指南
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            管理和维护告警处理的最佳实践与知识库
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+            <BookOpen className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">经验指南</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              管理和维护告警处理的最佳实践与知识库
+            </p>
+          </div>
         </div>
         <Button
           asChild
-          className="h-10 shadow-sm px-4"
+          className="h-10 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all px-4"
         >
           <Link href={resolveAppPath('/knowledge/new')}>
             <Plus className="mr-2 h-4 w-4" />

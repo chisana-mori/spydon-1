@@ -28,6 +28,10 @@ import {
   ChevronRight,
   GitBranch,
   Library,
+  Tags,
+  AlertCircle,
+  Settings2,
+  Database,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { toast } from 'sonner'
@@ -86,6 +90,44 @@ const navigation: NavigationItem[] = [
     href: '/devices',
     icon: Monitor,
     description: '硬件资产管理',
+  },
+  {
+    name: '资源管理',
+    icon: Database,
+    description: 'F5、存储等资源管理',
+    children: [
+      {
+        name: 'F5管理',
+        href: '/resources/f5',
+        icon: Server,
+        description: 'F5负载均衡器管理',
+      },
+    ],
+  },
+  {
+    name: '配置管理',
+    icon: Library,
+    description: '标签、污点与设备应用配置',
+    children: [
+      {
+        name: '标签管理',
+        href: '/configuration/labels',
+        icon: Tags,
+        description: '标签特性管理',
+      },
+      {
+        name: '污点管理',
+        href: '/configuration/taints',
+        icon: AlertCircle,
+        description: '污点特性管理',
+      },
+      {
+        name: '设备应用管理',
+        href: '/configuration/device-apps',
+        icon: Settings2,
+        description: '设备应用类型管理',
+      },
+    ],
   },
   {
     name: '变更管理',

@@ -102,6 +102,8 @@ func (s *SystemSettingService) GetAutoRCAConfig() (*AutoRCAConfig, time.Time, er
 	if setting == nil {
 		// 数据库中尚未初始化时返回默认配置
 		defaultConfig := GetDefaultAutoRCAConfig()
+		// 初始化到数据库，避免后续重复报错
+		_, _ = s.SetSetting(SettingKeyAutoRCA, defaultConfig, "System Default Auto-RCA Configuration")
 		return defaultConfig, time.Time{}, nil
 	}
 

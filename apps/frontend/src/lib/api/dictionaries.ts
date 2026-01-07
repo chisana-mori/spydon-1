@@ -130,3 +130,23 @@ export async function batchUpdateDictionaryItems(dictionaryId: number, items: Pa
         throw new Error(`批量更新字典项失败: ${response.statusText}`);
     }
 }
+
+/**
+ * 根据字典编码获取字典项列表
+ */
+export async function getDictionaryItemsByCode(code: string): Promise<DictionaryItem[]> {
+    const response = await fetch(`${basePath}/api/v1/shared/dict/${code}/items`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(`获取字典项失败: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.data || [];
+}

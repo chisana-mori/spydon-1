@@ -82,28 +82,28 @@ export default function Clusters() {
           variant: 'outline' as const,
           label: '活跃',
           icon: CheckCircle,
-          className: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+          className: 'bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20'
         }
       case 'inactive':
         return {
           variant: 'outline' as const,
           label: '离线',
           icon: XCircle,
-          className: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-50'
+          className: 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20'
         }
       case 'maintenance':
         return {
           variant: 'outline' as const,
           label: '维护中',
           icon: Activity,
-          className: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50'
+          className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20 hover:bg-yellow-500/20'
         }
       default:
         return {
           variant: 'outline' as const,
           label: status,
           icon: Server,
-          className: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-50'
+          className: 'bg-slate-500/10 text-slate-500 border-slate-500/20 hover:bg-slate-500/20'
         }
     }
   }
@@ -137,15 +137,21 @@ export default function Clusters() {
   return (
     <div className="space-y-6">
       {/* 页面标题 */}
+      {/* 页面标题 */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">集群管理</h1>
-          <p className="text-muted-foreground">
-            管理和监控所有Kubernetes集群
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+            <Server className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">集群管理</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              管理和监控所有Kubernetes集群
+            </p>
+          </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => setIsCreateDialogOpen(true)}>
+          <Button onClick={() => setIsCreateDialogOpen(true)} className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
             <Plus className="h-4 w-4 mr-2" />
             新增集群
           </Button>

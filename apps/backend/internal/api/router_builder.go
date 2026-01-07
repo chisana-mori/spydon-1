@@ -13,6 +13,7 @@ import (
 	apikeyhttp "robusta-web/backend/internal/features/apikey/transport/http"
 	authservice "robusta-web/backend/internal/features/auth/services"
 	authhttp "robusta-web/backend/internal/features/auth/transport/http"
+	configurationhttp "robusta-web/backend/internal/features/configuration/transport/http"
 	healthhttp "robusta-web/backend/internal/features/health/transport/http"
 	holmesservice "robusta-web/backend/internal/features/holmes/services"
 	holmeshttp "robusta-web/backend/internal/features/holmes/transport/http"
@@ -62,6 +63,7 @@ type handlerSet struct {
 	pipeline         *pipelinehttp.Handler
 	navy             *navyhttp.Handler
 	shared           *sharedhttp.Handler
+	configuration    *configurationhttp.ConfigurationHandler
 }
 
 func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config, nodesyncManager *nodesync.Manager, awxRuntime *pipelineservice.AWXRuntime) (*handlerSet, *BackgroundServices, error) {
@@ -144,6 +146,9 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 	// 字典服务 (Shared)
 	dictionaryService := sharedservices.NewDictionaryService(database)
 
+	// F5 资产管理服务
+	f5Service := navyservice.NewF5InfoService(navyDatabase.DB)
+
 	handlers := &handlerSet{
 		cfg:              cfg,
 		apiKeyService:    apiKeyService,
@@ -173,8 +178,10 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 			safeDrainService,
 			k8sNodeManageService,
 			changeManager,
+			f5Service,
 		),
-		shared: sharedhttp.New(cfg, dictionaryService),
+		shared:        sharedhttp.New(cfg, dictionaryService),
+		configuration: configurationhttp.NewConfigurationHandler(navyDatabase),
 	}
 
 	// 创建 AWX Job Poller
@@ -243,6 +250,7 @@ func (r *routeRegistrar) register() {
 	r.registerPipelineRoutes(v1)
 	r.registerNavyRoutes(v1)
 	r.registerSharedRoutes(v1)
+	r.registerConfigurationRoutes(v1)
 }
 
 func (r *routeRegistrar) applyGlobalMiddleware() {
@@ -343,4 +351,12 @@ func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {
 func (r *routeRegistrar) registerSharedRoutes(v1 *gin.RouterGroup) {
 	// Shared routes (Dictionary management etc.)
 	r.handlers.shared.RegisterRoutes(v1)
+}
+
+func (r *routeRegistrar) registerConfigurationRoutes(v1 *gin.RouterGroup) {
+	// Configuration Management routes (Labels, Taints, Device Apps)
+	configGroup := v1.Group("/configuration")
+	configGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
+	configGroup.Use(middleware.RequireAdmin())
+	r.handlers.configuration.RegisterRoutes(configGroup)
 }

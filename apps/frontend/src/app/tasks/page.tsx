@@ -159,27 +159,29 @@ const ExecutionCard = ({ exec, showActions = true, onRun, onPause, onResume, onC
     // Visual styles helpers
     const getStatusStyle = (s: ExecutionStatus) => {
         switch (s) {
-            case 'running': return "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800"
-            case 'successful': return "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
-            case 'failed': return "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
-            case 'paused': return "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800"
-            case 'pending': return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700"
-            default: return "bg-gray-50 text-gray-600 border-gray-200"
+            case 'running': return "bg-blue-500/10 text-blue-600 border-blue-500/20"
+            case 'successful': return "bg-green-500/10 text-green-600 border-green-500/20"
+            case 'failed': return "bg-red-500/10 text-red-500 border-red-500/20"
+            case 'paused': return "bg-orange-500/10 text-orange-600 border-orange-500/20"
+            case 'pending': return "bg-slate-500/10 text-slate-500 border-slate-500/20"
+            case 'rolling_back': return "bg-purple-500/10 text-purple-600 border-purple-500/20"
+            case 'rolled_back': return "bg-purple-500/10 text-purple-600 border-purple-500/20"
+            default: return "bg-muted text-muted-foreground border-border"
         }
     }
 
     const getCardTheme = (s: ExecutionStatus) => {
         switch (s) {
             case 'running':
-                return "hover:border-blue-400/50 dark:hover:border-blue-500/30 bg-gradient-to-r from-blue-50/80 via-transparent to-transparent dark:from-blue-950/20"
+                return "hover:border-blue-500/40 bg-gradient-to-r from-blue-500/5 via-transparent to-transparent"
             case 'successful':
-                return "hover:border-emerald-400/50 dark:hover:border-emerald-500/30 bg-gradient-to-r from-emerald-50/80 via-transparent to-transparent dark:from-emerald-950/20"
+                return "hover:border-green-500/40 bg-gradient-to-r from-green-500/5 via-transparent to-transparent"
             case 'failed':
-                return "hover:border-red-400/50 dark:hover:border-red-500/30 bg-gradient-to-r from-red-50/80 via-transparent to-transparent dark:from-red-950/20"
+                return "hover:border-red-500/40 bg-gradient-to-r from-red-500/5 via-transparent to-transparent"
             case 'paused':
-                return "hover:border-amber-400/50 dark:hover:border-amber-500/30 bg-gradient-to-r from-amber-50/80 via-transparent to-transparent dark:from-amber-950/20"
+                return "hover:border-orange-500/40 bg-gradient-to-r from-orange-500/5 via-transparent to-transparent"
             case 'pending':
-                return "hover:border-gray-400/50 dark:hover:border-gray-500/30 bg-gradient-to-r from-gray-50/80 via-transparent to-transparent dark:from-gray-900/20"
+                return "hover:border-slate-500/40 bg-gradient-to-r from-slate-500/5 via-transparent to-transparent"
             default:
                 return "hover:border-primary/20"
         }
@@ -588,17 +590,23 @@ export default function TasksPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
+            {/* Header */}
             <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">变更管理</h1>
-                    <p className="text-muted-foreground">管理和执行自动化运维流程</p>
+                <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
+                        <GitBranch className="h-6 w-6" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight">变更管理</h1>
+                        <p className="text-sm text-muted-foreground mt-0.5">管理和执行自动化运维流程</p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => fetchData(true)} disabled={refreshing}>
+                    <Button variant="outline" size="sm" onClick={() => fetchData(true)} disabled={refreshing} className="shadow-sm hover:shadow transition-all">
                         <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
                         刷新
                     </Button>
-                    <Button disabled={templates.length === 0} onClick={() => router.push('/tasks/launch')}>
+                    <Button disabled={templates.length === 0} onClick={() => router.push('/tasks/launch')} className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
                         <Plus className="w-4 h-4 mr-2" />
                         新建任务
                     </Button>

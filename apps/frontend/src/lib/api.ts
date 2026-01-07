@@ -32,6 +32,7 @@ import type {
     DeviceFeatureDetails,
     NodeLabelTaintResponse,
 } from '@/types/navy'
+import type { F5Info, F5InfoQuery, F5InfoListResponse, F5InfoUpdateDTO } from '@/types/f5'
 
 // 获取 API Base URL
 function getApiBaseUrl(): string {
@@ -81,6 +82,8 @@ function createApiClient(): AxiosInstance {
 }
 
 const apiClient = createApiClient()
+export const api = apiClient
+
 
 // API 响应处理
 async function handleResponse<T>(promise: Promise<any>): Promise<T> {
@@ -472,6 +475,24 @@ export class RobustaAPI {
 
     static async rebootNodes(ciCodes: string[]): Promise<{ job_id: number; message: string }> {
         return handleResponse(apiClient.post('/navy/device-ops/reboot', { ci_codes: ciCodes }))
+    }
+
+    // ============ F5 Load Balancer Management ============
+    static async listF5Infos(query: F5InfoQuery): Promise<F5InfoListResponse> {
+        const response = await apiClient.get('/navy/f5', { params: query })
+        return response.data
+    }
+
+    static async getF5Info(id: number): Promise<F5Info> {
+        return handleResponse(apiClient.get(`/navy/f5/${id}`))
+    }
+
+    static async updateF5Info(id: number, data: Partial<F5InfoUpdateDTO>): Promise<void> {
+        await apiClient.put(`/navy/f5/${id}`, data)
+    }
+
+    static async deleteF5Info(id: number): Promise<void> {
+        await apiClient.delete(`/navy/f5/${id}`)
     }
 
     // ============ K8s Node Real-Time Management ============

@@ -147,19 +147,19 @@ export function DictionaryDrawer({ open, onClose, dictionaryId }: DictionaryDraw
         <Sheet open={open} onOpenChange={onClose}>
             <SheetContent className="sm:max-w-[700px] w-full flex flex-col h-full p-0 gap-0 bg-background/95 backdrop-blur-sm">
                 <SheetHeader className="px-6 py-4 border-b bg-muted/20">
-                    <div className="flex items-center gap-2">
-                        <div className="p-2 bg-primary/10 rounded-lg">
-                            <BookMarked className="w-5 h-5 text-primary" />
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-blue-500/10 rounded-xl ring-1 ring-blue-500/20">
+                            <BookMarked className="w-5 h-5 text-blue-500" />
                         </div>
                         <div className="space-y-1">
-                            <SheetTitle className="flex items-center gap-3">
+                            <SheetTitle className="flex items-center gap-3 text-xl">
                                 {dictionaryId ? '编辑字典' : '新建字典'}
                                 {dictionaryId ? (
-                                    <Badge variant={form.watch('is_enabled') ? 'default' : 'secondary'} className="h-5 px-2 text-[10px] font-medium">
+                                    <Badge variant={form.watch('is_enabled') ? 'default' : 'secondary'} className={form.watch('is_enabled') ? "h-5 px-2 text-[10px] font-medium bg-green-500/10 text-green-600 border-green-500/20 shadow-none hover:bg-green-500/20" : "h-5 px-2 text-[10px] font-medium bg-red-500/10 text-red-500 border-red-500/20 shadow-none hover:bg-red-500/20"}>
                                         {form.watch('is_enabled') ? '已启用' : '已禁用'}
                                     </Badge>
                                 ) : (
-                                    <Badge className="h-5 px-2 text-[10px] font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-0 shadow-none">
+                                    <Badge className="h-5 px-2 text-[10px] font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-500/20 shadow-none">
                                         NEW
                                     </Badge>
                                 )}

@@ -23,6 +23,7 @@ HolmesGPT-*.md
 
 **.next**
 **node_modules**
+**launch.json**
 
 # Compressed files
 **.gz

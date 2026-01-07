@@ -10,7 +10,7 @@ import (
 )
 
 // Handler aggregates all Navy-related HTTP handlers
-// (device inventory, device operations, safe drain, k8s node management).
+// (device inventory, device operations, safe drain, k8s node management, F5 management).
 type Handler struct {
 	cfg                  *config.Config
 	navyDB               *db.NavyDatabase
@@ -19,6 +19,7 @@ type Handler struct {
 	safeDrainService     *services.SimpleDrainService
 	k8sNodeManageService *services.K8sNodeManageService
 	changeManager        *services.ChangeManager
+	f5Service            *services.F5InfoService
 }
 
 // New creates a new Navy feature handler.
@@ -30,6 +31,7 @@ func New(
 	safeDrainService *services.SimpleDrainService,
 	k8sNodeManageService *services.K8sNodeManageService,
 	changeManager *services.ChangeManager,
+	f5Service *services.F5InfoService,
 ) *Handler {
 	return &Handler{
 		cfg:                  cfg,
@@ -39,6 +41,7 @@ func New(
 		safeDrainService:     safeDrainService,
 		k8sNodeManageService: k8sNodeManageService,
 		changeManager:        changeManager,
+		f5Service:            f5Service,
 	}
 }
 
@@ -118,5 +121,14 @@ func (h *Handler) RegisterRoutes(v1 *gin.RouterGroup) {
 		// Queries
 		k8sNodeGroup.GET("", h.ListClusterNodes)
 		k8sNodeGroup.GET("/labels-taints", h.GetNodeLabelsAndTaints)
+	}
+
+	// /api/v1/navy/f5 - F5 load balancer management
+	f5Group := navyGroup.Group("/f5")
+	{
+		f5Group.GET("/:id", h.GetF5Info)
+		f5Group.GET("", h.ListF5Infos)
+		f5Group.PUT("/:id", h.UpdateF5Info)
+		f5Group.DELETE("/:id", h.DeleteF5Info)
 	}
 }

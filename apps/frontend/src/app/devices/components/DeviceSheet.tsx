@@ -48,6 +48,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { ConfigCombobox } from '@/components/common/ConfigCombobox'
 
 interface DeviceSheetProps {
     device: NavyDevice | null
@@ -113,24 +114,24 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceShee
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent className="w-[800px] sm:max-w-[800px] p-0 border-l border-border/40 shadow-2xl flex flex-col h-full">
                 {/* Modern Header Design */}
-                <div className="flex-none p-6 pb-2 bg-gradient-to-b from-muted/50 to-background border-b z-20">
+                <div className="flex-none p-6 pb-2 bg-gradient-to-b from-blue-50/50 to-background dark:from-blue-950/10 border-b z-20">
                     <div className="flex items-start justify-between mb-4">
                         <div className="flex gap-4">
-                            <div className="h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-sm flex-shrink-0">
-                                <Server className="h-7 w-7 text-primary" />
+                            <div className="h-14 w-14 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shadow-sm flex-shrink-0">
+                                <Server className="h-7 w-7 text-blue-500" />
                             </div>
                             <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                     <h2 className="text-xl font-bold tracking-tight font-mono">{device.ci_code}</h2>
                                     {device.is_special && (
-                                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 gap-1 px-2 h-5">
-                                            <Star className="h-3 w-3 fill-amber-700" />
+                                        <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20 hover:bg-amber-500/20 gap-1 px-2 h-5">
+                                            <Star className="h-3 w-3 fill-amber-600" />
                                             特殊设备
                                         </Badge>
                                     )}
                                 </div>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <div className="flex items-center gap-1.5 bg-muted px-2 py-0.5 rounded-md border">
+                                    <div className="flex items-center gap-1.5 bg-muted/50 px-2 py-0.5 rounded-md border border-border/50">
                                         <Network className="h-3.5 w-3.5" />
                                         <span className="font-mono text-foreground font-medium">{device.ip}</span>
                                     </div>
@@ -138,12 +139,14 @@ export function DeviceSheet({ device, open, onOpenChange, onUpdate }: DeviceShee
                                     <span>{device.idc}</span>
                                     <span className="text-border">|</span>
                                     <span className={cn(
-                                        "flex items-center gap-1.5",
-                                        device.status === 'online' || device.status === '活跃' ? "text-emerald-600 font-medium" : ""
+                                        "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border",
+                                        device.status === 'online' || device.status === '活跃'
+                                            ? "bg-green-500/10 text-green-600 border-green-500/20"
+                                            : "bg-gray-500/10 text-gray-500 border-gray-500/20"
                                     )}>
                                         <div className={cn(
-                                            "h-2 w-2 rounded-full",
-                                            device.status === 'online' || device.status === '活跃' ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"
+                                            "h-1.5 w-1.5 rounded-full",
+                                            device.status === 'online' || device.status === '活跃' ? "bg-green-500 animate-pulse" : "bg-gray-500"
                                         )} />
                                         {device.status || '未知状态'}
                                     </span>
@@ -483,18 +486,21 @@ function K8sFeatureEditor({
 
                 {/* Add Label Form */}
                 {showAddLabel && (
-                    <div className="flex items-center gap-2 p-3 rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
-                        <Input
+                    <div className="flex items-center gap-2 p-3 rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 w-full animate-in zoom-in-95 duration-200">
+                        <ConfigCombobox
+                            type="label"
                             placeholder="key"
                             value={labelKey}
-                            onChange={e => setLabelKey(e.target.value)}
+                            onChange={setLabelKey}
                             className="h-8 text-xs font-mono flex-1"
                         />
                         <span className="text-muted-foreground">=</span>
-                        <Input
+                        <ConfigCombobox
+                            type="label-value"
+                            parentKey={labelKey}
                             placeholder="value"
                             value={labelValue}
-                            onChange={e => setLabelValue(e.target.value)}
+                            onChange={setLabelValue}
                             className="h-8 text-xs font-mono flex-1"
                         />
                         <Button size="sm" className="h-8 px-3" onClick={handleAddLabel} disabled={isSubmitting}>
@@ -553,25 +559,27 @@ function K8sFeatureEditor({
 
                 {/* Add Taint Form */}
                 {showAddTaint && (
-                    <div className="flex flex-col gap-2 p-3 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/20">
+                    <div className="flex flex-col gap-3 p-3 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/20 animate-in zoom-in-95 duration-200">
                         <div className="flex items-center gap-2">
-                            <Input
+                            <ConfigCombobox
+                                type="taint"
                                 placeholder="key"
                                 value={taintKey}
-                                onChange={e => setTaintKey(e.target.value)}
-                                className="h-8 text-xs font-mono flex-1"
+                                onChange={setTaintKey}
+                                className="h-8 text-xs font-mono flex-[2]"
                             />
                             <span className="text-muted-foreground">=</span>
-                            <Input
+                            <ConfigCombobox
+                                type="taint-value"
+                                parentKey={taintKey}
                                 placeholder="value (可选)"
                                 value={taintValue}
-                                onChange={e => setTaintValue(e.target.value)}
-                                className="h-8 text-xs font-mono flex-1"
+                                onChange={setTaintValue}
+                                className="h-8 text-xs font-mono flex-[2]"
                             />
-                        </div>
-                        <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">:</span>
                             <Select value={taintEffect} onValueChange={(v) => setTaintEffect(v as typeof taintEffect)}>
-                                <SelectTrigger className="h-8 text-xs flex-1">
+                                <SelectTrigger className="h-8 text-xs min-w-[110px] flex-[1.5]">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -580,11 +588,14 @@ function K8sFeatureEditor({
                                     <SelectItem value="NoExecute">NoExecute</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <Button size="sm" className="h-8 px-3" onClick={handleAddTaint} disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                            <Button size="sm" variant="ghost" className="h-7 px-3 text-muted-foreground" onClick={resetTaintForm}>
+                                取消
                             </Button>
-                            <Button size="sm" variant="ghost" className="h-8 px-2" onClick={resetTaintForm}>
-                                <X className="h-3 w-3" />
+                            <Button size="sm" className="h-7 px-4 bg-orange-600 hover:bg-orange-700" onClick={handleAddTaint} disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
+                                添加 Taint
                             </Button>
                         </div>
                     </div>
