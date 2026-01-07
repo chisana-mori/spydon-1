@@ -213,3 +213,39 @@ type APIKey struct {
 func (APIKey) TableName() string {
 	return "spydon_api_keys"
 }
+
+// Dictionary 字典表 - 用于管理枚举值、下拉选项等配置数据
+type Dictionary struct {
+	BaseModel
+	Code           string           `json:"code" gorm:"type:varchar(100);uniqueIndex;not null"` // 字典编码（唯一标识）
+	Name           string           `json:"name" gorm:"type:varchar(255);not null"`             // 字典名称
+	Module         string           `json:"module" gorm:"type:varchar(100)"`                    // 所属模块
+	Description    string           `json:"description" gorm:"type:text"`                       // 描述
+	IsEnabled      bool             `json:"is_enabled" gorm:"type:boolean;default:true"`        // 是否启用
+	KeySameAsValue bool             `json:"key_same_as_value" gorm:"type:boolean"`              // key 与 value 是否相同
+	SortOrder      int              `json:"sort_order" gorm:"type:int;default:0"`               // 排序顺序
+	Items          []DictionaryItem `json:"items,omitempty" gorm:"foreignKey:DictionaryID;constraint:OnDelete:CASCADE"`
+}
+
+// DictionaryItem 字典项表 - 具体的枚举选项
+type DictionaryItem struct {
+	BaseModel
+	DictionaryID uint64 `json:"dictionary_id" gorm:"type:bigint unsigned;index;not null"` // 关联字典 ID
+	Key          string `json:"key" gorm:"type:varchar(255);not null"`                    // 选项 Key（存储值）
+	Value        string `json:"value" gorm:"type:varchar(255);not null"`                  // 选项 Value（显示值）
+	Description  string `json:"description" gorm:"type:text"`                             // 描述
+	IsDefault    bool   `json:"is_default" gorm:"type:boolean;default:false"`             // 是否默认选中
+	IsEnabled    bool   `json:"is_enabled" gorm:"type:boolean;default:true"`              // 是否启用
+	SortOrder    int    `json:"sort_order" gorm:"type:int;default:0"`                     // 排序顺序
+	Extra        string `json:"extra,omitempty" gorm:"type:text"`                         // 扩展字段（JSON）
+}
+
+// TableName 指定表名
+func (Dictionary) TableName() string {
+	return "spydon_dictionaries"
+}
+
+// TableName 指定表名
+func (DictionaryItem) TableName() string {
+	return "spydon_dictionary_items"
+}

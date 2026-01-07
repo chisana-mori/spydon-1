@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/constants"
@@ -28,6 +29,7 @@ import (
 	rcaservice "robusta-web/backend/internal/features/rca/services"
 	rcahttp "robusta-web/backend/internal/features/rca/transport/http"
 	sharedservices "robusta-web/backend/internal/features/shared/services"
+	sharedhttp "robusta-web/backend/internal/features/shared/transport/http"
 	systemsettingservice "robusta-web/backend/internal/features/systemsetting/services"
 	systemsettinghttp "robusta-web/backend/internal/features/systemsetting/transport/http"
 	userservice "robusta-web/backend/internal/features/user/services"
@@ -59,15 +61,16 @@ type handlerSet struct {
 	knowledge        *knowledgehttp.Handler
 	pipeline         *pipelinehttp.Handler
 	navy             *navyhttp.Handler
+	shared           *sharedhttp.Handler
 }
 
-func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config, nodesyncManager *nodesync.Manager) (*handlerSet, error) {
+func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config, nodesyncManager *nodesync.Manager, awxRuntime *pipelineservice.AWXRuntime) (*handlerSet, *BackgroundServices, error) {
 	clusterService := queryservice.NewClusterService(database)
 	auditService := sharedservices.NewAuditService(database)
 
 	objectStorage, err := sharedservices.NewObjectStorageService(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	knowledgeService := knowledgeservice.NewKnowledgeService(database, objectStorage)
@@ -81,11 +84,11 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 
 	casClient, err := buildCASClient(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// 创建流水线引擎 (使用 AWX 和 Prometheus 运行时)
-	awxRuntime := pipelineservice.NewAWXRuntimeFromConfig(cfg)
+	// awxRuntime is now passed in as parameter
 	prometheusRuntime := pipelineservice.NewPrometheusRuntimeFromConfig()
 	pipelineEngine := pipelineservice.NewPipelineEngine(
 		database,
@@ -128,8 +131,18 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 	// K8s 节点管理服务
 	k8sNodeManageService := navyservice.NewK8sNodeManageService(database, nodesyncManager)
 
+	// Change Manager (变更管理)
+	changeManagerConfig := navyservice.ChangeManagerConfig{
+		Enabled: cfg.ChangeManagement.Enabled,
+		Timeout: time.Duration(cfg.ChangeManagement.TimeoutMinutes) * time.Minute,
+	}
+	changeManager := navyservice.NewChangeManager(changeManagerConfig, redisHandler, nil, logger.L())
+
 	// Streamer needs raw access to AWX Client
 	awxStreamer := pipelineservice.NewAWXStreamer(database.DB, awxRuntime.GetClient())
+
+	// 字典服务 (Shared)
+	dictionaryService := sharedservices.NewDictionaryService(database)
 
 	handlers := &handlerSet{
 		cfg:              cfg,
@@ -159,10 +172,20 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 			deviceOpsService,
 			safeDrainService,
 			k8sNodeManageService,
+			changeManager,
 		),
+		shared: sharedhttp.New(cfg, dictionaryService),
 	}
 
-	return handlers, nil
+	// 创建 AWX Job Poller
+	awxJobPoller := navyservice.NewAWXJobPoller(changeManager, awxRuntime, logger.L())
+
+	bgServices := &BackgroundServices{
+		ChangeManager: changeManager,
+		AWXJobPoller:  awxJobPoller,
+	}
+
+	return handlers, bgServices, nil
 }
 
 func buildCASClient(cfg *config.Config) (*cas.Client, error) {
@@ -219,6 +242,7 @@ func (r *routeRegistrar) register() {
 	r.registerKnowledgeRoutes(v1)
 	r.registerPipelineRoutes(v1)
 	r.registerNavyRoutes(v1)
+	r.registerSharedRoutes(v1)
 }
 
 func (r *routeRegistrar) applyGlobalMiddleware() {
@@ -314,4 +338,9 @@ func (r *routeRegistrar) registerNavyRoutes(v1 *gin.RouterGroup) {
 	// Navy routes migrated to feature-first handler while preserving
 	// URL paths and middleware semantics.
 	r.handlers.navy.RegisterRoutes(v1)
+}
+
+func (r *routeRegistrar) registerSharedRoutes(v1 *gin.RouterGroup) {
+	// Shared routes (Dictionary management etc.)
+	r.handlers.shared.RegisterRoutes(v1)
 }

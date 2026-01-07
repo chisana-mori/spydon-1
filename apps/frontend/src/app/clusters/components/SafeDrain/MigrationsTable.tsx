@@ -230,12 +230,12 @@ const MigrationRow: React.FC<{ migration: DrainPodMigrationInfo; clusterName?: s
             {/* 信息/时间 */}
             <TableCell className="text-right py-2.5 pr-4">
                 <div className="flex justify-end max-w-[180px] ml-auto">
-                    {isIgnored ? (
-                        <span className="text-xs text-muted-foreground/30">-</span>
-                    ) : migration.errorMessage ? (
+                    {migration.errorMessage ? (
                         <span className="text-[11px] text-red-500 truncate font-medium" title={migration.errorMessage}>
                             {migration.errorMessage}
                         </span>
+                    ) : isIgnored ? (
+                        <span className="text-xs text-muted-foreground/30">-</span>
                     ) : (
                         <span className="text-[10px] text-muted-foreground font-mono">
                             {migration.targetPod?.createdAt ? formatStartTime(migration.targetPod.createdAt) : ''}

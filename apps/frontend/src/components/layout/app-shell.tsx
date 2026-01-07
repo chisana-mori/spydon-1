@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronRight,
   GitBranch,
+  Library,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { toast } from 'sonner'
@@ -93,10 +94,16 @@ const navigation: NavigationItem[] = [
     description: '任务与变更执行',
   },
   {
-    name: '权限管理',
+    name: '系统管理',
     icon: Shield,
-    description: '权限控制',
+    description: '系统配置与权限',
     children: [
+      {
+        name: '字典管理',
+        href: '/dictionaries',
+        icon: Library,
+        description: '系统字典配置',
+      },
       {
         name: '用户管理',
         href: '/users',
@@ -241,32 +248,32 @@ export function AppShell({ children }: AppShellProps) {
           <button
             onClick={() => toggleMenu(item.name)}
             className={cn(
-              'group flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+              'group flex items-center justify-between w-full px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200',
               hasActiveChild
-                ? 'bg-muted text-foreground shadow-inner'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground hover:shadow-sm',
+                ? 'bg-primary/5 text-primary'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
             )}
           >
             <div className="flex items-center space-x-3">
               <Icon
                 className={cn(
                   'h-5 w-5 transition-transform duration-200 flex-shrink-0',
-                  hasActiveChild ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground group-hover:scale-110',
+                  hasActiveChild ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground group-hover:scale-110',
                 )}
               />
-              <span className="font-medium text-foreground">
+              <span className={cn("font-medium", hasActiveChild ? 'text-primary' : 'text-foreground')}>
                 {item.name}
               </span>
             </div>
             {isExpanded ? (
-              <ChevronDown className={cn('h-4 w-4', hasActiveChild ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')} />
+              <ChevronDown className={cn('h-4 w-4', hasActiveChild ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
             ) : (
-              <ChevronRight className={cn('h-4 w-4', hasActiveChild ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground')} />
+              <ChevronRight className={cn('h-4 w-4', hasActiveChild ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} />
             )}
           </button>
 
           {isExpanded && (
-            <div className="mt-1 ml-4 pl-3 border-l border-border/40 space-y-1">
+            <div className="mt-1 space-y-1">
               {item.children.map((child) => {
                 const isActive = child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
                 const ChildIcon = child.icon
@@ -277,20 +284,26 @@ export function AppShell({ children }: AppShellProps) {
                     key={child.name}
                     href={childHref}
                     className={cn(
-                      'group flex items-center space-x-2.5 px-3 py-2 rounded-md text-sm transition-all duration-200 relative overflow-hidden',
+                      'group flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 relative overflow-hidden pl-11',
                       isActive
-                        ? 'bg-primary text-primary-foreground font-medium shadow-sm'
-                        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground font-normal',
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground font-normal',
                     )}
                     onClick={() => setSidebarOpen(false)}
                   >
-                    <ChildIcon
-                      className={cn(
-                        'h-4 w-4 transition-all duration-200 flex-shrink-0',
-                        isActive ? 'text-primary-foreground' : 'text-muted-foreground/70 group-hover:text-foreground',
-                      )}
-                    />
-                    <span className="text-sm truncate">
+                    {!isActive && (
+                      <ChildIcon
+                        className={cn(
+                          'absolute left-4 h-4 w-4 transition-all duration-200 opacity-50 group-hover:opacity-100',
+                        )}
+                      />
+                    )}
+                    {isActive && (
+                      <div className="absolute left-4 w-4 flex justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      </div>
+                    )}
+                    <span className="truncate">
                       {child.name}
                     </span>
                   </Link>
@@ -311,7 +324,7 @@ export function AppShell({ children }: AppShellProps) {
         key={item.name}
         href={itemHref}
         className={cn(
-          'group flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 relative',
+          'group flex items-center space-x-3 px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 relative',
           isActive
             ? 'bg-primary text-primary-foreground shadow-sm'
             : 'text-muted-foreground hover:bg-accent hover:text-foreground hover:shadow-sm',

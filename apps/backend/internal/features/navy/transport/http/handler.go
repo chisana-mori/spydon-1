@@ -18,6 +18,7 @@ type Handler struct {
 	deviceOpsService     *services.DeviceOperationsService
 	safeDrainService     *services.SimpleDrainService
 	k8sNodeManageService *services.K8sNodeManageService
+	changeManager        *services.ChangeManager
 }
 
 // New creates a new Navy feature handler.
@@ -28,6 +29,7 @@ func New(
 	deviceOpsService *services.DeviceOperationsService,
 	safeDrainService *services.SimpleDrainService,
 	k8sNodeManageService *services.K8sNodeManageService,
+	changeManager *services.ChangeManager,
 ) *Handler {
 	return &Handler{
 		cfg:                  cfg,
@@ -36,6 +38,7 @@ func New(
 		deviceOpsService:     deviceOpsService,
 		safeDrainService:     safeDrainService,
 		k8sNodeManageService: k8sNodeManageService,
+		changeManager:        changeManager,
 	}
 }
 
@@ -97,7 +100,7 @@ func (h *Handler) RegisterRoutes(v1 *gin.RouterGroup) {
 		{
 			k8sOps.POST("/cordon", h.CordonNodes)
 			k8sOps.POST("/uncordon", h.UncordonNodes)
-			k8sOps.POST("/drain", h.DrainNodes)
+			// k8sOps.POST("/drain", h.DrainNodes)
 			k8sOps.POST("/taint", h.TaintNodes)
 			k8sOps.POST("/label", h.LabelNodes)
 		}
@@ -115,13 +118,5 @@ func (h *Handler) RegisterRoutes(v1 *gin.RouterGroup) {
 		// Queries
 		k8sNodeGroup.GET("", h.ListClusterNodes)
 		k8sNodeGroup.GET("/labels-taints", h.GetNodeLabelsAndTaints)
-
-		// Label operations
-		k8sNodeGroup.POST("/labels", h.AddLabel)
-		k8sNodeGroup.DELETE("/labels", h.RemoveLabel)
-
-		// Taint operations
-		k8sNodeGroup.POST("/taints", h.AddTaint)
-		k8sNodeGroup.DELETE("/taints", h.RemoveTaint)
 	}
 }

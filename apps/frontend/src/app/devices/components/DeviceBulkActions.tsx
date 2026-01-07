@@ -63,7 +63,7 @@ import {
     Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import RobustaAPI from '@/lib/api'
+import RobustaAPI, { BatchOperationResult } from '@/lib/api'
 import { DeviceFeatureDetails, NodeLabelTaintResponse } from '@/types/navy'
 import { NavyDevice } from '@/types/navy'
 import { cn } from '@/lib/utils'
@@ -99,6 +99,8 @@ export function DeviceBulkActions({
         description: '',
     })
     const [taintLabelSheetOpen, setTaintLabelSheetOpen] = useState(false)
+    const [k8sConfirmOpen, setK8sConfirmOpen] = useState(false)
+    const [k8sOperation, setK8sOperation] = useState<'cordon' | 'uncordon' | 'drain'>('drain')
 
     const selectedCount = selectedDevices.size
     const runningDrains = activeDrains.filter(d => d.status === 'running')
@@ -119,18 +121,18 @@ export function DeviceBulkActions({
     ).length
 
     const showConfirmDialog = (operation: OperationType) => {
+        if (operation === 'drain' || operation === 'cordon' || operation === 'uncordon') {
+            setK8sOperation(operation)
+            setK8sConfirmOpen(true)
+            return
+        }
+
         const ciCodes = getSelectedCICodes()
-        const titles: Record<OperationType, string> = {
-            cordon: 'Cordon 节点',
-            uncordon: 'Uncordon 节点',
-            drain: 'Drain 节点',
+        const titles: Record<string, string> = {
             shutdown: '关机',
             reboot: '重启',
         }
-        const descriptions: Record<OperationType, string> = {
-            cordon: `确定要将 ${ciCodes.length} 个节点设置为不可调度吗？`,
-            uncordon: `确定要将 ${ciCodes.length} 个节点恢复为可调度吗？`,
-            drain: `确定要驱逐 ${ciCodes.length} 个节点上的所有 Pod 吗？这可能会影响服务。`,
+        const descriptions: Record<string, string> = {
             shutdown: `确定要关闭 ${ciCodes.length} 台设备吗？此操作将通过 AWX 执行。`,
             reboot: `确定要重启 ${ciCodes.length} 台设备吗？此操作将通过 AWX 执行。`,
         }
@@ -138,9 +140,72 @@ export function DeviceBulkActions({
         setConfirmDialog({
             open: true,
             operation,
-            title: titles[operation],
-            description: descriptions[operation],
+            title: titles[operation] || operation,
+            description: descriptions[operation] || '',
         })
+    }
+
+    const handleK8sConfirm = async (confirmedCiCodes: string[]) => {
+        setIsLoading(true)
+        setK8sConfirmOpen(false)
+        try {
+            let result: BatchOperationResult | undefined
+            switch (k8sOperation) {
+                case 'cordon':
+                    result = await RobustaAPI.cordonNodes(confirmedCiCodes)
+                    break
+                case 'uncordon':
+                    result = await RobustaAPI.uncordonNodes(confirmedCiCodes)
+                    break
+                case 'drain':
+                    result = await RobustaAPI.drainNodes(confirmedCiCodes, {
+                        force: false,
+                        ignore_daemonsets: true,
+                        delete_local_data: false,
+                        timeout: 300,
+                    })
+                    break
+            }
+
+            if (result) {
+                const titleMap = { uncordon: 'Uncordon', cordon: 'Cordon', drain: 'Drain' }
+                const title = titleMap[k8sOperation]
+
+                if (result.failed === 0) {
+                    toast.success(`${title} 节点成功`, {
+                        description: `共 ${result.succeeded} 个节点操作成功`,
+                    })
+                } else if (result.succeeded === 0) {
+                    const errorDetail = result.results?.find((r: any) => !r.success)?.error || '未知错误'
+                    toast.error(`${title} 节点失败`, {
+                        description: errorDetail,
+                    })
+                } else {
+                    const failedItems = result.results?.filter((r: any) => !r.success)
+                    const errorDetail = failedItems?.[0]?.error || '部分节点操作失败'
+                    toast.warning(`${title} 节点部分成功`, {
+                        description: `${result.succeeded} 成功, ${result.failed} 失败. 例如: ${errorDetail}`,
+                    })
+                }
+
+                if (k8sOperation === 'drain' && result.results) {
+                    result.results.forEach((r: any) => {
+                        if (r.success && r.drain_id) {
+                            const device = devices.find(d => d.ci_code === r.ci_code)
+                            addDrain(r.drain_id, r.ci_code, device?.cluster || 'Unknown')
+                        }
+                    })
+                }
+
+                onRefresh()
+                onClearSelection()
+            }
+        } catch (error) {
+            console.error(error)
+            toast.error(`${k8sOperation} 请求失败`)
+        } finally {
+            setIsLoading(false)
+        }
     }
 
     const executeOperation = async () => {
@@ -156,67 +221,18 @@ export function DeviceBulkActions({
         setIsLoading(true)
         setConfirmDialog({ ...confirmDialog, open: false })
         try {
-            let result
             switch (operation) {
-                case 'cordon':
-                    result = await RobustaAPI.cordonNodes(ciCodes)
-                    break
-                case 'uncordon':
-                    result = await RobustaAPI.uncordonNodes(ciCodes)
-                    break
-                case 'drain':
-                    result = await RobustaAPI.drainNodes(ciCodes, {
-                        force: false,
-                        ignore_daemonsets: true,
-                        delete_local_data: false,
-                        timeout: 300,
-                    })
-                    break
+                // K8s operations moved to handleK8sConfirm
                 case 'shutdown':
                     await RobustaAPI.shutdownNodes(ciCodes)
                     toast.success('关机任务已提交')
                     onClearSelection()
-                    setIsLoading(false)
                     return
                 case 'reboot':
                     await RobustaAPI.rebootNodes(ciCodes)
                     toast.success('重启任务已提交')
                     onClearSelection()
-                    setIsLoading(false)
                     return
-            }
-
-            if (result) {
-                if (result.failed === 0) {
-                    toast.success(`${confirmDialog.title}成功`, {
-                        description: `共 ${result.succeeded} 个节点操作成功`,
-                    })
-                } else if (result.succeeded === 0) {
-                    const errorDetail = result.results?.find((r: any) => !r.success)?.error || '未知错误'
-                    toast.error(`${confirmDialog.title}失败`, {
-                        description: errorDetail,
-                    })
-                } else {
-                    const failedItems = result.results?.filter((r: any) => !r.success)
-                    const errorDetail = failedItems?.[0]?.error || '部分节点操作失败'
-                    toast.warning(`${confirmDialog.title}部分成功`, {
-                        description: `${result.succeeded} 成功, ${result.failed} 失败. 例如: ${errorDetail}`,
-                    })
-                }
-
-                // Handle Drain Context Updates
-                if (operation === 'drain' && result.results) {
-                    result.results.forEach((r: any) => {
-                        if (r.success && r.drain_id) {
-                            // Find cluster name from devices array
-                            const device = devices.find(d => d.ci_code === r.ci_code)
-                            addDrain(r.drain_id, r.ci_code, device?.cluster || 'Unknown')
-                        }
-                    })
-                }
-
-                onRefresh()
-                onClearSelection()
             }
         } catch (error: unknown) {
             // ...
@@ -448,6 +464,14 @@ export function DeviceBulkActions({
                 onSuccess={() => {
                     onRefresh()
                 }}
+            />
+
+            <BulkK8sConfirmDialog
+                open={k8sConfirmOpen}
+                onOpenChange={setK8sConfirmOpen}
+                devices={devices.filter(d => selectedDevices.has(d.id))}
+                onConfirm={handleK8sConfirm}
+                operation={k8sOperation}
             />
         </>
     )
@@ -1004,5 +1028,236 @@ function TaintLabelSheet({
                 </div>
             </SheetContent>
         </Sheet>
+    )
+}
+
+function BulkK8sConfirmDialog({
+    open,
+    onOpenChange,
+    devices,
+    onConfirm,
+    operation,
+}: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    devices: NavyDevice[]
+    onConfirm: (ciCodes: string[]) => void
+    operation: 'cordon' | 'uncordon' | 'drain'
+}) {
+    const [targetDevices, setTargetDevices] = useState(devices)
+    const [nodeInfos, setNodeInfos] = useState<Map<string, NodeLabelTaintResponse>>(new Map())
+    const [loadingInfos, setLoadingInfos] = useState(false)
+
+    useEffect(() => {
+        if (open) {
+            setTargetDevices(devices)
+
+            // 仅 Drain 操作需要查询 Cordon 时间
+            if (operation === 'drain' && devices.length > 0) {
+                fetchNodeInfos(devices)
+            }
+        } else {
+            setNodeInfos(new Map())
+        }
+    }, [open, devices, operation])
+
+    const fetchNodeInfos = async (targets: NavyDevice[]) => {
+        setLoadingInfos(true)
+        try {
+            const results = new Map<string, NodeLabelTaintResponse>()
+            // 按集群分组获取以减少并发（虽然目前 API 是单点的，但逻辑上清晰）
+            // 这里简单并发获取
+            await Promise.all(targets.map(async (d) => {
+                if (!d.cluster) return
+                try {
+                    const info = await RobustaAPI.getNodeLabelsAndTaints(d.cluster, d.ci_code)
+                    results.set(d.ci_code, info)
+                } catch (e) {
+                    // ignore individual errors
+                }
+            }))
+            setNodeInfos(results)
+        } finally {
+            setLoadingInfos(false)
+        }
+    }
+
+    const clusters = useMemo(() => {
+        const map = new Map<string, NavyDevice[]>()
+        targetDevices.forEach(d => {
+            const c = d.cluster || 'Unknown'
+            const list = map.get(c) || []
+            list.push(d)
+            map.set(c, list)
+        })
+        return map
+    }, [targetDevices])
+
+    const clusterKeys = Array.from(clusters.keys())
+    const isValid = clusterKeys.length <= 1 && targetDevices.length > 0
+    const hasConflict = clusterKeys.length > 1
+
+    const handleRemoveDevice = (ciCode: string) => {
+        setTargetDevices(prev => prev.filter(d => d.ci_code !== ciCode))
+    }
+
+    const handleRemoveCluster = (clusterName: string) => {
+        setTargetDevices(prev => prev.filter(d => d.cluster !== clusterName))
+    }
+
+    const config = {
+        drain: {
+            title: 'Safe Drain 节点确认',
+            icon: DoorOpen,
+            color: 'text-orange-600',
+            btnClass: 'bg-orange-600 hover:bg-orange-700',
+            description: '驱逐',
+        },
+        cordon: {
+            title: 'Cordon 节点确认',
+            icon: Ban,
+            color: 'text-amber-600',
+            btnClass: 'bg-amber-600 hover:bg-amber-700',
+            description: '禁止调度',
+        },
+        uncordon: {
+            title: 'Uncordon 节点确认',
+            icon: PlayCircle,
+            color: 'text-emerald-600',
+            btnClass: 'bg-emerald-600 hover:bg-emerald-700',
+            description: '恢复调度',
+        }
+    }[operation]
+
+    const activeConfig = config || { title: '操作确认', icon: AlertTriangle, color: 'text-primary', btnClass: '', description: '操作' }
+    const Icon = activeConfig.icon
+
+    return (
+        <AlertDialog open={open} onOpenChange={onOpenChange}>
+            <AlertDialogContent className="max-w-3xl">
+                <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center gap-2">
+                        <Icon className={`h-5 w-5 ${activeConfig.color}`} />
+                        {activeConfig.title}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                        请确认要对节点执行 {activeConfig.description} 操作。
+                        {hasConflict ? (
+                            <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-lg text-sm flex items-start gap-2 border border-red-200 dark:border-red-900/30">
+                                <AlertTriangle className="h-5 w-5 shrink-0" />
+                                <div>
+                                    <p className="font-semibold">检测到多个集群的节点</p>
+                                    <p className="opacity-90">为保证安全，一次只能批量操作一个集群的节点。请移除多余集群的节点。</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="mt-1">
+                                将对以下 <span className="font-mono font-medium text-foreground">{targetDevices.length}</span> 个节点执行 {activeConfig.description} 操作。
+                            </div>
+                        )}
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+
+                <div className="my-4 max-h-[50vh] overflow-y-auto border rounded-lg bg-muted/20">
+                    {clusterKeys.map(clusterName => (
+                        <div key={clusterName} className="border-b last:border-b-0">
+                            <div className="bg-muted/50 px-4 py-2 flex items-center justify-between sticky top-0 z-10 backdrop-blur-sm">
+                                <div className="flex items-center gap-2">
+                                    <Hexagon className="h-4 w-4 text-blue-500" />
+                                    <span className="font-medium text-sm">{clusterName}</span>
+                                    <Badge variant="outline" className="text-xs">{clusters.get(clusterName)?.length}</Badge>
+                                </div>
+                                {hasConflict && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleRemoveCluster(clusterName)}
+                                        className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                        移除此集群所有节点
+                                    </Button>
+                                )}
+                            </div>
+                            <div className="divide-y">
+                                {clusters.get(clusterName)?.map((device, idx) => (
+                                    <div key={device.ci_code} className="px-4 py-3 flex items-center justify-between hover:bg-muted/30 transition-colors group">
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-muted-foreground font-mono text-xs w-6 text-center">{idx + 1}</span>
+                                            <div>
+                                                <div className="font-medium text-sm flex items-center gap-2">
+                                                    {device.ci_code}
+                                                    <Badge variant="secondary" className="text-[10px] h-4 px-1 rounded-sm font-normal text-muted-foreground">{device.arch_type}</Badge>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground font-mono mt-0.5">{device.ip}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {operation === 'drain' && (
+                                                <div className="flex justify-end">
+                                                    {(() => {
+                                                        const info = nodeInfos.get(device.ci_code)
+                                                        if (loadingInfos) return <span className="text-[10px] text-muted-foreground animate-pulse">正在查询状态...</span>
+
+                                                        const unschedulableTaint = info?.taints.find(t => t.key === 'node.kubernetes.io/unschedulable')
+                                                        if (unschedulableTaint) {
+                                                            const timeAdded = unschedulableTaint.timeAdded
+                                                            return (
+                                                                <div className="text-[10px] flex items-center gap-1.5 text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 rounded">
+                                                                    <Ban className="h-3 w-3" />
+                                                                    <span>
+                                                                        已 Cordon
+                                                                        {timeAdded ? ` (${new Date(timeAdded).toLocaleString()})` : ''}
+                                                                    </span>
+                                                                </div>
+                                                            )
+                                                        } else if (info) {
+                                                            return (
+                                                                <div className="text-[10px] flex items-center gap-1.5 text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 rounded">
+                                                                    <CheckCircle2 className="h-3 w-3" />
+                                                                    <span>可调度 (未Cordon)</span>
+                                                                </div>
+                                                            )
+                                                        }
+                                                        return null
+                                                    })()}
+                                                </div>
+                                            )}
+
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => handleRemoveDevice(device.ci_code)}
+                                                className="h-8 w-8 opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive rounded-full transition-all"
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <AlertDialogFooter>
+                    <AlertDialogCancel>取消</AlertDialogCancel>
+                    <AlertDialogAction
+                        disabled={!isValid}
+                        onClick={(e) => {
+                            if (!isValid) {
+                                e.preventDefault()
+                                return
+                            }
+                            onConfirm(targetDevices.map(d => d.ci_code))
+                        }}
+                        className={activeConfig.btnClass}
+                    >
+                        确认执行 ({targetDevices.length})
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     )
 }

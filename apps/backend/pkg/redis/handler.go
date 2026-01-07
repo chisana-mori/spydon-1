@@ -20,6 +20,7 @@ type Client interface {
 	Subscribe(channel string) *goredis.PubSub
 	ScanKeys(pattern string) ([]string, error)
 	SAdd(key string, members ...string) error
+	SRem(key string, members ...string) error
 	SMembers(key string) ([]string, error)
 	Close() error
 }
@@ -137,6 +138,15 @@ func (h *Handler) SAdd(key string, members ...string) error {
 // SMembers returns all members of a set
 func (h *Handler) SMembers(key string) ([]string, error) {
 	return h.client.SMembers(h.ctx, key).Result()
+}
+
+// SRem removes members from a set
+func (h *Handler) SRem(key string, members ...string) error {
+	args := make([]interface{}, len(members))
+	for i, m := range members {
+		args[i] = m
+	}
+	return h.client.SRem(h.ctx, key, args...).Err()
 }
 
 // Close closes the Redis connection

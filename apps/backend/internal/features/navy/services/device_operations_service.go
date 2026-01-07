@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -96,11 +97,33 @@ func (s *DeviceOperationsService) CordonNodes(ctx context.Context, ciCodes []str
 			return fmt.Errorf("获取节点失败: %w", err)
 		}
 
-		if node.Spec.Unschedulable {
-			return nil // 已经是 cordon 状态
+		// Prepare the taint
+		now := metav1.Now()
+		unschedulableTaint := corev1.Taint{
+			Key:       "node.kubernetes.io/unschedulable",
+			Effect:    corev1.TaintEffectNoSchedule,
+			TimeAdded: &now,
+		}
+
+		// Check if already cordoned or has taint
+		alreadyUnschedulable := node.Spec.Unschedulable
+		hasTaint := false
+		for _, t := range node.Spec.Taints {
+			if t.Key == unschedulableTaint.Key && t.Effect == unschedulableTaint.Effect {
+				hasTaint = true
+				break
+			}
+		}
+
+		if alreadyUnschedulable && hasTaint {
+			return nil // Already fully cordoned
 		}
 
 		node.Spec.Unschedulable = true
+		if !hasTaint {
+			node.Spec.Taints = append(node.Spec.Taints, unschedulableTaint)
+		}
+
 		if err := k8sClient.Update(ctx, &node); err != nil {
 			return fmt.Errorf("更新节点失败: %w", err)
 		}

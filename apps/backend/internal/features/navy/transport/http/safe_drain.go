@@ -29,13 +29,38 @@ func (h *Handler) StartDrain(c *gin.Context) {
 		return
 	}
 
-	response, err := h.safeDrainService.StartDrain(c.Request.Context(), &req)
+	var response *services.SimpleDrainResponse
+	var opErr error
+
+	ticketID, err := h.changeManager.WithChange(
+		c.Request.Context(),
+		services.ChangeOpDrain,
+		[]string{req.NodeName},
+		map[string]any{"cluster": req.ClusterName, "force": req.Force, "dry_run": req.DryRun},
+		func(tid string) error {
+			response, opErr = h.safeDrainService.StartDrain(c.Request.Context(), &req)
+			return opErr
+		},
+	)
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, services.GenericResponse{
 			Success: false,
 			Message: "Failed to start drain: " + err.Error(),
 		})
 		return
+	}
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, services.GenericResponse{
+			Success: false,
+			Message: "Failed to start drain: " + opErr.Error(),
+		})
+		return
+	}
+
+	// Attach drainID to the change ticket for async tracking
+	if response != nil && ticketID != "" {
+		_ = h.changeManager.AttachDrainIDs(ticketID, []string{response.DrainID})
 	}
 
 	c.JSON(http.StatusOK, services.GenericResponse{
@@ -78,6 +103,9 @@ func (h *Handler) CancelDrain(c *gin.Context) {
 		})
 		return
 	}
+
+	// Cancel 也视为成功，关闭关联的变更单
+	h.changeManager.OnDrainComplete(drainID, true)
 
 	c.JSON(http.StatusOK, services.GenericResponse{
 		Success: true,

@@ -59,3 +59,7 @@ awx:
   username: "admin"
   password: "EiG8FpCjjw1mcPXPfjjroFEyCCsBqKPY"
   insecure: true
+
+change_management:
+  enabled: true
+  timeout_minutes: 30

@@ -30,6 +30,8 @@ func SetupTestDB() *db.Database {
 		&models.Alert{},
 		&models.RCARun{},
 		&models.SystemSetting{},
+		&models.Dictionary{},
+		&models.DictionaryItem{},
 	)
 	if err != nil {
 		panic("failed to migrate database: " + err.Error())

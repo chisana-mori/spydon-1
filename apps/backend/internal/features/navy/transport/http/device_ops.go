@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"net/http"
 
 	"robusta-web/backend/internal/features/navy/services"
+	pipelineservice "robusta-web/backend/internal/features/pipeline/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,38 +40,96 @@ type LabelNodesRequest struct {
 	Action  string            `json:"action" binding:"required,oneof=add remove"`
 }
 
-// CordonNodes 设置节点为不可调度
-func (h *Handler) CordonNodes(c *gin.Context) {
+// helper: handle batch operations that return BatchOperationResult
+func (h *Handler) handleBatchResultOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error)) {
 	var req BatchNodeOperationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
-	result, err := h.deviceOpsService.CordonNodes(c.Request.Context(), req.CICodes)
+	var result *services.BatchOperationResult
+	var opErr error
+
+	_, err := h.changeManager.WithChange(
+		c.Request.Context(),
+		opType,
+		req.CICodes,
+		nil,
+		func(ticketID string) error {
+			result, opErr = fn(c.Request.Context(), req.CICodes)
+			return opErr
+		},
+	)
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": opErr.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
-// UncordonNodes 设置节点为可调度
-func (h *Handler) UncordonNodes(c *gin.Context) {
+// helper: handle batch operations that return AWX Job handles
+func (h *Handler) handleBatchJobOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error), message string) {
 	var req BatchNodeOperationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
-	result, err := h.deviceOpsService.UncordonNodes(c.Request.Context(), req.CICodes)
+	var handle *pipelineservice.JobHandle
+	var opErr error
+
+	ticketID, err := h.changeManager.WithChange(
+		c.Request.Context(),
+		opType,
+		req.CICodes,
+		nil,
+		func(tid string) error {
+			handle, opErr = fn(c.Request.Context(), req.CICodes)
+			return opErr
+		},
+	)
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": opErr.Error()})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	// Attach AWX job ID for async tracking
+	if handle != nil && ticketID != "" {
+		_ = h.changeManager.AttachAWXJob(ticketID, handle.JobID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"job_id":  handle.JobID,
+			"message": message,
+		},
+	})
+}
+
+// CordonNodes 设置节点为不可调度
+func (h *Handler) CordonNodes(c *gin.Context) {
+	h.handleBatchResultOp(c, services.ChangeOpCordon, func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error) {
+		return h.deviceOpsService.CordonNodes(ctx, ciCodes)
+	})
+}
+
+// UncordonNodes 设置节点为可调度
+func (h *Handler) UncordonNodes(c *gin.Context) {
+	h.handleBatchResultOp(c, services.ChangeOpUncordon, func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error) {
+		return h.deviceOpsService.UncordonNodes(ctx, ciCodes)
+	})
 }
 
 // DrainNodes 驱逐节点上的 Pod
@@ -80,15 +140,45 @@ func (h *Handler) DrainNodes(c *gin.Context) {
 		return
 	}
 
-	result, err := h.deviceOpsService.DrainNodes(c.Request.Context(), req.CICodes, services.DrainOptions{
-		Force:            req.Force,
-		IgnoreDaemonsets: req.IgnoreDaemonsets,
-		DeleteLocalData:  req.DeleteLocalData,
-		Timeout:          req.Timeout,
-	})
+	var result *services.BatchOperationResult
+	var opErr error
+
+	ticketID, err := h.changeManager.WithChange(
+		c.Request.Context(),
+		services.ChangeOpDrain,
+		req.CICodes,
+		map[string]any{"force": req.Force, "ignore_daemonsets": req.IgnoreDaemonsets},
+		func(tid string) error {
+			result, opErr = h.deviceOpsService.DrainNodes(c.Request.Context(), req.CICodes, services.DrainOptions{
+				Force:            req.Force,
+				IgnoreDaemonsets: req.IgnoreDaemonsets,
+				DeleteLocalData:  req.DeleteLocalData,
+				Timeout:          req.Timeout,
+			})
+			return opErr
+		},
+	)
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": opErr.Error()})
+		return
+	}
+
+	// Attach drain IDs to the change ticket for async tracking
+	if result != nil && ticketID != "" {
+		var drainIDs []string
+		for _, r := range result.Results {
+			if r.DrainID != "" {
+				drainIDs = append(drainIDs, r.DrainID)
+			}
+		}
+		if len(drainIDs) > 0 {
+			_ = h.changeManager.AttachDrainIDs(ticketID, drainIDs)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
@@ -102,14 +192,31 @@ func (h *Handler) TaintNodes(c *gin.Context) {
 		return
 	}
 
-	result, err := h.deviceOpsService.TaintNodes(c.Request.Context(), req.CICodes, services.TaintOperation{
-		Key:    req.Key,
-		Value:  req.Value,
-		Effect: req.Effect,
-		Action: req.Action,
-	})
+	var result *services.BatchOperationResult
+	var opErr error
+
+	_, err := h.changeManager.WithChange(
+		c.Request.Context(),
+		services.ChangeOpTaint,
+		req.CICodes,
+		map[string]any{"key": req.Key, "value": req.Value, "effect": req.Effect, "action": req.Action},
+		func(ticketID string) error {
+			result, opErr = h.deviceOpsService.TaintNodes(c.Request.Context(), req.CICodes, services.TaintOperation{
+				Key:    req.Key,
+				Value:  req.Value,
+				Effect: req.Effect,
+				Action: req.Action,
+			})
+			return opErr
+		},
+	)
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": opErr.Error()})
 		return
 	}
 
@@ -124,12 +231,29 @@ func (h *Handler) LabelNodes(c *gin.Context) {
 		return
 	}
 
-	result, err := h.deviceOpsService.LabelNodes(c.Request.Context(), req.CICodes, services.LabelOperation{
-		Labels: req.Labels,
-		Action: req.Action,
-	})
+	var result *services.BatchOperationResult
+	var opErr error
+
+	_, err := h.changeManager.WithChange(
+		c.Request.Context(),
+		services.ChangeOpLabel,
+		req.CICodes,
+		map[string]any{"labels": req.Labels, "action": req.Action},
+		func(ticketID string) error {
+			result, opErr = h.deviceOpsService.LabelNodes(c.Request.Context(), req.CICodes, services.LabelOperation{
+				Labels: req.Labels,
+				Action: req.Action,
+			})
+			return opErr
+		},
+	)
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": opErr.Error()})
 		return
 	}
 
@@ -138,44 +262,14 @@ func (h *Handler) LabelNodes(c *gin.Context) {
 
 // ShutdownNodes 关机节点 (AWX)
 func (h *Handler) ShutdownNodes(c *gin.Context) {
-	var req BatchNodeOperationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	handle, err := h.deviceOpsService.ShutdownNodes(c.Request.Context(), req.CICodes)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"job_id":  handle.JobID,
-			"message": "关机任务已提交",
-		},
-	})
+	h.handleBatchJobOp(c, services.ChangeOpShutdown, func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error) {
+		return h.deviceOpsService.ShutdownNodes(ctx, ciCodes)
+	}, "关机任务已提交")
 }
 
 // RebootNodes 重启节点 (AWX)
 func (h *Handler) RebootNodes(c *gin.Context) {
-	var req BatchNodeOperationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	handle, err := h.deviceOpsService.RebootNodes(c.Request.Context(), req.CICodes)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"job_id":  handle.JobID,
-			"message": "重启任务已提交",
-		},
-	})
+	h.handleBatchJobOp(c, services.ChangeOpReboot, func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error) {
+		return h.deviceOpsService.RebootNodes(ctx, ciCodes)
+	}, "重启任务已提交")
 }

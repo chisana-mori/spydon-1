@@ -626,6 +626,7 @@ func (s *NavyDeviceService) convertToResponse(m navy.Device) DeviceResponse {
 		Role:           m.Role,
 		Cluster:        m.Cluster,
 		ClusterID:      m.ClusterID,
+		K8sStatus:      m.K8sStatus,
 		AcceptanceTime: m.AcceptanceTime,
 		DiskCount:      m.DiskCount,
 		DiskDetail:     m.DiskDetail,

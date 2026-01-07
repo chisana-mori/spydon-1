@@ -980,7 +980,7 @@ export const DrainProvider: React.FC<DrainProviderProps> = ({ children }) => {
             });
 
         const completedMigrations = finalMigrations
-            .filter(m => isCompleted(m.status as string))
+            .filter(m => isCompleted(m.status as string) || isIgnored(m.status as string))
             .sort((a, b) => {
                 const ta = Date.parse(a.targetPod?.createdAt || a.startTime);
                 const tb = Date.parse(b.targetPod?.createdAt || b.startTime);

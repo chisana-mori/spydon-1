@@ -142,7 +142,7 @@ export interface NodeLabelTaintResponse {
     clusterName: string
     clusterId: number
     labels: { key: string; value: string }[]
-    taints: { key: string; value: string; effect: string }[]
+    taints: { key: string; value: string; effect: string; timeAdded?: string }[]
     updatedAt: string
     conditions: string[]
 }

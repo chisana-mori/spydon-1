@@ -22,17 +22,33 @@ func UpdateDeviceFromNode(ctx context.Context, navyDB *db.NavyDatabase, clusterN
 
 	// 通过 ci_code 查找设备
 	var device navy.Device
-	result := navyDB.WithContext(ctx).Where("ci_code = ?", nodeName).First(&device)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+	// 1. 尝试精确匹配 ci_code (此时 nodeName 已转为大写)
+	if err := navyDB.WithContext(ctx).Where("ci_code = ?", nodeName).First(&device).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		// 2. 尝试通过 IP 匹配 (InternalIP)
+		foundByIP := false
+		for _, addr := range node.Status.Addresses {
+			if addr.Type == corev1.NodeInternalIP {
+				// 注意：IP 匹配可能存在风险，但在 ci_code 匹配失败时作为 fallback 是合理的
+				// 假设 IP 是唯一的
+				if err := navyDB.WithContext(ctx).Where("ip = ?", addr.Address).First(&device).Error; err == nil {
+					foundByIP = true
+					logger.S().Infow("通过 IP 匹配到设备", "cluster", clusterName, "node", nodeName, "ip", addr.Address, "device", device.CICode)
+					break
+				}
+			}
+		}
+
+		if !foundByIP {
 			// 设备不存在，跳过（不新建，不算错误）
 			logger.S().Debugw("未找到匹配设备，跳过",
 				"cluster", clusterName,
 				"nodename", nodeName)
 			return nil
 		}
-		// 其他数据库错误需要返回
-		return result.Error
 	}
 
 	// 比较后仅在有变化时更新（不更新 cluster_id）

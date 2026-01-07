@@ -14,6 +14,7 @@ import (
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/db"
+	pipelineservice "robusta-web/backend/internal/features/pipeline/services"
 	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/pkg/nodesync"
 
@@ -74,14 +75,24 @@ func main() {
 	nodeSyncMgr := nodesync.NewManager(database, navyDatabase)
 	nodeSyncCtx, nodeSyncCancel := context.WithCancel(context.Background())
 	go func() {
-		if err := nodeSyncMgr.Start(nodeSyncCtx); err != nil {
+		if err = nodeSyncMgr.Start(nodeSyncCtx); err != nil {
 			logger.L().Error("节点同步管理器启动失败", zap.Error(err))
 		}
 	}()
 
+	// 创建 AWX Runtime (需要在 SetupRoutes 之前创建，以便传入)
+	awxRuntime := pipelineservice.NewAWXRuntimeFromConfig(cfg)
+
 	// 设置API路由
-	if err := api.SetupRoutes(router, database, navyDatabase, cfg, nodeSyncMgr); err != nil {
+	bgServices, err := api.SetupRoutes(router, database, navyDatabase, cfg, nodeSyncMgr, awxRuntime)
+	if err != nil {
 		logger.L().Fatal("初始化路由失败", zap.Error(err))
+	}
+
+	// 启动后台服务 (Change Management Poller 等)
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	if bgServices != nil {
+		bgServices.Start(bgCtx)
 	}
 
 	// 启动服务器
@@ -107,8 +118,16 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+
+	// 优雅关闭
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// 停止后台服务
+	bgCancel()
+	if bgServices != nil {
+		bgServices.Stop()
+	}
 
 	// 停止节点同步管理器
 	nodeSyncCancel()

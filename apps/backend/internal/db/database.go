@@ -84,6 +84,8 @@ func (d *Database) AutoMigrate() error {
 		&models.KnowledgeArticle{},
 		&models.KnowledgeArticleVersion{},
 		&models.SystemSetting{},
+		&models.Dictionary{},
+		&models.DictionaryItem{},
 	)
 	if err != nil {
 		// 在二次迁移时，如果旧的 PostgreSQL 索引名不存在，MySQL 会报 Can't DROP ... FOREIGN KEY 1091，跳过此类告警

@@ -257,7 +257,7 @@ function DrainItem({ drain, onRemove, onRequestCancel }: { drain: ActiveDrain, o
     // 2. Completed / Ready / Ignored (终态)
     const completedMigrations = drain.migrations.filter(m => {
         const s = normalizeStatus(m.status as string)
-        return s === 'completed'
+        return s === 'completed' || s === 'ignored'
     })
 
     return (
@@ -431,7 +431,7 @@ function DrainSummary({ drains, onClearCompleted }: { drains: ActiveDrain[], onC
         // Filter completed migrations for the table
         const completedMigrations = allMigrations.filter(m => {
             const s = normalizeStatus(m.status as string)
-            return s === 'completed'
+            return s === 'completed' || s === 'ignored'
         })
 
         return { stats: aggregatedStats, progress, activeMigrations, completedMigrations, allMigrations, sortedLogs }

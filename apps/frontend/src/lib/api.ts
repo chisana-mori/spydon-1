@@ -488,52 +488,7 @@ export class RobustaAPI {
         return handleResponse(apiClient.get('/navy/k8s-nodes', { params: { cluster: clusterName } }))
     }
 
-    static async addNodeLabel(
-        clusterName: string,
-        ciCode: string,
-        key: string,
-        value: string
-    ): Promise<void> {
-        await apiClient.post('/navy/k8s-nodes/labels', {
-            clusterName,
-            ciCode,
-            key,
-            value,
-        })
-    }
 
-    static async removeNodeLabel(clusterName: string, ciCode: string, key: string): Promise<void> {
-        await apiClient.delete('/navy/k8s-nodes/labels', {
-            data: { clusterName, ciCode, key },
-        })
-    }
-
-    static async addNodeTaint(
-        clusterName: string,
-        ciCode: string,
-        key: string,
-        value: string,
-        effect: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute'
-    ): Promise<void> {
-        await apiClient.post('/navy/k8s-nodes/taints', {
-            clusterName,
-            ciCode,
-            key,
-            value,
-            effect,
-        })
-    }
-
-    static async removeNodeTaint(
-        clusterName: string,
-        ciCode: string,
-        key: string,
-        effect?: string
-    ): Promise<void> {
-        await apiClient.delete('/navy/k8s-nodes/taints', {
-            data: { clusterName, ciCode, key, effect },
-        })
-    }
 }
 
 // Batch operation result type

@@ -75,6 +75,14 @@ type RedisConfig struct {
 	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
 }
 
+// ChangeManagementConfig 变更管理配置
+type ChangeManagementConfig struct {
+	Enabled        bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	TimeoutMinutes int    `mapstructure:"timeout_minutes" json:"timeout_minutes" yaml:"timeout_minutes"`
+	ITSMBaseURL    string `mapstructure:"itsm_base_url" json:"itsm_base_url" yaml:"itsm_base_url"`
+	ITSMAPIKey     string `mapstructure:"itsm_api_key" json:"itsm_api_key" yaml:"itsm_api_key"`
+}
+
 // Config 应用配置结构
 type Config struct {
 	Environment string `mapstructure:"environment" json:"environment" yaml:"environment"`
@@ -93,12 +101,13 @@ type Config struct {
 	OIDCClientSecret string `mapstructure:"oidc_client_secret" json:"oidc_client_secret" yaml:"oidc_client_secret"`
 	OIDCRedirectURL  string `mapstructure:"oidc_redirect_url" json:"oidc_redirect_url" yaml:"oidc_redirect_url"`
 
-	HolmesGPT HolmesGPTConfig `mapstructure:"holmes_gpt" json:"holmes_gpt" yaml:"holmes_gpt"`
-	CAS       CASConfig       `mapstructure:"cas" json:"cas" yaml:"cas"`
-	Email     EmailConfig     `mapstructure:"email" json:"email" yaml:"email"`
-	MinIO     MinIOConfig     `mapstructure:"minio" json:"minio" yaml:"minio"`
-	AWX       AWXConfig       `mapstructure:"awx" json:"awx" yaml:"awx"`
-	Redis     RedisConfig     `mapstructure:"redis" json:"redis" yaml:"redis"`
+	HolmesGPT        HolmesGPTConfig        `mapstructure:"holmes_gpt" json:"holmes_gpt" yaml:"holmes_gpt"`
+	CAS              CASConfig              `mapstructure:"cas" json:"cas" yaml:"cas"`
+	Email            EmailConfig            `mapstructure:"email" json:"email" yaml:"email"`
+	MinIO            MinIOConfig            `mapstructure:"minio" json:"minio" yaml:"minio"`
+	AWX              AWXConfig              `mapstructure:"awx" json:"awx" yaml:"awx"`
+	Redis            RedisConfig            `mapstructure:"redis" json:"redis" yaml:"redis"`
+	ChangeManagement ChangeManagementConfig `mapstructure:"change_management" json:"change_management" yaml:"change_management"`
 
 	RateLimitRPS int    `mapstructure:"rate_limit_rps" json:"rate_limit_rps" yaml:"rate_limit_rps"`
 	LogLevel     string `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
@@ -225,4 +234,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.url", "redis://localhost:6379")
 	v.SetDefault("redis.pool_size", 10)
 	v.SetDefault("redis.enabled", false)
+
+	// Change Management defaults
+	v.SetDefault("change_management.enabled", false)
+	v.SetDefault("change_management.timeout_minutes", 30)
+	v.SetDefault("change_management.itsm_base_url", "")
+	v.SetDefault("change_management.itsm_api_key", "")
 }

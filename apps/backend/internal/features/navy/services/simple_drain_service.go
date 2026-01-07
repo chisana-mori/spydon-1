@@ -93,12 +93,31 @@ type pdbRetryState struct {
 	nextRetryAt time.Time
 }
 
+func (sds *SimpleDrainService) checkNodeUnschedulable(ctx context.Context, clusterName, nodeName string) error {
+	client, err := sds.clientFactory.GetClient(clusterName)
+	if err != nil {
+		return fmt.Errorf("failed to get Kubernetes client for cluster %s: %w", clusterName, err)
+	}
+
+	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	// 检查节点是否为不可调度状态
+	if !node.Spec.Unschedulable {
+		return fmt.Errorf("节点 %s 尚未被标记为不可调度状态，请先cordon节点 %s 后再进行drain操作", nodeName, nodeName)
+	}
+
+	return nil
+}
+
 // StartDrain 启动 Drain 操作
 func (sds *SimpleDrainService) StartDrain(ctx context.Context, req *SimpleDrainRequest) (*SimpleDrainResponse, error) {
 	// 校验节点调度状态
-	// if err := sds.checkNodeUnschedulable(ctx, req.ClusterName, req.NodeName); err != nil {
-	// 	return nil, fmt.Errorf("节点状态校验失败: %w", err)
-	// }
+	if err := sds.checkNodeUnschedulable(ctx, req.ClusterName, req.NodeName); err != nil {
+		return nil, fmt.Errorf("节点状态校验失败: %w", err)
+	}
 
 	drainID := generateDrainID()
 	// No Redis lock required, using Lease mechanism instead
@@ -111,8 +130,6 @@ func (sds *SimpleDrainService) StartDrain(ctx context.Context, req *SimpleDrainR
 
 	snapshot, err := sds.resourceManager.CreateSnapshot(drainCtx, drainID, req.ClusterName, req.NodeName)
 	if err != nil {
-		cancel()
-		_ = sds.popDrainCancel(drainID)
 		cancel()
 		_ = sds.popDrainCancel(drainID)
 

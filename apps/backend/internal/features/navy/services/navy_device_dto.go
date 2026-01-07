@@ -90,6 +90,7 @@ func GetAllDeviceFields() []DeviceFieldDefinition {
 
 		// 状态信息
 		{ID: "status", Label: "状态", Column: "device.status", DataType: "string"},
+		{ID: "k8sStatus", Label: "K8s状态", Column: "device.k8s_status", DataType: "string"},
 		{ID: "acceptanceTime", Label: "验收时间", Column: "device.acceptance_time", DataType: "date"},
 	}
 }
@@ -142,6 +143,7 @@ type DeviceResponse struct {
 	Role           string    `json:"role"`
 	Cluster        string    `json:"cluster"`
 	ClusterID      int       `json:"cluster_id"`
+	K8sStatus      string    `json:"k8s_status"`
 	AcceptanceTime string    `json:"acceptance_time"`
 	DiskCount      int       `json:"disk_count"`
 	DiskDetail     string    `json:"disk_detail"`

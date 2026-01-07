@@ -137,9 +137,9 @@ function KnowledgeHomePageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6 space-y-6">
+    <div className="space-y-6">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-4 md:px-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">

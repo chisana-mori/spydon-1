@@ -1,9 +1,6 @@
 package http
 
 import (
-	"net/http"
-
-	"robusta-web/backend/internal/features/navy/services"
 	"robusta-web/backend/internal/transport/httpx"
 
 	"github.com/gin-gonic/gin"
@@ -45,84 +42,4 @@ func (h *Handler) ListClusterNodes(c *gin.Context) {
 	}
 
 	httpx.Success(c, resp)
-}
-
-// AddLabel 添加节点标签
-// POST /navy/k8s-nodes/labels
-func (h *Handler) AddLabel(c *gin.Context) {
-	var req services.AddLabelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.BadRequest(c, "INVALID_REQUEST", err.Error())
-		return
-	}
-
-	if err := h.k8sNodeManageService.AddLabel(c.Request.Context(), &req); err != nil {
-		httpx.InternalError(c, "ADD_LABEL_ERROR", err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "标签添加成功",
-	})
-}
-
-// RemoveLabel 删除节点标签
-// DELETE /navy/k8s-nodes/labels
-func (h *Handler) RemoveLabel(c *gin.Context) {
-	var req services.RemoveLabelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.BadRequest(c, "INVALID_REQUEST", err.Error())
-		return
-	}
-
-	if err := h.k8sNodeManageService.RemoveLabel(c.Request.Context(), &req); err != nil {
-		httpx.InternalError(c, "REMOVE_LABEL_ERROR", err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "标签删除成功",
-	})
-}
-
-// AddTaint 添加节点污点
-// POST /navy/k8s-nodes/taints
-func (h *Handler) AddTaint(c *gin.Context) {
-	var req services.AddTaintRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.BadRequest(c, "INVALID_REQUEST", err.Error())
-		return
-	}
-
-	if err := h.k8sNodeManageService.AddTaint(c.Request.Context(), &req); err != nil {
-		httpx.InternalError(c, "ADD_TAINT_ERROR", err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "污点添加成功",
-	})
-}
-
-// RemoveTaint 删除节点污点
-// DELETE /navy/k8s-nodes/taints
-func (h *Handler) RemoveTaint(c *gin.Context) {
-	var req services.RemoveTaintRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.BadRequest(c, "INVALID_REQUEST", err.Error())
-		return
-	}
-
-	if err := h.k8sNodeManageService.RemoveTaint(c.Request.Context(), &req); err != nil {
-		httpx.InternalError(c, "REMOVE_TAINT_ERROR", err.Error())
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "污点删除成功",
-	})
 }

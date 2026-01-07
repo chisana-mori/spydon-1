@@ -545,9 +545,11 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                             "text-[10px] h-5",
                                             device.k8s_status === 'Ready'
                                                 ? "border-emerald-300 text-emerald-800 bg-emerald-100/80 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800/50"
-                                                : device.k8s_status === 'NotReady'
+                                                : device.k8s_status === 'Unschedulable'
                                                     ? "border-amber-300 text-amber-800 bg-amber-100/80 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800/50"
-                                                    : "border-muted text-muted-foreground"
+                                                    : device.k8s_status === 'NotReady'
+                                                        ? "border-red-300 text-red-800 bg-red-100/80 dark:bg-red-900/40 dark:text-red-400 dark:border-red-800/50"
+                                                        : "border-muted text-muted-foreground"
                                         )}
                                     >
                                         {device.k8s_status}

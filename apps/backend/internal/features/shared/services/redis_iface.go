@@ -19,6 +19,7 @@ type RedisClient interface {
 	Subscribe(channel string) *goredis.PubSub
 	ScanKeys(pattern string) ([]string, error)
 	SAdd(key string, members ...string) error
+	SRem(key string, members ...string) error
 	SMembers(key string) ([]string, error)
 }
 
