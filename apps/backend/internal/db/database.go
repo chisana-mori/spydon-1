@@ -70,7 +70,8 @@ func (d *Database) AutoMigrate() error {
 		// 不返回错误，继续迁移
 	}
 
-	err := d.DB.AutoMigrate(
+	// 逐表迁移，确保即使某个表的索引操作失败也不会阻止其他表创建
+	tables := []interface{}{
 		&models.PipelineTemplate{},
 		&models.PipelineExecution{},
 		&models.StageRun{},
@@ -86,14 +87,22 @@ func (d *Database) AutoMigrate() error {
 		&models.SystemSetting{},
 		&models.Dictionary{},
 		&models.DictionaryItem{},
-	)
-	if err != nil {
-		// 在二次迁移时，如果旧的 PostgreSQL 索引名不存在，MySQL 会报 Can't DROP ... FOREIGN KEY 1091，跳过此类告警
-		errStr := err.Error()
-		if strings.Contains(errStr, "Can't DROP") && (strings.Contains(errStr, "uni_users") || strings.Contains(errStr, "uni_clusters") || strings.Contains(errStr, "cluster_id")) {
-			logger.S().Warnw("忽略重复迁移时的旧索引清理错误", "error", err)
-		} else {
-			return err
+	}
+
+	for _, table := range tables {
+		if err := d.DB.AutoMigrate(table); err != nil {
+			errStr := err.Error()
+			// MySQL Error 1091: Can't DROP ... check that column/key exists
+			// 这在重复迁移或从 PostgreSQL 迁移后常见，索引/外键不存在时发生
+			// 这类错误是警告性的，不应阻止迁移继续
+			if strings.Contains(errStr, "Error 1091") || strings.Contains(errStr, "Can't DROP") {
+				logger.S().Warnw("忽略迁移时的索引/外键清理错误（不影响表创建）",
+					"table", fmt.Sprintf("%T", table),
+					"error", err)
+				// 继续执行下一个表
+			} else {
+				return fmt.Errorf("迁移表 %T 失败: %w", table, err)
+			}
 		}
 	}
 

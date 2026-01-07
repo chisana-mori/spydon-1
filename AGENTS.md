@@ -49,8 +49,5 @@
     *   ❌ **Magic Numbers:** Extract constants (`const MaxRetries = 3`).
     *   ❌ **Premature Optimization:** Write clean code first. Optimize only when profiling proves necessary.
 
-## 6. Pre-Commit Checklist
-*   [ ] Is the file under 300 lines?
-*   [ ] Are variable names descriptive?
-*   [ ] Is logic separated from transport?
-*   [ ] Does the code feel "light"?
+## 6. UI Layout Rules
+*   **Content Container Margins:** Do not use `container`, `mx-auto`, or `max-w-*` on high-level page wrappers. Let the specific component or global shell handle the width to ensure consistent sidebar alignment.
