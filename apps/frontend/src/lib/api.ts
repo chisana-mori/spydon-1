@@ -33,6 +33,18 @@ import type {
     NodeLabelTaintResponse,
 } from '@/types/navy'
 import type { F5Info, F5InfoQuery, F5InfoListResponse, F5InfoUpdateDTO } from '@/types/f5'
+import type {
+    EmailTemplate,
+    EmailContact,
+    CreateEmailTemplateRequest,
+    UpdateEmailTemplateRequest,
+    CreateEmailContactRequest,
+    UpdateEmailContactRequest,
+    PreviewEmailRequest,
+    PreviewEmailResponse,
+    SendEmailRequest,
+    AffectedResource,
+} from '@/types/email'
 
 // 获取 API Base URL
 function getApiBaseUrl(): string {
@@ -509,6 +521,68 @@ export class RobustaAPI {
         return handleResponse(apiClient.get('/navy/k8s-nodes', { params: { cluster: clusterName } }))
     }
 
+    // ============ Email Templates ============
+    static async listEmailTemplates(page = 1, pageSize = 20, keyword?: string): Promise<PaginationResponse<EmailTemplate>> {
+        const params: Record<string, any> = { page, size: pageSize }
+        if (keyword) params.keyword = keyword
+        const response = await apiClient.get('/email/templates', { params })
+        return response.data
+    }
+
+    static async getEmailTemplate(id: number): Promise<EmailTemplate> {
+        return handleResponse(apiClient.get(`/email/templates/${id}`))
+    }
+
+    static async createEmailTemplate(data: CreateEmailTemplateRequest): Promise<EmailTemplate> {
+        return handleResponse(apiClient.post('/email/templates', data))
+    }
+
+    static async updateEmailTemplate(id: number, data: UpdateEmailTemplateRequest): Promise<EmailTemplate> {
+        return handleResponse(apiClient.put(`/email/templates/${id}`, data))
+    }
+
+    static async deleteEmailTemplate(id: number): Promise<void> {
+        await apiClient.delete(`/email/templates/${id}`)
+    }
+
+    // ============ Email Contacts ============
+    static async listEmailContacts(page = 1, pageSize = 20, keyword?: string): Promise<PaginationResponse<EmailContact>> {
+        const params: Record<string, any> = { page, size: pageSize }
+        if (keyword) params.keyword = keyword
+        const response = await apiClient.get('/email/contacts', { params })
+        return response.data
+    }
+
+    static async getEmailContact(id: number): Promise<EmailContact> {
+        return handleResponse(apiClient.get(`/email/contacts/${id}`))
+    }
+
+    static async createEmailContact(data: CreateEmailContactRequest): Promise<EmailContact> {
+        return handleResponse(apiClient.post('/email/contacts', data))
+    }
+
+    static async updateEmailContact(id: number, data: UpdateEmailContactRequest): Promise<EmailContact> {
+        return handleResponse(apiClient.put(`/email/contacts/${id}`, data))
+    }
+
+    static async deleteEmailContact(id: number): Promise<void> {
+        await apiClient.delete(`/email/contacts/${id}`)
+    }
+
+    // ============ Email Sending ============
+    static async previewEmail(data: PreviewEmailRequest): Promise<PreviewEmailResponse> {
+        return handleResponse(apiClient.post('/email/preview', data))
+    }
+
+    static async sendEmail(data: SendEmailRequest): Promise<void> {
+        await apiClient.post('/email/send', data)
+    }
+
+    static async getAffectedResources(clusterName: string, nodes?: string[]): Promise<AffectedResource[]> {
+        const params: Record<string, any> = { cluster: clusterName }
+        if (nodes && nodes.length > 0) params.nodes = nodes.join(',')
+        return handleResponse(apiClient.get('/email/affected-resources', { params }))
+    }
 
 }
 

@@ -32,6 +32,7 @@
     *   **Errors:** Handle explicitly. `if err != nil { return fmt.Errorf("ctx: %w", err) }`. Never use `_` to ignore errors.
     *   **Concurrency:** Use `errgroup` or `WaitGroup` for synchronization. Avoid channels unless passing data. No global state.
     *   **Handlers:** Keep them thin. 1. Parse Input → 2. Call Service → 3. Return Response (use `httpx`).
+    *   **Documentation:** Handlers under `features` MUST include standard Swagger annotations. The description MUST be detailed (20-50 words) to facilitate future MCP extraction.
 
 ## 4. Node/TS Rules
 *   **WHAT:** Type-safe, modern TypeScript with standard linting.

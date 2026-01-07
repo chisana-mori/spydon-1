@@ -87,6 +87,8 @@ func (d *Database) AutoMigrate() error {
 		&models.SystemSetting{},
 		&models.Dictionary{},
 		&models.DictionaryItem{},
+		&models.EmailTemplate{},
+		&models.EmailContact{},
 	}
 
 	for _, table := range tables {

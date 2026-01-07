@@ -249,3 +249,30 @@ func (Dictionary) TableName() string {
 func (DictionaryItem) TableName() string {
 	return "spydon_dictionary_items"
 }
+
+// EmailTemplate 邮件模板
+type EmailTemplate struct {
+	BaseModel
+	Name      string `json:"name" gorm:"type:varchar(100);uniqueIndex;not null"` // 模板名称
+	Title     string `json:"title" gorm:"type:varchar(255);not null"`            // 邮件标题模板
+	Body      string `json:"body" gorm:"type:text;not null"`                     // HTML 模板内容
+	Params    string `json:"params" gorm:"type:text"`                            // 参数定义 (JSON)
+	IsEnabled bool   `json:"is_enabled" gorm:"type:boolean;default:true"`        // 是否启用
+}
+
+// TableName 指定表名
+func (EmailTemplate) TableName() string {
+	return "spydon_email_templates"
+}
+
+// EmailContact 邮件联系人
+type EmailContact struct {
+	BaseModel
+	Name    string `json:"name" gorm:"type:varchar(100);not null" query:"like"`    // 联系人/组名称
+	Address string `json:"address" gorm:"type:varchar(500);not null" query:"like"` // 邮箱地址（多个用逗号分隔）
+}
+
+// TableName 指定表名
+func (EmailContact) TableName() string {
+	return "spydon_email_contacts"
+}

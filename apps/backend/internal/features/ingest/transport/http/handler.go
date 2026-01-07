@@ -48,15 +48,16 @@ func (h *Handler) RegisterRoutes(v1 *gin.RouterGroup) {
 }
 
 // IngestAlert handles standard alert ingestion
-// @Summary Ingest alert
+// @Summary 接收标准格式告警
+// @Description 接收并处理来自底层探针或监控组件发送的标准JSON格式告警。该接口解析告警的指纹、集群名称、严重级别和状态信息，并将其持久化到数据库中，同时触发后续的告警转发、聚合及通知等核心业务逻辑。
 // @Tags Ingest
 // @Accept json
 // @Produce json
-// @Param request body IngestAlertRequest true "Alert data"
-// @Success 200 {object} map[string]any "Success"
-// @Failure 400 {object} map[string]any "Bad request"
-// @Failure 500 {object} map[string]any "Internal error"
-// @Router /api/v1/ingest/alert [post]
+// @Param request body IngestAlertRequest true "标准告警数据结构"
+// @Success 200 {object} map[string]any "告警接收成功"
+// @Failure 400 {object} map[string]any "无效的请求参数"
+// @Failure 500 {object} map[string]any "系统内部处理失败"
+// @Router /ingest/alert [post]
 func (h *Handler) IngestAlert(c *gin.Context) {
 	rawBody, err := readAndRestoreBody(c)
 	if err != nil {
@@ -103,15 +104,16 @@ func (h *Handler) IngestAlert(c *gin.Context) {
 }
 
 // IngestRobustaFinding handles Robusta webhook_sink Finding ingestion
-// @Summary Ingest Robusta finding
+// @Summary 接收Robusta Finding数据
+// @Description 处理来自Robusta webhook_sink发送的Finding事件数据。接口会自动提取Finding中的K8s资源信息、告警消息及相关上下文。接收到的原始数据将存储在对象存储中，并转换为系统内部的统一告警模型以便进行后续分析。
 // @Tags Ingest
 // @Accept json
 // @Produce json
-// @Param request body RobustaFinding true "Robusta finding data"
-// @Success 200 {object} map[string]any "Success"
-// @Failure 400 {object} map[string]any "Bad request"
-// @Failure 500 {object} map[string]any "Internal error"
-// @Router /api/v1/ingest/robusta-webhook [post]
+// @Param request body RobustaFinding true "Robusta Finding事件结构"
+// @Success 200 {object} map[string]any "Finding接收成功"
+// @Failure 400 {object} map[string]any "数据格式解析失败"
+// @Failure 500 {object} map[string]any "转换或持久化过程中发生内部错误"
+// @Router /ingest/robusta-webhook [post]
 func (h *Handler) IngestRobustaFinding(c *gin.Context) {
 	// 读取原始请求体（用于存储到MinIO）
 	rawBody, err := readAndRestoreBody(c)
@@ -161,15 +163,16 @@ func (h *Handler) IngestRobustaFinding(c *gin.Context) {
 }
 
 // IngestAlertmanagerWebhook handles Alertmanager webhook ingestion
-// @Summary Ingest Alertmanager webhook
+// @Summary 接收Alertmanager告警
+// @Description 接收来自Prometheus Alertmanager的标准Webhook推送请求。该接口支持处理单个Webhook请求中包含的多个告警条目。它会自动遍历告警列表，将每一项转换为系统内部的统一告警格式，并记录告警的产生集群、开始和结束时间及严重程度。
 // @Tags Ingest
 // @Accept json
 // @Produce json
-// @Param request body AlertmanagerWebhookRequest true "Alertmanager webhook data"
-// @Success 200 {object} map[string]any "Success"
-// @Failure 400 {object} map[string]any "Bad request"
-// @Failure 500 {object} map[string]any "Internal error"
-// @Router /api/v1/ingest/alertmanager [post]
+// @Param request body AlertmanagerWebhookRequest true "Alertmanager Webhook推送数据"
+// @Success 200 {object} map[string]any "Alertmanager告警处理成功"
+// @Failure 400 {object} map[string]any "Webhook数据不符合规范"
+// @Failure 500 {object} map[string]any "数据库保存过程中发生异常"
+// @Router /ingest/alertmanager [post]
 func (h *Handler) IngestAlertmanagerWebhook(c *gin.Context) {
 	var webhook AlertmanagerWebhookRequest
 	if derr := bindJSON(c, &webhook); derr != nil {

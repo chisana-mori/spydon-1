@@ -43,6 +43,8 @@ type EmailConfig struct {
 	SMTPUser string `mapstructure:"smtp_user" json:"smtp_user" yaml:"smtp_user"`
 	SMTPPass string `mapstructure:"smtp_pass" json:"smtp_pass" yaml:"smtp_pass"`
 	From     string `mapstructure:"from" json:"from" yaml:"from"`
+	FromName string `mapstructure:"from_name" json:"from_name" yaml:"from_name"` // 发件人名称
+	UseTLS   bool   `mapstructure:"use_tls" json:"use_tls" yaml:"use_tls"`       // 是否使用 TLS
 	RCATo    string `mapstructure:"rca_to" json:"rca_to" yaml:"rca_to"`
 	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
 }

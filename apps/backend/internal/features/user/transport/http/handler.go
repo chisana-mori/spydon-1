@@ -36,6 +36,16 @@ func (h *Handler) RegisterRoutes(admin *gin.RouterGroup) {
 }
 
 // GetUsers 获取用户列表（管理员功能）
+// @Summary 分页查询系统用户
+// @Description 管理员权限接口，用于分页检索平台所有已注册的用户信息。支持通过关键字对用户名、姓名或电子邮件进行模糊匹配过滤。该功能为用户管理界面提供了核心数据支撑，方便管理员掌握平台用户规模及详情。
+// @Tags Admin,User
+// @Produce json
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Param keyword query string false "搜素关键字"
+// @Success 200 {object} httpx.Response{data=[]object}
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/users [get]
 func (h *Handler) GetUsers(c *gin.Context) {
 	params, derr := httpx.ParsePaginationParams(c)
 	if derr != nil {
@@ -57,6 +67,14 @@ func (h *Handler) GetUsers(c *gin.Context) {
 }
 
 // GetUser 获取单个用户详情（管理员功能）
+// @Summary 获取特定用户详细资料
+// @Description 根据唯一ID获取特定用户的完整档案信息。为了保护隐私，返回的数据会经过掩码处理（如隐藏部分邮箱和手机号内容）。接口涵盖了用户的登录历史、所属权限制、注册时间以及最后一次活跃的时间戳。
+// @Tags Admin,User
+// @Produce json
+// @Param id path int true "用户ID"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 404 {object} httpx.ErrorResponse
+// @Router /admin/users/{id} [get]
 func (h *Handler) GetUser(c *gin.Context) {
 	var path struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`
@@ -91,6 +109,17 @@ func (h *Handler) GetUser(c *gin.Context) {
 }
 
 // SetUserAdmin 设置用户管理员权限（管理员功能）
+// @Summary 调整用户管理员角色
+// @Description 授予或撤销指定用户的超级管理员权限。系统强制要求至少保留一个活跃的管理员，以防权限配置错误导致平台陷入不可管理状态。该操作会直接影响对应用户登录后的菜单展示内容和接口访问权限范围。
+// @Tags Admin,User
+// @Accept json
+// @Produce json
+// @Param id path int true "用户ID"
+// @Param request body object true "权限更新参数 (is_admin boolean)"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/users/{id}/admin [put]
 func (h *Handler) SetUserAdmin(c *gin.Context) {
 	var path struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`
@@ -140,6 +169,14 @@ func (h *Handler) SetUserAdmin(c *gin.Context) {
 }
 
 // DeleteUser 删除用户（管理员功能）
+// @Summary 物理删除用户账号
+// @Description 从系统中彻底移除指定的用户记录。接口内置了安全保护机制，禁止删除当前正在操作的登录账号，且禁止删除系统最后一个管理员。删除操作不可逆，执行后该用户关联的所有私有配置和API Key将一并失效。
+// @Tags Admin,User
+// @Param id path int true "用户ID"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/users/{id} [delete]
 func (h *Handler) DeleteUser(c *gin.Context) {
 	var path struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`

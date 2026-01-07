@@ -91,6 +91,17 @@ func formatKnowledgeArticles(items []models.KnowledgeArticle) []gin.H {
 }
 
 // List 列表查询（支持分页和可选的规则名过滤）
+// @Summary 分页查询知识库
+// @Description 从知识库中分页检索告警相关的文章记录。支持通过告警规则名称进行模糊匹配过滤。返回结果包含文章的基本元数据，如ID、关联规则、状态、版本号及创建信息，帮助用户快速定位所需的运维知识条目。
+// @Tags Knowledge
+// @Produce json
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Param alert_rule_name query string false "按告警规则名过滤"
+// @Success 200 {object} httpx.Response{data=[]object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /knowledge [get]
 func (h *Handler) List(c *gin.Context) {
 	var query struct {
 		httpx.PaginationQuery
@@ -133,6 +144,16 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 // QueryByRule 查询（按规则名）- 保留向后兼容
+// @Summary 按规则名精准查询
+// @Description 该接口是专为前端向后兼容设计的精准查询路由。通过提供完整的告警规则名称，快速获取该规则下关联的所有知识库文章，并支持限制返回的文章数量。常用于在告警详情页中即时展示对应的排查手册。
+// @Tags Knowledge
+// @Produce json
+// @Param alert_rule_name query string true "完整的告警规则名称"
+// @Param limit query int false "限制返回条数"
+// @Success 200 {object} httpx.Response{data=[]object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /knowledge/query [get]
 func (h *Handler) QueryByRule(c *gin.Context) {
 	var query struct {
 		AlertRuleName string `form:"alert_rule_name" binding:"required"`
@@ -164,6 +185,17 @@ func (h *Handler) QueryByRule(c *gin.Context) {
 }
 
 // GetByID 获取单条（包含manifest，可选）
+// @Summary 获取知识文章详情
+// @Description 根据唯一ID获取特定知识库文章的详细信息。用户可以选择是否包含文章的Manifest内容（即JSON格式的详细排查指引和剧本）。该接口支持深度的资源检索，并通过集成对象存储服务来展示丰富的文章正文数据。
+// @Tags Knowledge
+// @Produce json
+// @Param id path string true "文章ID"
+// @Param include_manifest query bool false "是否包含详细配置内容"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 404 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /knowledge/{id} [get]
 func (h *Handler) GetByID(c *gin.Context) {
 	var uri knowledgeURI
 	if err := c.ShouldBindUri(&uri); err != nil {
@@ -201,6 +233,16 @@ func (h *Handler) GetByID(c *gin.Context) {
 }
 
 // Create 创建知识条目
+// @Summary 创建新知识条目
+// @Description 在系统中初始化一个新的知识库文章。管理员需指定关联的告警规则名称及可选的标签。该操作会在数据库中占位并生成对应的对象存储Key，为后续上传具体的HTML排查内容或配置Manifest数据做好准备。
+// @Tags Admin,Knowledge
+// @Accept json
+// @Produce json
+// @Param request body knowledgeCreateRequest true "文章创建基本信息"
+// @Success 201 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/knowledge [post]
 func (h *Handler) Create(c *gin.Context) {
 	var req knowledgeCreateRequest
 	if err := httpx.BindJSON(c, &req); err != nil {
@@ -225,6 +267,17 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 // Update 更新（写manifest）
+// @Summary 更新文章配置
+// @Description 修改已有知识文章的Manifest详细定义。管理员可以通过此接口更新告警排查的具体步骤、运行剧本以及参数说明。新数据会重新同步到对象存储中，并自动增加版本号记录，确保知识库内容的实时性与准确性。
+// @Tags Admin,Knowledge
+// @Accept json
+// @Produce json
+// @Param id path string true "文章ID"
+// @Param request body services.Manifest true "Manifest配置详情"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/knowledge/{id} [put]
 func (h *Handler) Update(c *gin.Context) {
 	var uri knowledgeURI
 	if err := c.ShouldBindUri(&uri); err != nil {
@@ -254,6 +307,17 @@ func (h *Handler) Update(c *gin.Context) {
 }
 
 // Publish 发布知识条目
+// @Summary 发布知识文章
+// @Description 将处于草稿或编辑状态的知识文章正式发布为在线状态。发布过程中可以记录简要的变更说明，用于历史审计和版本追踪。只有发布后的文章才能在前端告警关联中被普通用户查看到。
+// @Tags Admin,Knowledge
+// @Accept json
+// @Produce json
+// @Param id path string true "文章ID"
+// @Param request body knowledgePublishRequest true "发布变更说明"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/knowledge/{id}/publish [post]
 func (h *Handler) Publish(c *gin.Context) {
 	var uri knowledgeURI
 	if err := c.ShouldBindUri(&uri); err != nil {
@@ -282,6 +346,16 @@ func (h *Handler) Publish(c *gin.Context) {
 }
 
 // PresignUpload 预签名上传
+// @Summary 获取文件上传签名
+// @Description 为了支持前端直接向对象存储安全地上传静态资源（如HTML文档或图片），该接口生成一个带有时效性的预签名URL。这避免了将大型二进制数据流通过后端API服务器中转，提高了系统的并发处理能力和传输效率。
+// @Tags Admin,Knowledge
+// @Accept json
+// @Produce json
+// @Param request body knowledgePresignRequest true "上传请求详情"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/knowledge/presign-upload [post]
 func (h *Handler) PresignUpload(c *gin.Context) {
 	var req knowledgePresignRequest
 	if err := httpx.BindJSON(c, &req); err != nil {
@@ -299,6 +373,14 @@ func (h *Handler) PresignUpload(c *gin.Context) {
 }
 
 // Delete 删除知识条目
+// @Summary 删除知识文章
+// @Description 物理删除指定的知识库文章记录及其在对象存储中关联的Manifest内容。这是一项破坏性操作，一旦执行，该告警规则下的所有运维知识指引将立即消失。请确保该条目不再具有参考价值后再进行删除。
+// @Tags Admin,Knowledge
+// @Param id path string true "文章ID"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/knowledge/{id} [delete]
 func (h *Handler) Delete(c *gin.Context) {
 	var uri knowledgeURI
 	if err := c.ShouldBindUri(&uri); err != nil {

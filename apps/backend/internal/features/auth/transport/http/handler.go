@@ -3,14 +3,15 @@ package http
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	cas "gopkg.in/cas.v2"
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/constants"
 	"robusta-web/backend/internal/features/auth/services"
 	"robusta-web/backend/internal/middleware"
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/internal/transport/httpx"
+
+	"github.com/gin-gonic/gin"
+	cas "gopkg.in/cas.v2"
 )
 
 // Handler 认证处理器
@@ -65,6 +66,13 @@ func (h *Handler) RegisterRoutes(router *gin.Engine, v1 *gin.RouterGroup) {
 }
 
 // GetAuthURL 获取认证URL
+// @Summary 获取认证跳转URL
+// @Description 该接口用于生成并获取身份供应商的认证跳转地址。系统会生成一个唯一的随机state参数以防止跨站请求伪造（CSRF）攻击，并将其存储在客户端Cookie中。用户访问返回的URL后将被重定向至OIDC或第三方认证平台。
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /auth/url [get]
 func (h *Handler) GetAuthURL(c *gin.Context) {
 	// 生成随机state参数防止CSRF攻击
 	state, err := generateRandomState()
@@ -90,6 +98,17 @@ func (h *Handler) GetAuthURL(c *gin.Context) {
 }
 
 // HandleCallback 处理认证回调
+// @Summary 处理第三方认证回调
+// @Description 接收并处理来自第三方认证平台的回调请求。接口会验证返回的state参数是否与之前记录的一致，验证通过后使用授权码换取访问令牌和刷新令牌，并根据返回的用户信息在本地完成登录逻辑，下发加密的HTTP-only Cookie。
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body services.LoginRequest true "认证回调及登录参数"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /auth/callback [post]
 func (h *Handler) HandleCallback(c *gin.Context) {
 	var req services.LoginRequest
 	if err := httpx.BindJSON(c, &req); err != nil {
@@ -128,6 +147,14 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 }
 
 // RefreshToken 刷新token
+// @Summary 刷新访问令牌
+// @Description 利用本地存储在HTTP-only Cookie中的刷新令牌（Refresh Token）来换取新的访问令牌（Access Token）。此接口允许用户在不重新登录的情况下延长会话有效期。如果刷新令牌失效，将清除相关Cookie并要求用户重新认证。
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /auth/refresh [post]
 func (h *Handler) RefreshToken(c *gin.Context) {
 	// 从cookie获取refresh token
 	refreshToken, err := c.Cookie("refresh_token")
@@ -160,6 +187,12 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 }
 
 // Logout 登出
+// @Summary 用户登出系统
+// @Description 用于结束当前用户的活跃会话。该接口会清除客户端存储的访问令牌、刷新令牌以及用于单点登录的其它Cookie，并重置服务器端维护的会话重定向状态，确保后续请求将被视为未授权，有效保护账户安全。
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} httpx.Response
+// @Router /auth/logout [post]
 func (h *Handler) Logout(c *gin.Context) {
 	h.performLocalLogout(c)
 	h.clearRedirectCookie(c)
@@ -168,6 +201,14 @@ func (h *Handler) Logout(c *gin.Context) {
 }
 
 // GetProfile 获取用户资料
+// @Summary 获取个人基本资料
+// @Description 获取当前已认证用户的最新个人信息。该接口从数据库中读取并返回用户的UserID、电子邮件、用户名、全名以及管理员权限标志。通常用于前端初始化页面布局，或在权限变更后同步本地显示的状态信息。
+// @Tags Auth,Profile
+// @Produce json
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /profile [get]
 func (h *Handler) GetProfile(c *gin.Context) {
 	// 从上下文获取用户ID
 	userID, exists := c.Get("user_id")
@@ -201,6 +242,16 @@ func (h *Handler) GetProfile(c *gin.Context) {
 }
 
 // UpdateProfile 更新用户资料
+// @Summary 更新个人资料信息
+// @Description 允许用户修改其个人资料，目前支持更新头像URL和显示名称。该接口需要合法的访问令牌，并在更新成功后返回修改后的用户信息。通过此接口，用户可以个性化其在平台上的展示身份。
+// @Tags Auth,Profile
+// @Accept json
+// @Produce json
+// @Param request body object true "用户资料更新参数"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Router /profile [put]
 func (h *Handler) UpdateProfile(c *gin.Context) {
 	// 获取用户ID
 	userID, exists := c.Get("user_id")
@@ -237,6 +288,17 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 }
 
 // ChangePassword 修改密码（仅用于本地认证）
+// @Summary 修改用户登录密码
+// @Description 用于用户自主修改其登录密码。需要提供当前旧密码进行身份验证。注意：如果系统配置了OIDC或CAS等外部统一身份认证，此操作将被禁用，用户必须在相应的身份提供商平台上进行密码变更操作。
+// @Tags Auth,Profile
+// @Accept json
+// @Produce json
+// @Param request body object true "密码修改请求内容"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 501 {object} httpx.ErrorResponse
+// @Router /profile/change-password [post]
 func (h *Handler) ChangePassword(c *gin.Context) {
 	// 获取用户ID
 	_, exists := c.Get("user_id")
@@ -267,6 +329,13 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 }
 
 // GetUserSessions 获取用户会话列表
+// @Summary 查看活跃会话列表
+// @Description 列出当前用户在不同设备或浏览器上产生的所有活跃认证会话。返回信息包含设备名称、IP地址、登录位置、创建时间以及最后活动时间。用户可以通过此列表监控账号登录情况，并识别是否存在异常登录行为。
+// @Tags Auth,Profile
+// @Produce json
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 401 {object} httpx.ErrorResponse
+// @Router /profile/sessions [get]
 func (h *Handler) GetUserSessions(c *gin.Context) {
 	// 获取用户ID
 	userID, exists := c.Get("user_id")
@@ -302,6 +371,15 @@ func (h *Handler) GetUserSessions(c *gin.Context) {
 }
 
 // RevokeSession 撤销会话
+// @Summary 强制退出指定会话
+// @Description 根据会话ID强制注销特定的登录会话。该功能常用于远程退出在不可信设备上遗留的登录状态，或者在账号疑似被盗用时紧急终止所有的活跃访问。成功撤销后，该会话对应的令牌将立即失效。
+// @Tags Auth,Profile
+// @Produce json
+// @Param session_id path string true "会话唯一标识"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Router /profile/sessions/{session_id} [delete]
 func (h *Handler) RevokeSession(c *gin.Context) {
 	var path struct {
 		SessionID string `uri:"session_id" binding:"required"`

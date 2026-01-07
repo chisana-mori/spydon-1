@@ -11,6 +11,20 @@ import (
 )
 
 // GetAlerts 获取告警列表
+// @Summary 分页查询告警历史
+// @Description 从系统中分页检索所有已接收的告警记录。支持通过集群名、严重程度、当前状态、时间范围以及关键字进行多维度组合过滤。该接口为系统的告警控制台提供核心数据，展示故障发生的上下文及处理状态。
+// @Tags Query,Alerts
+// @Produce json
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Param cluster_name query string false "按集群名称过滤"
+// @Param severity query string false "按严重级别过滤"
+// @Param status query string false "按状态过滤"
+// @Param since query string false "起始时间 (RFC3339)"
+// @Success 200 {object} httpx.Response{data=[]models.Alert}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /alerts [get]
 func (h *Handler) GetAlerts(c *gin.Context) {
 	var query struct {
 		httpx.PaginationQuery
@@ -57,6 +71,15 @@ func (h *Handler) GetAlerts(c *gin.Context) {
 }
 
 // GetAlertTrend 获取告警趋势数据
+// @Summary 获取告警数量趋势
+// @Description 按天统计过去一段时间（默认30天）内不同严重级别的告警分布趋势。该数据通过时间序列分析生成，常用于仪表盘展示，帮助运维团队直观了解业务系统的稳定性波动情况及告警治理的长期效果。
+// @Tags Query,Alerts
+// @Produce json
+// @Param days query int false "统计天数 (默认30)"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /alerts/trend [get]
 func (h *Handler) GetAlertTrend(c *gin.Context) {
 	var query struct {
 		Days int `form:"days" binding:"omitempty,gte=1"`
@@ -80,6 +103,15 @@ func (h *Handler) GetAlertTrend(c *gin.Context) {
 }
 
 // GetAlert 获取单个告警详情
+// @Summary 获取特定告警详情
+// @Description 根据唯一数据库ID调取特定告警的完整条目。返回结果涵盖告警的所有标签（Labels）、注释（Annotations）、产生的集群环境以及精确的时间戳。此接口为告警详情侧边栏提供展示所需的详尽上下文信息。
+// @Tags Query,Alerts
+// @Produce json
+// @Param id path int true "告警ID"
+// @Success 200 {object} httpx.Response{data=models.Alert}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 404 {object} httpx.ErrorResponse
+// @Router /alerts/{id} [get]
 func (h *Handler) GetAlert(c *gin.Context) {
 	var path struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`
@@ -99,6 +131,16 @@ func (h *Handler) GetAlert(c *gin.Context) {
 }
 
 // GetAlertRawPayload 获取告警的原始数据
+// @Summary 调取原始Webhook数据
+// @Description 从关联的对象存储中提取该告警最初到达系统时的原始JSON请求体。这通常包含Alertmanager或自定义探针发送的所有未过滤字段。该功能主要用于高级故障排查，帮助确认数据接收和解析阶段是否存在信息漏损。
+// @Tags Query,Alerts
+// @Produce json
+// @Param id path int true "告警ID"
+// @Success 200 {string} string "JSON 原始数据流"
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 404 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /alerts/{id}/raw [get]
 func (h *Handler) GetAlertRawPayload(c *gin.Context) {
 	var path struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`

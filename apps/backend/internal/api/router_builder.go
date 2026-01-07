@@ -23,6 +23,8 @@ import (
 	knowledgehttp "robusta-web/backend/internal/features/knowledge/transport/http"
 	navyservice "robusta-web/backend/internal/features/navy/services"
 	navyhttp "robusta-web/backend/internal/features/navy/transport/http"
+	notificationservice "robusta-web/backend/internal/features/notification/services"
+	notificationhttp "robusta-web/backend/internal/features/notification/transport/http"
 	pipelineservice "robusta-web/backend/internal/features/pipeline/services"
 	pipelinehttp "robusta-web/backend/internal/features/pipeline/transport/http"
 	queryservice "robusta-web/backend/internal/features/query/services"
@@ -64,6 +66,7 @@ type handlerSet struct {
 	navy             *navyhttp.Handler
 	shared           *sharedhttp.Handler
 	configuration    *configurationhttp.ConfigurationHandler
+	notification     *notificationhttp.EmailHandler
 }
 
 func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *config.Config, nodesyncManager *nodesync.Manager, awxRuntime *pipelineservice.AWXRuntime) (*handlerSet, *BackgroundServices, error) {
@@ -182,6 +185,22 @@ func buildHandlerSet(database *db.Database, navyDatabase *db.NavyDatabase, cfg *
 		),
 		shared:        sharedhttp.New(cfg, dictionaryService),
 		configuration: configurationhttp.NewConfigurationHandler(navyDatabase),
+		notification: func() *notificationhttp.EmailHandler {
+			// 邮件通知服务
+			emailTemplateService := notificationservice.NewEmailTemplateService(database)
+			emailContactService := notificationservice.NewEmailContactService(database)
+			emailService := sharedservices.NewEmailService(cfg)
+			emailNotificationService := notificationservice.NewEmailNotificationService(
+				database, cfg, emailService, emailTemplateService,
+			)
+			// 注入 NodeSyncManager 用于动态获取 K8s 资源
+			emailNotificationService.SetResourceFetcher(nodesyncManager)
+			return notificationhttp.NewEmailHandler(
+				emailTemplateService,
+				emailContactService,
+				emailNotificationService,
+			)
+		}(),
 	}
 
 	// 创建 AWX Job Poller
@@ -251,6 +270,7 @@ func (r *routeRegistrar) register() {
 	r.registerNavyRoutes(v1)
 	r.registerSharedRoutes(v1)
 	r.registerConfigurationRoutes(v1)
+	r.registerNotificationRoutes(v1)
 }
 
 func (r *routeRegistrar) applyGlobalMiddleware() {
@@ -359,4 +379,10 @@ func (r *routeRegistrar) registerConfigurationRoutes(v1 *gin.RouterGroup) {
 	configGroup.Use(middleware.CookieAuthMiddleware(r.cfg))
 	configGroup.Use(middleware.RequireAdmin())
 	r.handlers.configuration.RegisterRoutes(configGroup)
+}
+
+func (r *routeRegistrar) registerNotificationRoutes(v1 *gin.RouterGroup) {
+	// Email Notification routes
+	// 路由注册到 /api/v1/email/*
+	r.handlers.notification.RegisterRoutes(v1)
 }

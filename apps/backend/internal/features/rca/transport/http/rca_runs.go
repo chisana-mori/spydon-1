@@ -9,6 +9,15 @@ import (
 )
 
 // TriggerRCAByAlertID triggers an RCA run for a specific alert id (manual mode).
+// @Summary 按ID发起手动RCA分析
+// @Description 针对指定的单一告警ID，强制系统发起一次即时的根因分析。该行为类似于用户在Web端点击“诊断”按钮，系统将同步收集相关环境数据并提交给AI后端。分析ID会在响应中立即返回，以便前端进行后续的状态追显。
+// @Tags RCA
+// @Produce json
+// @Param alert_id path int true "内部告警ID"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /rca/{alert_id}/trigger [post]
 func (h *Handler) TriggerRCAByAlertID(c *gin.Context) {
 	var path struct {
 		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`
@@ -36,6 +45,14 @@ func (h *Handler) TriggerRCAByAlertID(c *gin.Context) {
 }
 
 // GetRCARunStatus returns status of a specific RCA run.
+// @Summary 查询RCA任务当前状态
+// @Description 根据运行ID精确查询一次RCA分析任务的执行进度及最终结论。该接口透出了任务的起止时间、当前步骤（由于分析过程可能较长）以及是否已产出最终报告，是实现前端长耗时异步任务状态轮询的关键接口。
+// @Tags RCA
+// @Produce json
+// @Param run_id path string true "分析运行ID"
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 404 {object} httpx.ErrorResponse
+// @Router /rca/runs/{run_id} [get]
 func (h *Handler) GetRCARunStatus(c *gin.Context) {
 	var uri struct {
 		RunID string `uri:"run_id" binding:"required"`
@@ -55,6 +72,17 @@ func (h *Handler) GetRCARunStatus(c *gin.Context) {
 }
 
 // ListRCARuns lists RCA runs with pagination.
+// @Summary 分页列表显示RCA运行记录
+// @Description 分页展现系统内所有的RCA分析历史记录。支持通过集群名称及运行状态（如：运行中、已完成、失败等）进行检索过滤。返回结果集供审计与追溯使用，展现了系统自动告警诊断及历史人力修复建议的历史全貌。
+// @Tags RCA
+// @Produce json
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Param cluster_name query string false "集群名过滤"
+// @Param status query string false "任务状态过滤"
+// @Success 200 {object} httpx.Response{data=[]object}
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /rca/runs [get]
 func (h *Handler) ListRCARuns(c *gin.Context) {
 	params, derr := httpx.ParsePaginationParams(c)
 	if derr != nil {

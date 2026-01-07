@@ -10,6 +10,13 @@ import (
 )
 
 // StreamRCA streams RCA analysis status and result via Server-Sent Events.
+// @Summary 实时流式传输RCA分析过程
+// @Description 建立基于Server-Sent Events (SSE) 的长连接，实时推送指定告警的RCA分析进度、状态变更及最终生成的AI诊断结论分块。该接口允许前端实现“打字机”式的实时分析效果，提升用户在等待复杂故障诊断过程中的交互体验。
+// @Tags RCA
+// @Produce text/event-stream
+// @Param alert_id path int true "告警ID"
+// @Success 200 {string} string "Event: status 或数据流"
+// @Router /rca/{alert_id}/stream [get]
 func (h *Handler) StreamRCA(c *gin.Context) {
 	var uri struct {
 		AlertID uint64 `uri:"alert_id" binding:"required,gt=0"`

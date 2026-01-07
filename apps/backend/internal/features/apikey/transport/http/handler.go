@@ -73,6 +73,17 @@ type APIKeyListResponse struct {
 }
 
 // CreateAPIKey creates a new API key for current user.
+// @Summary 创建API Key
+// @Description 为当前登录用户创建一个新的API访问密钥。用户可以指定密钥名称、有效期（以天为单位）以及权限级别（read/write/admin）。生成的密钥将仅在创建时返回一次，用于后续自动化脚本或第三方集成调用API。
+// @Tags APIKey
+// @Accept json
+// @Produce json
+// @Param request body CreateAPIKeyRequest true "API Key创建请求参数"
+// @Success 201 {object} httpx.Response{data=CreateAPIKeyResponse}
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /apikeys [post]
 func (h *Handler) CreateAPIKey(c *gin.Context) {
 	var req CreateAPIKeyRequest
 	if err := httpx.BindJSON(c, &req); err != nil {
@@ -114,6 +125,14 @@ func (h *Handler) CreateAPIKey(c *gin.Context) {
 }
 
 // ListAPIKeys lists API keys of current user.
+// @Summary 获取API Key列表
+// @Description 获取当前用户拥有的所有API访问密钥列表。返回结果包含密钥名称、前缀、最后使用时间、过期时间、当前状态（激活/禁用）以及权限级别。出于安全考虑，完整的密钥内容不会在此接口中返回。
+// @Tags APIKey
+// @Produce json
+// @Success 200 {object} httpx.Response{data=[]APIKeyListResponse}
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /apikeys [get]
 func (h *Handler) ListAPIKeys(c *gin.Context) {
 	uid, derr := h.resolveUserID(c)
 	if derr != nil {
@@ -144,6 +163,16 @@ func (h *Handler) ListAPIKeys(c *gin.Context) {
 }
 
 // DeleteAPIKey deletes a key by id for current user.
+// @Summary 删除API Key
+// @Description 根据指定的ID永久删除当前用户下的某个API访问密钥。删除后，使用该密钥的任何请求都将被拒绝。此操作不可撤销，旨在让用户在密钥泄露或不再需要时能及时清理过期的安全凭证。
+// @Tags APIKey
+// @Produce json
+// @Param id path string true "API Key ID"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /apikeys/{id} [delete]
 func (h *Handler) DeleteAPIKey(c *gin.Context) {
 	var uri struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`
@@ -167,6 +196,18 @@ func (h *Handler) DeleteAPIKey(c *gin.Context) {
 }
 
 // UpdateAPIKeyStatus updates is_active of a key for current user.
+// @Summary 更新API Key状态
+// @Description 启用或禁用当前用户下的指定API访问密钥。禁用密钥可以临时阻止基于该密钥的API访问，而无需永久删除密钥信息。这在进行安全审计或临时调整权限时非常有用，且后续可以随时重新启用。
+// @Tags APIKey
+// @Accept json
+// @Produce json
+// @Param id path string true "API Key ID"
+// @Param request body object true "状态更新参数 (is_active boolean)"
+// @Success 200 {object} httpx.Response
+// @Failure 400 {object} httpx.ErrorResponse
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /apikeys/{id}/status [put]
 func (h *Handler) UpdateAPIKeyStatus(c *gin.Context) {
 	var uri struct {
 		ID uint64 `uri:"id" binding:"required,gt=0"`
@@ -197,6 +238,17 @@ func (h *Handler) UpdateAPIKeyStatus(c *gin.Context) {
 }
 
 // ListAllAPIKeys lists all keys with pagination (admin route).
+// @Summary 管理员获取所有API Key (分页)
+// @Description 管理员权限接口，用于分页列出系统中所有用户创建的API访问密钥。返回数据包含密钥详情以及所属用户信息，支持通过分页参数控制返回数量，方便管理员全局监控和管理系统内的安全凭证使用情况。
+// @Tags Admin,APIKey
+// @Produce json
+// @Param page query int false "页码 (默认1)"
+// @Param page_size query int false "每页数量 (默认20)"
+// @Success 200 {object} httpx.Response{data=[]map[string]interface{}}
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 403 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/apikeys [get]
 func (h *Handler) ListAllAPIKeys(c *gin.Context) {
 	params, derr := httpx.ParsePaginationParams(c)
 	if derr != nil {

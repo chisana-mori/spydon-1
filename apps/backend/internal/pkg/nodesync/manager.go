@@ -11,7 +11,9 @@ import (
 	"robusta-web/backend/internal/models"
 
 	"go.uber.org/zap"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ClusterStatusMaintenance 集群维护中状态
@@ -248,4 +250,74 @@ func (m *Manager) ListNodes(clusterName string) ([]corev1.Node, error) {
 	}
 
 	return nodeList.Items, nil
+}
+
+// ListPodsOnNodes 按需查询指定节点上的 Pods（不使用缓存）
+func (m *Manager) ListPodsOnNodes(clusterName string, nodeNames []string) ([]corev1.Pod, error) {
+	m.mu.RLock()
+	ctrl, ok := m.controllers[clusterName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("集群 %s 未被管理或不存在", clusterName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var allPods []corev1.Pod
+
+	// 如果没有指定节点，获取所有 Pods
+	if len(nodeNames) == 0 {
+		var podList corev1.PodList
+		if err := ctrl.GetClient().List(ctx, &podList); err != nil {
+			return nil, fmt.Errorf("获取 Pods 失败: %w", err)
+		}
+		return podList.Items, nil
+	}
+
+	// 按节点过滤 Pods
+	nodeSet := make(map[string]bool)
+	for _, n := range nodeNames {
+		nodeSet[n] = true
+	}
+
+	var podList corev1.PodList
+	if err := ctrl.GetClient().List(ctx, &podList); err != nil {
+		return nil, fmt.Errorf("获取 Pods 失败: %w", err)
+	}
+
+	for _, pod := range podList.Items {
+		if nodeSet[pod.Spec.NodeName] {
+			allPods = append(allPods, pod)
+		}
+	}
+
+	return allPods, nil
+}
+
+// ListDeployments 按需查询指定集群的所有 Deployments（集群级别，不使用缓存）
+func (m *Manager) ListDeployments(clusterName string, namespace string) ([]appsv1.Deployment, error) {
+	m.mu.RLock()
+	ctrl, ok := m.controllers[clusterName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("集群 %s 未被管理或不存在", clusterName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var deployList appsv1.DeploymentList
+	opts := []client.ListOption{}
+	if namespace != "" {
+		opts = append(opts, client.InNamespace(namespace))
+	}
+
+	if err := ctrl.GetClient().List(ctx, &deployList, opts...); err != nil {
+		return nil, fmt.Errorf("获取 Deployments 失败: %w", err)
+	}
+
+	return deployList.Items, nil
 }

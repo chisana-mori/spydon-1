@@ -30,6 +30,7 @@ import {
   Library,
   Tags,
   AlertCircle,
+  Wrench,
   Settings2,
   Database,
 } from 'lucide-react'
@@ -80,6 +81,25 @@ const navigation: NavigationItem[] = [
     description: '告警监控',
   },
   {
+    name: '运维管理',
+    icon: Wrench,
+    description: '日常运维操作与通知',
+    children: [
+      {
+        name: '变更管理',
+        href: '/tasks',
+        icon: GitBranch,
+        description: '任务与变更执行',
+      },
+      {
+        name: '通知管理',
+        href: '/operations/notification',
+        icon: Bell,
+        description: '邮件发送与配置',
+      },
+    ],
+  },
+  {
     name: '集群管理',
     href: '/clusters',
     icon: Server,
@@ -128,12 +148,6 @@ const navigation: NavigationItem[] = [
         description: '设备应用类型管理',
       },
     ],
-  },
-  {
-    name: '变更管理',
-    href: '/tasks',
-    icon: GitBranch,
-    description: '任务与变更执行',
   },
   {
     name: '系统管理',

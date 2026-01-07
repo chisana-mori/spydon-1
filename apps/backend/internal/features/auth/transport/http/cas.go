@@ -16,6 +16,13 @@ import (
 )
 
 // CASLogin 触发CAS登录
+// @Summary 触发CAS跳转登录
+// @Description 发起单点登录（CAS）流程。该接口会将用户重定向至配置的CAS服务器登录页面。用户可以提供可选的service参数指定登录成功后的重定向目标。如果不提供，则使用系统默认的重定向路径。
+// @Tags Auth,CAS
+// @Param service query string false "登录成功后的重定向服务地址"
+// @Success 302
+// @Failure 501 {object} httpx.ErrorResponse
+// @Router /auth/cas/login [get]
 func (h *Handler) CASLogin(c *gin.Context) {
 	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
 		httpx.Error(c, http.StatusNotImplemented, "CAS_NOT_ENABLED", "CAS 未启用")
@@ -63,6 +70,14 @@ func (h *Handler) CASLogin(c *gin.Context) {
 }
 
 // CASCallback 处理CAS回调
+// @Summary 处理CAS认证回调
+// @Description 接收CAS服务器登录成功后的Service Ticket回调。接口将向CAS服务器验证Ticket的有效性，并换取用户信息。验证通过后，系统会为用户下发本地的访问和刷新令牌令牌，并最终重定向回原始请求页面。
+// @Tags Auth,CAS
+// @Param ticket query string true "CAS服务器生成的Service Ticket"
+// @Success 302
+// @Failure 401 {object} httpx.ErrorResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /auth/cas/callback [get]
 func (h *Handler) CASCallback(c *gin.Context) {
 	if h.casClient == nil || h.cfg == nil || !h.cfg.CAS.Enabled {
 		httpx.Error(c, http.StatusNotImplemented, "CAS_NOT_ENABLED", "CAS 未启用")
@@ -126,6 +141,13 @@ func (h *Handler) CASValidate(c *gin.Context) {
 }
 
 // CASLogout 注销CAS并清理本地会话
+// @Summary CAS注销退出
+// @Description 执行单点登出流程。该接口将清除本地会话及其关联的Cookie，并引导用户重定向至CAS服务器执行全局登出。用户可以选择性地提供redirect参数，指定在CAS全局登出完成后跳转的目标页面地址。
+// @Tags Auth,CAS
+// @Param redirect query string false "注销后的重定向地址"
+// @Success 302
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /auth/cas/logout [get]
 func (h *Handler) CASLogout(c *gin.Context) {
 	var query struct {
 		Redirect string `form:"redirect"`

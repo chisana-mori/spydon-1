@@ -54,6 +54,15 @@ var upgrader = websocket.Upgrader{
 }
 
 // StreamInvestigate proxies WebSocket stream to HolmesGPT via HolmesService
+// @Summary HolmesGPT 智能分析流
+// @Description 建立WebSocket连接以启动针对特定告警的AI智能分析流程。该接口将实时推送来自HolmesGPT的分析结果、工具调用过程以及最终的修复建议。支持通过初始化参数控制强制刷新、缓存优先顺序以及输出语言等分析选项。
+// @Tags Holmes
+// @Param alert_id body int true "告警ID"
+// @Param language body string false "语言 (默认zh-CN)"
+// @Success 101 {string} string "Switching Protocols"
+// @Failure 400 {object} gin.H
+// @Failure 503 {object} gin.H
+// @Router /holmes/investigate [get]
 func (h *Handler) StreamInvestigate(c *gin.Context) {
 	if !h.cfg.HolmesGPT.Enabled {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "HolmesGPT 功能未启用"})
@@ -137,6 +146,16 @@ type ApprovalDecisionRequest struct {
 }
 
 // SendApprovalDecision forwards decision to agent backend
+// @Summary 发送审批决策
+// @Description 当HolmesGPT执行敏感操作（如执行修复命令）需要人工介入时，调用此接口发送审批结果（通过或拒绝）。该接口会将用户的决策实时透传给底层的Agent服务，以决定是否继续执行后续的自动化故障修复或资源变更步骤。
+// @Tags Holmes
+// @Accept json
+// @Produce json
+// @Param request body ApprovalDecisionRequest true "审批决策数据"
+// @Success 200 {object} object
+// @Failure 400 {object} gin.H
+// @Failure 502 {object} gin.H
+// @Router /holmes/send-decision [post]
 func (h *Handler) SendApprovalDecision(c *gin.Context) {
 	var req ApprovalDecisionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
