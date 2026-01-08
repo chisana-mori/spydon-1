@@ -427,7 +427,7 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                 className={cn(someSelected && !allSelected && "data-[state=checked]:bg-primary/50")}
                             />
                         </TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground min-w-[200px]">
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[260px]">
                             <div className="flex items-center gap-1.5">
                                 设备ID
                                 <Button
@@ -444,7 +444,7 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                 </Button>
                             </div>
                         </TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-40">
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[150px]">
                             <div className="flex items-center gap-1.5">
                                 IP
                                 <Button
@@ -457,23 +457,29 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                 </Button>
                             </div>
                         </TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[100px]">K8s 状态</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[120px]">角色</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[120px]">关联集群</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[150px]">用途</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[140px]">IDC / 房间</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[80px]">Zone</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[100px]">AppID</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground whitespace-nowrap">国产化</TableHead>
-                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[80px]">状态</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[110px]">K8s 状态</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[150px]">角色</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[140px]">关联集群</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground min-w-[150px]">用途</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[150px]">IDC / 房间</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[100px]">Zone</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground min-w-[120px]">AppID</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[80px] whitespace-nowrap">国产化</TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium text-muted-foreground w-[100px]">状态</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {devices.map((device, index) => (
                         <TableRow
                             key={`${device.id}-${index}`}
-                            className={cn("cursor-pointer transition-colors border-border/40", getRowClassName(device))}
-                            onClick={() => onSelect(device)}
+                            className={cn("cursor-pointer transition-colors border-border/40 whitespace-nowrap", getRowClassName(device))}
+                            onClick={() => {
+                                if (!device.isVirtual) {
+                                    const isSelected = selectedDevices.has(device.id);
+                                    handleSelectOne(device.id, !isSelected)
+                                }
+                            }}
+                            onDoubleClick={() => onSelect(device)}
                         >
                             <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                                 {!device.isVirtual && (

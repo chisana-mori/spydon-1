@@ -127,17 +127,6 @@ export default function Alerts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 ring-1 ring-blue-500/20">
-          <AlertTriangle className="h-6 w-6" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">告警中心</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            监控和管理系统的所有告警事件
-          </p>
-        </div>
-      </div>
 
       {/* 顶部筛选栏 */}
       <div className="bg-card border rounded-xl shadow-sm p-4">

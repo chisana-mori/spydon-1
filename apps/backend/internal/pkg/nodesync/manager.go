@@ -53,6 +53,13 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.wg.Add(1)
 	go m.refreshLoop(ctx)
 
+	// 启动时进行一次全量同步
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		m.SyncAllClusters(ctx)
+	}()
+
 	logger.S().Infow("节点同步管理器已启动", "cluster_count", len(m.controllers))
 	return nil
 }
