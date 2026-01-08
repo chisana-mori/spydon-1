@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	sharedservices "robusta-web/backend/internal/features/shared/services"
-	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/pkg/logger"
 )
 
 // EnrichmentProcessor 处理enrichments的处理器

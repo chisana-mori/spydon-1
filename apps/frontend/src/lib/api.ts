@@ -153,6 +153,10 @@ export class RobustaAPI {
         await apiClient.delete(`/admin/clusters/${name}`)
     }
 
+    static async syncClusterConfig(): Promise<{ updated_count: number }> {
+        return handleResponse(apiClient.post('/admin/clusters/sync-config'))
+    }
+
     // ============ Alerts ============
     static async getAlerts(
         page = 1,

@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"robusta-web/backend/internal/config"
-
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -25,8 +23,15 @@ func init() {
 	sugarLogger = currentLogger.Sugar()
 }
 
+// Config 日志配置（避免依赖 internal 包）
+type Config struct {
+	LogLevel    string
+	LogFilePath string
+}
+
 // Init 根据配置初始化全局日志器，输出到文件和标准输出。
-func Init(cfg *config.Config) error {
+// cfg 可以为 nil，此时使用默认配置（Info 级别，输出到 stdout）
+func Init(cfg *Config) error {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 

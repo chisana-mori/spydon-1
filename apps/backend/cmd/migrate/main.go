@@ -6,7 +6,7 @@ import (
 
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/db"
-	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/pkg/logger"
 
 	"go.uber.org/zap"
 )

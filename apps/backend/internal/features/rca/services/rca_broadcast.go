@@ -3,8 +3,8 @@ package services
 import (
 	"fmt"
 
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"go.uber.org/zap"
 )

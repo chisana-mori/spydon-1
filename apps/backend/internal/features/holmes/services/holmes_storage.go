@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/minio/minio-go/v7"
 	"go.uber.org/zap"

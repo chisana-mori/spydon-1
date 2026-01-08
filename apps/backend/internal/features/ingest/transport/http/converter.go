@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

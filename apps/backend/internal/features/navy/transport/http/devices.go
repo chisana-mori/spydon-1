@@ -10,6 +10,48 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// =============================================================================
+// DeviceHandler - 设备查询处理器
+// =============================================================================
+
+// DeviceHandler 处理设备查询相关的 HTTP 请求
+type DeviceHandler struct {
+	svc *services.NavyDeviceService
+}
+
+// NewDeviceHandler 创建 DeviceHandler
+func NewDeviceHandler(svc *services.NavyDeviceService) *DeviceHandler {
+	return &DeviceHandler{svc: svc}
+}
+
+// RegisterRoutes 注册设备相关路由
+func (h *DeviceHandler) RegisterRoutes(navyGroup *gin.RouterGroup) {
+	devices := navyGroup.Group(RouteGroupDevices)
+	{
+		devices.GET("", h.ListDevices)
+		devices.POST(RouteQuery, h.QueryDevices)
+		devices.GET(RouteFilterOptions, h.GetFilterOptions)
+		devices.GET(RouteLabelValues, h.GetLabelValues)
+		devices.GET(RouteTaintValues, h.GetTaintValues)
+		devices.GET(RouteDeviceFieldValues, h.GetDeviceFieldValues)
+		devices.POST(RouteFeatures, h.GetDeviceFeatures)
+		devices.GET(RouteFeatureDetails, h.GetFeatureDetails)
+		devices.GET(RouteExport, h.ExportDevices)
+		devices.GET(RouteParamID, h.GetDevice)
+		devices.PATCH(RouteParamIDRole, h.UpdateDeviceRole)
+		devices.PATCH(RouteParamIDGroup, h.UpdateDeviceGroup)
+	}
+
+	// 模板管理
+	templates := navyGroup.Group(RouteGroupTemplates)
+	{
+		templates.GET("", h.GetTemplates)
+		templates.POST("", h.SaveTemplate)
+		templates.GET(RouteParamID, h.GetTemplate)
+		templates.DELETE(RouteParamID, h.DeleteTemplate)
+	}
+}
+
 // ListDevices 获取设备列表
 // @Summary 分页获取设备列表
 // @Description 根据查询参数分页获取Navy系统中的设备列表。支持通过集群、IDC、子网、角色等多种维度进行简单过滤。返回结果包含设备的基本元数据、状态及所属环境信息，是资产管理模块的核心数据查询接口。
@@ -23,14 +65,14 @@ import (
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices [get]
-func (h *Handler) ListDevices(c *gin.Context) {
+func (h *DeviceHandler) ListDevices(c *gin.Context) {
 	var query services.DeviceQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
 		httpx.BadRequest(c, "INVALID_QUERY_PARAMS", err.Error())
 		return
 	}
 
-	res, err := h.navyDeviceService.ListDevices(c.Request.Context(), &query)
+	res, err := h.svc.ListDevices(c.Request.Context(), &query)
 	if err != nil {
 		httpx.InternalError(c, "LIST_DEVICES_ERROR", err.Error())
 		return
@@ -51,14 +93,14 @@ func (h *Handler) ListDevices(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/query [post]
-func (h *Handler) QueryDevices(c *gin.Context) {
+func (h *DeviceHandler) QueryDevices(c *gin.Context) {
 	var req services.NavyDeviceQueryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "INVALID_QUERY_REQUEST", err.Error())
 		return
 	}
 
-	res, err := h.navyDeviceService.QueryDevices(c.Request.Context(), &req)
+	res, err := h.svc.QueryDevices(c.Request.Context(), &req)
 	if err != nil {
 		httpx.InternalError(c, "QUERY_DEVICES_ERROR", err.Error())
 		return
@@ -76,8 +118,8 @@ func (h *Handler) QueryDevices(c *gin.Context) {
 // @Success 200 {object} httpx.Response{data=services.FilterOptions}
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/filter-options [get]
-func (h *Handler) GetFilterOptions(c *gin.Context) {
-	res, err := h.navyDeviceService.GetFilterOptions(c.Request.Context())
+func (h *DeviceHandler) GetFilterOptions(c *gin.Context) {
+	res, err := h.svc.GetFilterOptions(c.Request.Context())
 	if err != nil {
 		httpx.InternalError(c, "GET_FILTER_OPTIONS_ERROR", err.Error())
 		return
@@ -95,14 +137,14 @@ func (h *Handler) GetFilterOptions(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/labels/values [get]
-func (h *Handler) GetLabelValues(c *gin.Context) {
+func (h *DeviceHandler) GetLabelValues(c *gin.Context) {
 	labelKey := c.Query("key")
 	if labelKey == "" {
 		httpx.BadRequest(c, "LABEL_KEY_REQUIRED", "key is required")
 		return
 	}
 
-	values, err := h.navyDeviceService.GetLabelValues(c.Request.Context(), labelKey)
+	values, err := h.svc.GetLabelValues(c.Request.Context(), labelKey)
 	if err != nil {
 		httpx.InternalError(c, "GET_LABEL_VALUES_ERROR", err.Error())
 		return
@@ -120,14 +162,14 @@ func (h *Handler) GetLabelValues(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/taints/values [get]
-func (h *Handler) GetTaintValues(c *gin.Context) {
+func (h *DeviceHandler) GetTaintValues(c *gin.Context) {
 	taintKey := c.Query("key")
 	if taintKey == "" {
 		httpx.BadRequest(c, "TAINT_KEY_REQUIRED", "key is required")
 		return
 	}
 
-	values, err := h.navyDeviceService.GetTaintValues(c.Request.Context(), taintKey)
+	values, err := h.svc.GetTaintValues(c.Request.Context(), taintKey)
 	if err != nil {
 		httpx.InternalError(c, "GET_TAINT_VALUES_ERROR", err.Error())
 		return
@@ -145,14 +187,14 @@ func (h *Handler) GetTaintValues(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/fields/values [get]
-func (h *Handler) GetDeviceFieldValues(c *gin.Context) {
+func (h *DeviceHandler) GetDeviceFieldValues(c *gin.Context) {
 	field := c.Query("field")
 	if field == "" {
 		httpx.BadRequest(c, "FIELD_REQUIRED", "field is required")
 		return
 	}
 
-	values, err := h.navyDeviceService.GetDeviceFieldValues(c.Request.Context(), field)
+	values, err := h.svc.GetDeviceFieldValues(c.Request.Context(), field)
 	if err != nil {
 		httpx.InternalError(c, "GET_DEVICE_FIELD_VALUES_ERROR", err.Error())
 		return
@@ -170,7 +212,7 @@ func (h *Handler) GetDeviceFieldValues(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 404 {object} httpx.ErrorResponse
 // @Router /navy/devices/{id} [get]
-func (h *Handler) GetDevice(c *gin.Context) {
+func (h *DeviceHandler) GetDevice(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -178,7 +220,7 @@ func (h *Handler) GetDevice(c *gin.Context) {
 		return
 	}
 
-	res, err := h.navyDeviceService.GetDevice(c.Request.Context(), id)
+	res, err := h.svc.GetDevice(c.Request.Context(), id)
 	if err != nil {
 		httpx.NotFound(c, "DEVICE_NOT_FOUND", "设备不存在")
 		return
@@ -197,14 +239,14 @@ func (h *Handler) GetDevice(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/features/details [get]
-func (h *Handler) GetFeatureDetails(c *gin.Context) {
+func (h *DeviceHandler) GetFeatureDetails(c *gin.Context) {
 	ciCode := c.Query("ci_code")
 	if ciCode == "" {
 		httpx.BadRequest(c, "CI_CODE_REQUIRED", "ci_code is required")
 		return
 	}
 
-	res, err := h.navyDeviceService.GetBatchDeviceFeatures(c.Request.Context(), []string{ciCode})
+	res, err := h.svc.GetBatchDeviceFeatures(c.Request.Context(), []string{ciCode})
 	if err != nil {
 		httpx.InternalError(c, "GET_FEATURE_DETAILS_ERROR", err.Error())
 		return
@@ -224,14 +266,14 @@ func (h *Handler) GetFeatureDetails(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/features [post]
-func (h *Handler) GetDeviceFeatures(c *gin.Context) {
+func (h *DeviceHandler) GetDeviceFeatures(c *gin.Context) {
 	var req services.DeviceFeaturesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "INVALID_REQUEST", err.Error())
 		return
 	}
 
-	res, err := h.navyDeviceService.GetBatchDeviceFeatures(c.Request.Context(), req.CICodes)
+	res, err := h.svc.GetBatchDeviceFeatures(c.Request.Context(), req.CICodes)
 	if err != nil {
 		httpx.InternalError(c, "GET_DEVICE_FEATURES_ERROR", err.Error())
 		return
@@ -252,7 +294,7 @@ func (h *Handler) GetDeviceFeatures(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/{id}/role [put]
-func (h *Handler) UpdateDeviceRole(c *gin.Context) {
+func (h *DeviceHandler) UpdateDeviceRole(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -266,7 +308,7 @@ func (h *Handler) UpdateDeviceRole(c *gin.Context) {
 		return
 	}
 
-	if err := h.navyDeviceService.UpdateDeviceRole(c.Request.Context(), id, req.Role); err != nil {
+	if err := h.svc.UpdateDeviceRole(c.Request.Context(), id, req.Role); err != nil {
 		httpx.InternalError(c, "UPDATE_ROLE_ERROR", err.Error())
 		return
 	}
@@ -286,7 +328,7 @@ func (h *Handler) UpdateDeviceRole(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/{id}/group [put]
-func (h *Handler) UpdateDeviceGroup(c *gin.Context) {
+func (h *DeviceHandler) UpdateDeviceGroup(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -300,7 +342,7 @@ func (h *Handler) UpdateDeviceGroup(c *gin.Context) {
 		return
 	}
 
-	if err := h.navyDeviceService.UpdateDeviceGroup(c.Request.Context(), id, req.Group); err != nil {
+	if err := h.svc.UpdateDeviceGroup(c.Request.Context(), id, req.Group); err != nil {
 		httpx.InternalError(c, "UPDATE_GROUP_ERROR", err.Error())
 		return
 	}
@@ -316,8 +358,8 @@ func (h *Handler) UpdateDeviceGroup(c *gin.Context) {
 // @Success 200 {string} string "CSV文件流"
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/export [get]
-func (h *Handler) ExportDevices(c *gin.Context) {
-	data, err := h.navyDeviceService.ExportDevices(c.Request.Context())
+func (h *DeviceHandler) ExportDevices(c *gin.Context) {
+	data, err := h.svc.ExportDevices(c.Request.Context())
 	if err != nil {
 		httpx.InternalError(c, "EXPORT_DEVICES_ERROR", err.Error())
 		return
@@ -338,14 +380,14 @@ func (h *Handler) ExportDevices(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/templates [post]
-func (h *Handler) SaveTemplate(c *gin.Context) {
+func (h *DeviceHandler) SaveTemplate(c *gin.Context) {
 	var req services.QueryTemplate
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "INVALID_REQUEST", err.Error())
 		return
 	}
 
-	if err := h.navyDeviceService.SaveQueryTemplate(c.Request.Context(), &req); err != nil {
+	if err := h.svc.SaveQueryTemplate(c.Request.Context(), &req); err != nil {
 		httpx.InternalError(c, "SAVE_TEMPLATE_ERROR", err.Error())
 		return
 	}
@@ -363,11 +405,11 @@ func (h *Handler) SaveTemplate(c *gin.Context) {
 // @Success 200 {object} httpx.Response{data=[]services.QueryTemplate}
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/templates [get]
-func (h *Handler) GetTemplates(c *gin.Context) {
+func (h *DeviceHandler) GetTemplates(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
 
-	res, err := h.navyDeviceService.GetQueryTemplates(c.Request.Context(), page, size)
+	res, err := h.svc.GetQueryTemplates(c.Request.Context(), page, size)
 	if err != nil {
 		httpx.InternalError(c, "GET_TEMPLATES_ERROR", err.Error())
 		return
@@ -387,7 +429,7 @@ func (h *Handler) GetTemplates(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 404 {object} httpx.ErrorResponse
 // @Router /navy/devices/templates/{id} [get]
-func (h *Handler) GetTemplate(c *gin.Context) {
+func (h *DeviceHandler) GetTemplate(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -395,7 +437,7 @@ func (h *Handler) GetTemplate(c *gin.Context) {
 		return
 	}
 
-	res, err := h.navyDeviceService.GetQueryTemplate(c.Request.Context(), id)
+	res, err := h.svc.GetQueryTemplate(c.Request.Context(), id)
 	if err != nil {
 		httpx.NotFound(c, "TEMPLATE_NOT_FOUND", "模板不存在")
 		return
@@ -413,7 +455,7 @@ func (h *Handler) GetTemplate(c *gin.Context) {
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /navy/devices/templates/{id} [delete]
-func (h *Handler) DeleteTemplate(c *gin.Context) {
+func (h *DeviceHandler) DeleteTemplate(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -421,7 +463,7 @@ func (h *Handler) DeleteTemplate(c *gin.Context) {
 		return
 	}
 
-	if err := h.navyDeviceService.DeleteQueryTemplate(c.Request.Context(), id); err != nil {
+	if err := h.svc.DeleteQueryTemplate(c.Request.Context(), id); err != nil {
 		httpx.InternalError(c, "DELETE_TEMPLATE_ERROR", err.Error())
 		return
 	}

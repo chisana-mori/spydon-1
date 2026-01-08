@@ -37,12 +37,13 @@ type DictionaryItemResponse struct {
 
 // CreateDictionaryRequest 创建字典请求
 type CreateDictionaryRequest struct {
-	Code           string `json:"code" binding:"required"`
-	Name           string `json:"name" binding:"required"`
-	Module         string `json:"module"`
-	Description    string `json:"description"`
-	KeySameAsValue *bool  `json:"key_same_as_value"` // 可选，默认 true
-	SortOrder      int    `json:"sort_order"`
+	Code           string                    `json:"code" binding:"required"`
+	Name           string                    `json:"name" binding:"required"`
+	Module         string                    `json:"module"`
+	Description    string                    `json:"description"`
+	KeySameAsValue *bool                     `json:"key_same_as_value"` // 可选，默认 true
+	SortOrder      int                       `json:"sort_order"`
+	Items          []DictionaryItemBatchItem `json:"items"` // 初始创建的字典项
 }
 
 // UpdateDictionaryRequest 更新字典请求

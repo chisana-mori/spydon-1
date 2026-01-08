@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"robusta-web/backend/internal/db"
@@ -89,7 +90,7 @@ func (s *TaintManagementService) ListTaints(ctx context.Context, query TaintList
 func (s *TaintManagementService) GetTaint(ctx context.Context, id int) (*TaintManagementDTO, error) {
 	var taint navy.TaintManagement
 	if err := s.db.WithContext(ctx).First(&taint, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("污点不存在")
 		}
 		return nil, fmt.Errorf("查询污点失败: %w", err)
@@ -136,7 +137,7 @@ func (s *TaintManagementService) CreateTaint(ctx context.Context, req CreateTain
 func (s *TaintManagementService) UpdateTaint(ctx context.Context, id int, req UpdateTaintRequest) (*TaintManagementDTO, error) {
 	var taint navy.TaintManagement
 	if err := s.db.WithContext(ctx).First(&taint, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("污点不存在")
 		}
 		return nil, fmt.Errorf("查询污点失败: %w", err)

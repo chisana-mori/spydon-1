@@ -5,8 +5,10 @@ import (
 	"strconv"
 
 	"robusta-web/backend/internal/features/shared/services"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // =====================================================
@@ -225,6 +227,14 @@ func (h *Handler) BatchUpdateDictionaryItems(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
+	// 日志：打印接收到的请求数据 (使用 zap logger 以确保持久化)
+	logger.L().Info("接收到批量更新请求",
+		zap.Uint64("dict_id", dictID),
+		zap.Int("item_count", len(req.Items)),
+	)
+
+	// 同时也保留 fmt.Printf 用于调试
+	logger.S().Debugf("[Handler] BatchUpdateDictionaryItems DictID=%d, ItemCount=%d", dictID, len(req.Items))
 
 	if err := h.dictionaryService.BatchUpdateItems(dictID, req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

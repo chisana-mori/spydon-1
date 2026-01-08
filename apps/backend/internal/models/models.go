@@ -33,7 +33,7 @@ type Cluster struct {
 	UpdatedAt     time.Time        `json:"updated_at"`
 	Name          string           `json:"name" gorm:"type:varchar(100);uniqueIndex;not null"`
 	Description   string           `json:"description" gorm:"type:text"`
-	Config        KiteSecretString `json:"kube_config" gorm:"type:text"` // KubeConfig - 自动加密
+	Config        KiteSecretString `json:"config" gorm:"type:text;column:config"` // KubeConfig - 自动加密
 	PrometheusURL string           `json:"prometheus_url" gorm:"type:varchar(255)"`
 	InCluster     bool             `json:"in_cluster" gorm:"type:boolean;default:false"`
 	IsDefault     bool             `json:"is_default" gorm:"type:boolean;default:false"`
@@ -43,6 +43,21 @@ type Cluster struct {
 	ClusterID     string     `json:"cluster_id" gorm:"column:cluster_id;type:varchar(255)"`
 	Status        string     `json:"status" gorm:"type:varchar(32);default:active"`
 	LastHeartbeat *time.Time `json:"last_heartbeat"`
+
+	// navy字段
+	ClusterVersion string   `json:"cluster_version" gorm:"default:'';size:128;column:cluster_version"`
+	Idc            string   `json:"idc" gorm:"default:'';size:36;column:idc"`   // gl ft wg qf
+	Zone           string   `json:"zone" gorm:"default:'';size:36;column:zone"` // egt
+	KubeConfig     string   `json:"kube_config" gorm:"default:'';size:1024;column:kube_config"`
+	Updator        string   `json:"updator" gorm:"default:'';size:128;column:updater"`
+	FlowType       string   `json:"flow_type" gorm:"default:'';size:255"`
+	ClusterGroup   string   `json:"cluster_group" gorm:"default:'';size:128"` // 同IDC中上的集群分组信息
+	Purpose        string   `json:"purpose" gorm:"default:'';size:255"`
+	Arch           string   `json:"arch" gorm:"default:'';size:255"`
+	Priority       int      `json:"priority" gorm:"default:0;column:priority"`
+	MasterIPs      []string `json:"master_ips" gorm:"-"`
+	EtcdIPs        []string `json:"etcd_ips" gorm:"-"`
+	EtcdEventIPs   []string `json:"etcd_event_ips" gorm:"-"`
 }
 
 type Alert struct {
@@ -139,7 +154,7 @@ const (
 // TableName 方法用于指定表名
 // Cluster 与 Kite 共用，不加前缀
 func (Cluster) TableName() string {
-	return "clusters"
+	return "k8s_clusters"
 }
 
 // 以下表加 spydon_ 前缀以避免与 Kite 冲突
@@ -262,7 +277,7 @@ type EmailTemplate struct {
 
 // TableName 指定表名
 func (EmailTemplate) TableName() string {
-	return "spydon_email_templates"
+	return "email_template"
 }
 
 // EmailContact 邮件联系人
@@ -274,5 +289,5 @@ type EmailContact struct {
 
 // TableName 指定表名
 func (EmailContact) TableName() string {
-	return "spydon_email_contacts"
+	return "email_address"
 }

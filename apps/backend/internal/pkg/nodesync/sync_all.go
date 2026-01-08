@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 )
 
 // SyncAllClusters 全量同步所有集群的节点状态
@@ -51,7 +51,7 @@ func (m *Manager) syncCluster(ctx context.Context, clusterName string) error {
 		return fmt.Errorf("查询集群信息失败: %w", err)
 	}
 
-	var activeNodeNames []string
+	activeNodeNames := make([]string, 0, len(nodes))
 	for _, node := range nodes {
 		activeNodeNames = append(activeNodeNames, node.Name)
 		// 使用 nodesync 包中已有的 UpdateDeviceFromNode 函数

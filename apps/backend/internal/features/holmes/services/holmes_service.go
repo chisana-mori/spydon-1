@@ -11,8 +11,8 @@ import (
 	"robusta-web/backend/internal/db"
 	knowledgeservice "robusta-web/backend/internal/features/knowledge/services"
 	sharedservices "robusta-web/backend/internal/features/shared/services"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/go-resty/resty/v2"
 	"go.uber.org/zap"

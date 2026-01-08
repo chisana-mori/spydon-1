@@ -117,13 +117,23 @@ export async function deleteDictionary(id: number): Promise<void> {
  * 批量更新字典项
  */
 export async function batchUpdateDictionaryItems(dictionaryId: number, items: Partial<DictionaryItem>[]): Promise<void> {
+    // 预处理：将 id 为 0 的项的 id 设为 undefined，这样 JSON 序列化时不会包含 id 字段
+    // 这能让后端（即使是旧代码）识别为新项（ID 为 nil）
+    const processedItems = items.map(item => {
+        if (item.id === 0) {
+            const { id, ...rest } = item;
+            return rest;
+        }
+        return item;
+    });
+
     const response = await fetch(`${basePath}/api/v1/shared/dictionaries/${dictionaryId}/items`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(items),
+        body: JSON.stringify({ items: processedItems }),
     });
 
     if (!response.ok) {
@@ -149,4 +159,31 @@ export async function getDictionaryItemsByCode(code: string): Promise<Dictionary
 
     const data = await response.json();
     return data.data || [];
+}
+
+/**
+ * 解析字典值：将逗号分隔的 keys 转换为用分隔符分隔的 values
+ * @param keys - 逗号分隔的 key 字符串，如 "APLUS,BPLUS"
+ * @param items - 字典项列表
+ * @param separator - 分隔符，默认为 " | "
+ * @returns 解析后的值字符串，如 "A+ | B+"
+ */
+export function parseDictionaryValues(
+    keys: string | undefined,
+    items: DictionaryItem[],
+    separator: string = ' | '
+): string {
+    if (!keys) return '-'
+
+    const keyArray = keys.split(',').filter(Boolean)
+    if (keyArray.length === 0) return '-'
+
+    const values = keyArray
+        .map(key => {
+            const item = items.find(item => item.key === key)
+            return item?.value || key
+        })
+        .filter(Boolean)
+
+    return values.length > 0 ? values.join(separator) : '-'
 }

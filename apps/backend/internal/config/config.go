@@ -116,6 +116,14 @@ type Config struct {
 	LogFilePath  string `mapstructure:"log_file" json:"log_file" yaml:"log_file"`
 }
 
+// 全局 viper 实例（供外部依赖初始化使用）
+var globalViper *viper.Viper
+
+// GetViper 获取全局 viper 实例
+func GetViper() *viper.Viper {
+	return globalViper
+}
+
 // Load 从 YAML 文件及环境变量加载配置
 func Load() (*Config, error) {
 	v := viper.New()
@@ -162,6 +170,9 @@ func Load() (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
+
+	// 保存全局 viper 实例
+	globalViper = v
 
 	return &cfg, nil
 }

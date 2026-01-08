@@ -1,6 +1,6 @@
 package db
 
-import "robusta-web/backend/internal/logger"
+import "robusta-web/backend/pkg/logger"
 
 // RunMigrations 运行数据库迁移
 func RunMigrations(databaseURL string) error {

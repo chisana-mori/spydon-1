@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"robusta-web/backend/internal/apperrors"
-	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

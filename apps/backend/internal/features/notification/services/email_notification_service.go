@@ -11,8 +11,8 @@ import (
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/features/shared/services"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 	"robusta-web/backend/pkg/mailer"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -156,7 +156,7 @@ func (s *EmailNotificationService) GetAffectedResources(req GetAffectedResources
 
 // buildAffectedResources 构建受影响资源列表（用于 Excel 附件和 affected_resources_table）
 func (s *EmailNotificationService) buildAffectedResources(clusterName string, nodes []string) []AffectedResource {
-	var resources []AffectedResource
+	resources := make([]AffectedResource, 0, len(nodes))
 
 	// 1. 获取节点信息
 	for _, node := range nodes {
@@ -350,21 +350,21 @@ func (s *EmailNotificationService) generateExcelAttachment(resources []AffectedR
 	// 填充数据
 	for i, r := range resources {
 		row := i + 2
-		f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), r.Type)
-		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), r.Name)
-		f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), r.Namespace)
-		f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), r.Status)
-		f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), r.IP)
-		f.SetCellValue(sheetName, fmt.Sprintf("F%d", row), r.App)
+		_ = f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), r.Type)
+		_ = f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), r.Name)
+		_ = f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), r.Namespace)
+		_ = f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), r.Status)
+		_ = f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), r.IP)
+		_ = f.SetCellValue(sheetName, fmt.Sprintf("F%d", row), r.App)
 	}
 
 	// 设置列宽
-	f.SetColWidth(sheetName, "A", "A", 10)
-	f.SetColWidth(sheetName, "B", "B", 30)
-	f.SetColWidth(sheetName, "C", "C", 20)
-	f.SetColWidth(sheetName, "D", "D", 15)
-	f.SetColWidth(sheetName, "E", "E", 15)
-	f.SetColWidth(sheetName, "F", "F", 20)
+	_ = f.SetColWidth(sheetName, "A", "A", 10)
+	_ = f.SetColWidth(sheetName, "B", "B", 30)
+	_ = f.SetColWidth(sheetName, "C", "C", 20)
+	_ = f.SetColWidth(sheetName, "D", "D", 15)
+	_ = f.SetColWidth(sheetName, "E", "E", 15)
+	_ = f.SetColWidth(sheetName, "F", "F", 20)
 
 	// 写入到 buffer
 	var buf bytes.Buffer

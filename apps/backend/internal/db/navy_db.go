@@ -2,7 +2,7 @@ package db
 
 import (
 	"fmt"
-	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/pkg/logger"
 
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"

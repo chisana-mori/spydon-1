@@ -463,64 +463,6 @@ function DevicesContent() {
                 onRefresh={handleRefresh}
             />
 
-            {/* 顶部按页 */}
-            {total > 0 && (
-                <div className="flex items-center justify-end pb-2">
-                    <Pagination className="w-auto mx-0">
-                        <PaginationContent>
-                            <PaginationItem>
-                                <PaginationPrevious
-                                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                                    className={cn("cursor-pointer", page <= 1 && "pointer-events-none opacity-50")}
-                                />
-                            </PaginationItem>
-
-                            {(() => {
-                                const pages = [];
-                                const maxVisible = 5;
-
-                                if (totalPages <= maxVisible) {
-                                    for (let i = 1; i <= totalPages; i++) pages.push(i);
-                                } else {
-                                    pages.push(1);
-                                    if (page > 3) pages.push('ellipsis-start');
-                                    const start = Math.max(2, page - 1);
-                                    const end = Math.min(totalPages - 1, page + 1);
-                                    for (let i = start; i <= end; i++) {
-                                        if (i > 1 && i < totalPages) pages.push(i);
-                                    }
-                                    if (page < totalPages - 2) pages.push('ellipsis-end');
-                                    if (totalPages > 1) pages.push(totalPages);
-                                }
-
-                                return pages.map((p, i) => (
-                                    <PaginationItem key={i}>
-                                        {typeof p === 'number' ? (
-                                            <PaginationLink
-                                                isActive={page === p}
-                                                onClick={() => setPage(p)}
-                                                className="cursor-pointer"
-                                            >
-                                                {p}
-                                            </PaginationLink>
-                                        ) : (
-                                            <PaginationEllipsis />
-                                        )}
-                                    </PaginationItem>
-                                ));
-                            })()}
-
-                            <PaginationItem>
-                                <PaginationNext
-                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                    className={cn("cursor-pointer", page >= totalPages && "pointer-events-none opacity-50")}
-                                />
-                            </PaginationItem>
-                        </PaginationContent>
-                    </Pagination>
-                </div>
-            )}
-
             {/* 设备列表 */}
             <DeviceDataTable
                 devices={processedDevices}

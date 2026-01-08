@@ -129,8 +129,8 @@ func (h *ConfigurationHandler) UpdateLabel(c *gin.Context) {
 	}
 
 	var req services.UpdateLabelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
@@ -270,8 +270,8 @@ func (h *ConfigurationHandler) UpdateTaint(c *gin.Context) {
 	}
 
 	var req services.UpdateTaintRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
@@ -411,8 +411,8 @@ func (h *ConfigurationHandler) UpdateDeviceApp(c *gin.Context) {
 	}
 
 	var req services.UpdateDeviceAppRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 

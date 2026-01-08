@@ -40,16 +40,47 @@ import {
   Plus,
   Pencil,
   Trash2,
+  Copy,
   Settings,
 } from 'lucide-react'
 import RobustaAPI from '@/lib/api'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { KiteLink } from '@/components/kite'
-import { ClusterDialog } from './components/ClusterDialog'
+import { ClusterDrawer } from './components/ClusterDrawer'
 import { InventoryVariablesDialog } from './components/InventoryVariablesDialog'
 import { toast } from 'sonner'
 import { Cluster } from '@/types/api'
+import { useDictionary } from '@/hooks/useDictionary'
+import { ClusterNodesSheet } from './components/ClusterNodesSheet'
+import { parseDictionaryValues } from '@/lib/api/dictionaries'
+
+// Helper component for Node Count Button
+// Helper component for Node Count Button
+const NodeCountButton = ({
+  ips,
+  onClick
+}: {
+  ips?: string[]
+  onClick: () => void
+}) => {
+  if (!ips || ips.length === 0) return <span className="text-muted-foreground/40 text-xs font-mono">-</span>;
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-6 px-2 text-xs font-medium text-muted-foreground hover:text-primary hover:bg-primary/5 hover:border-primary/30 transition-all rounded-md gap-1.5"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <div className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-pulse" />
+      {ips.length} 节点
+    </Button>
+  );
+};
 
 export default function Clusters() {
   const [page, setPage] = useState(1)
@@ -57,9 +88,14 @@ export default function Clusters() {
   const [searchTerm, setSearchTerm] = useState('')
   const pageSize = 10 // 改为每页 10 条，列表视图更紧凑
 
+  // Dictionaries
+  const { items: purposeItems } = useDictionary('purpose')
+
   // Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [editingCluster, setEditingCluster] = useState<Cluster | null>(null)
+  const [nodesSheetOpen, setNodesSheetOpen] = useState(false)
+  const [selectedClusterForNodes, setSelectedClusterForNodes] = useState<Cluster | null>(null)
   const [deletingCluster, setDeletingCluster] = useState<Cluster | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [inventoryCluster, setInventoryCluster] = useState<Cluster | null>(null)
@@ -155,6 +191,26 @@ export default function Clusters() {
             <Plus className="h-4 w-4 mr-2" />
             新增集群
           </Button>
+          <Button
+            onClick={async () => {
+              const loadingToast = toast.loading('正在同步集群配置...')
+              try {
+                const res = await RobustaAPI.syncClusterConfig()
+                toast.dismiss(loadingToast)
+                toast.success(`同步成功，更新了 ${res.updated_count} 个集群配置`)
+                refetch()
+              } catch (e) {
+                toast.dismiss(loadingToast)
+                console.error(e)
+                toast.error('同步失败')
+              }
+            }}
+            variant="outline"
+            className="shadow-sm hover:shadow"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            同步配置
+          </Button>
           <Button onClick={() => refetch()} variant="outline">
             <RefreshCw className="h-4 w-4 mr-2" />
             刷新
@@ -201,11 +257,13 @@ export default function Clusters() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>名称</TableHead>
-                <TableHead>ID</TableHead>
+                <TableHead>名称/ID</TableHead>
+                <TableHead>用途</TableHead>
+                <TableHead>版本</TableHead>
+                <TableHead>Master</TableHead>
+                <TableHead>Etcd</TableHead>
+                <TableHead>Etcd Event</TableHead>
                 <TableHead>状态</TableHead>
-                <TableHead>最后心跳</TableHead>
-                <TableHead>创建时间</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -214,16 +272,18 @@ export default function Clusters() {
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
                     <TableCell><div className="h-4 w-24 bg-muted animate-pulse rounded" /></TableCell>
-                    <TableCell><div className="h-4 w-32 bg-muted animate-pulse rounded" /></TableCell>
                     <TableCell><div className="h-4 w-16 bg-muted animate-pulse rounded" /></TableCell>
-                    <TableCell><div className="h-4 w-20 bg-muted animate-pulse rounded" /></TableCell>
-                    <TableCell><div className="h-4 w-20 bg-muted animate-pulse rounded" /></TableCell>
+                    <TableCell><div className="h-4 w-16 bg-muted animate-pulse rounded" /></TableCell>
+                    <TableCell><div className="h-4 w-24 bg-muted animate-pulse rounded" /></TableCell>
+                    <TableCell><div className="h-4 w-24 bg-muted animate-pulse rounded" /></TableCell>
+                    <TableCell><div className="h-4 w-24 bg-muted animate-pulse rounded" /></TableCell>
+                    <TableCell><div className="h-4 w-16 bg-muted animate-pulse rounded" /></TableCell>
                     <TableCell><div className="h-8 w-8 bg-muted animate-pulse rounded float-right" /></TableCell>
                   </TableRow>
                 ))
               ) : filteredClusters.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     <div className="flex flex-col items-center justify-center text-muted-foreground">
                       <Server className="h-8 w-8 mb-2 opacity-50" />
                       <p>暂无集群数据</p>
@@ -237,9 +297,12 @@ export default function Clusters() {
 
                   return (
                     <TableRow key={cluster.id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium align-top">
                         <div className="flex flex-col">
                           <span className="text-base">{cluster.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {cluster.cluster_id || '-'}
+                          </span>
                           {cluster.description && (
                             <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={cluster.description}>
                               {cluster.description}
@@ -247,44 +310,64 @@ export default function Clusters() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {cluster.cluster_id || '-'}
+                      <TableCell className="align-top">
+                        <span className="text-sm">{parseDictionaryValues(cluster.purpose, purposeItems)}</span>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="align-top">
+                        <Badge variant="secondary" className="font-mono text-xs whitespace-nowrap">
+                          {cluster.cluster_version || '-'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <NodeCountButton
+                          ips={cluster.master_ips}
+                          onClick={() => {
+                            setSelectedClusterForNodes(cluster);
+                            setNodesSheetOpen(true);
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <NodeCountButton
+                          ips={cluster.etcd_ips}
+                          onClick={() => {
+                            setSelectedClusterForNodes(cluster);
+                            setNodesSheetOpen(true);
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <NodeCountButton
+                          ips={cluster.etcd_event_ips}
+                          onClick={() => {
+                            setSelectedClusterForNodes(cluster);
+                            setNodesSheetOpen(true);
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell className="align-top">
                         <Badge variant={statusConfig.variant} className={`flex w-fit items-center gap-1 ${statusConfig.className}`}>
                           <StatusIcon className="h-3 w-3" />
                           {statusConfig.label}
                         </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center text-sm text-muted-foreground">
-                          <Clock className="mr-2 h-4 w-4" />
-                          {cluster.last_heartbeat
-                            ? formatDistanceToNow(new Date(cluster.last_heartbeat), {
+                        {cluster.last_heartbeat && (
+                          <div className="flex items-center text-xs text-muted-foreground mt-1">
+                            <Clock className="mr-1 h-3 w-3" />
+                            {formatDistanceToNow(new Date(cluster.last_heartbeat), {
                               addSuffix: true,
                               locale: zhCN
-                            })
-                            : '无数据'
-                          }
-                        </div>
+                            })}
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center text-sm text-muted-foreground">
-                          <Calendar className="mr-2 h-4 w-4" />
-                          {formatDistanceToNow(new Date(cluster.created_at), {
-                            addSuffix: true,
-                            locale: zhCN
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right align-top">
                         <div className="flex justify-end gap-2 items-center">
                           <KiteLink
                             clusterName={cluster.name}
                             variant="icon"
                           />
                           <Button asChild variant="ghost" size="icon" title="查看详情">
-                            <Link href={resolveAppPath(`/clusters/${cluster.name}`)}>
+                            <Link href={`/clusters/${cluster.name}`}>
                               <Eye className="h-4 w-4" />
                             </Link>
                           </Button>
@@ -352,16 +435,12 @@ export default function Clusters() {
         </div>
       )}
 
-      {/* 创建/编辑对话框 */}
-      <ClusterDialog
+      {/* 创建/编辑抽屉 */}
+      <ClusterDrawer
         open={isCreateDialogOpen || !!editingCluster}
-        onOpenChange={(open) => {
-          if (!open) {
-            setIsCreateDialogOpen(false)
-            setEditingCluster(null)
-          } else {
-            // Opening handling if needed
-          }
+        onClose={() => {
+          setIsCreateDialogOpen(false)
+          setEditingCluster(null)
         }}
         cluster={editingCluster}
         onSuccess={() => {
@@ -402,6 +481,11 @@ export default function Clusters() {
         onSuccess={() => {
           toast.success('Inventory 参数已更新')
         }}
+      />
+      <ClusterNodesSheet
+        open={nodesSheetOpen}
+        onOpenChange={setNodesSheetOpen}
+        cluster={selectedClusterForNodes}
       />
     </div>
   )

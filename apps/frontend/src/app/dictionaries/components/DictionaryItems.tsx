@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Plus, Trash, ChevronRight, ChevronDown, GripVertical, FileText } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash, ChevronRight, ChevronDown, FileText } from 'lucide-react';
 import { DictionaryItem } from '@/types/dictionary';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +16,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 
 interface DictionaryItemsProps {
     items: DictionaryItem[];
@@ -27,7 +26,7 @@ interface DictionaryItemsProps {
 interface DictionaryItemRowProps {
     item: DictionaryItem;
     index: number;
-    onChange: (index: number, field: keyof DictionaryItem, value: any) => void;
+    onChange: (index: number, updates: Partial<DictionaryItem>) => void;
     onDelete: (index: number) => void;
     keySameAsValue: boolean;
 }
@@ -41,10 +40,11 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
     // Auto-sync key if needed
     const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
-        onChange(index, 'value', val);
+        const updates: Partial<DictionaryItem> = { value: val };
         if (keySameAsValue) {
-            onChange(index, 'key', val);
+            updates.key = val;
         }
+        onChange(index, updates);
     };
 
     return (
@@ -53,6 +53,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                 {/* Expand Toggle */}
                 <TableCell className="w-[40px] p-2 pl-4 align-top">
                     <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0 mt-1 hover:bg-muted"
@@ -80,7 +81,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                 <TableCell className="p-2 align-top">
                     <Input
                         value={item.key}
-                        onChange={(e) => onChange(index, 'key', e.target.value)}
+                        onChange={(e) => onChange(index, { key: e.target.value })}
                         disabled={keySameAsValue}
                         placeholder="存储键"
                         className={cn(
@@ -95,7 +96,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                     <Input
                         type="number"
                         value={item.sort_order}
-                        onChange={(e) => onChange(index, 'sort_order', Number(e.target.value))}
+                        onChange={(e) => onChange(index, { sort_order: Number(e.target.value) })}
                         className="h-10 w-16 text-center border-transparent bg-transparent hover:bg-background hover:border-input focus:bg-background focus:border-input transition-all px-1"
                     />
                 </TableCell>
@@ -105,7 +106,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                     <div className="h-10 flex items-center justify-center">
                         <Switch
                             checked={item.is_enabled}
-                            onCheckedChange={(checked) => onChange(index, 'is_enabled', checked)}
+                            onCheckedChange={(checked) => onChange(index, { is_enabled: checked })}
                             className="scale-75 data-[state=checked]:bg-green-500"
                         />
                     </div>
@@ -115,6 +116,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                 <TableCell className="w-[50px] p-2 pr-4 text-right align-top">
                     <div className="h-10 flex items-center justify-end">
                         <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
@@ -136,7 +138,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold pl-1">描述 (Description)</span>
                                 <Textarea
                                     value={item.description || ''}
-                                    onChange={(e) => onChange(index, 'description', e.target.value)}
+                                    onChange={(e) => onChange(index, { description: e.target.value })}
                                     placeholder="输入备注信息..."
                                     className="min-h-[80px] resize-none bg-background text-sm"
                                 />
@@ -148,7 +150,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold pl-1">扩展数据 (JSON)</span>
                                     <Input
                                         value={item.extra || ''}
-                                        onChange={(e) => onChange(index, 'extra', e.target.value)}
+                                        onChange={(e) => onChange(index, { extra: e.target.value })}
                                         placeholder='{"color": "red"}'
                                         className="h-9 bg-background font-mono text-xs"
                                     />
@@ -157,7 +159,7 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
                                     <Switch
                                         id={`default-${index}`}
                                         checked={item.is_default}
-                                        onCheckedChange={(checked) => onChange(index, 'is_default', checked)}
+                                        onCheckedChange={(checked) => onChange(index, { is_default: checked })}
                                         className="scale-90"
                                     />
                                     <label htmlFor={`default-${index}`} className="text-sm font-medium text-foreground/80 cursor-pointer select-none">
@@ -174,9 +176,9 @@ function DictionaryItemRow({ item, index, onChange, onDelete, keySameAsValue }: 
 }
 
 export function DictionaryItems({ items, onChange, keySameAsValue }: DictionaryItemsProps) {
-    const handleItemChange = (index: number, field: keyof DictionaryItem, value: any) => {
+    const handleItemChange = (index: number, updates: Partial<DictionaryItem>) => {
         const newItems = [...items];
-        newItems[index] = { ...newItems[index], [field]: value };
+        newItems[index] = { ...newItems[index], ...updates };
         onChange(newItems);
     };
 
@@ -199,6 +201,28 @@ export function DictionaryItems({ items, onChange, keySameAsValue }: DictionaryI
         };
         onChange([...items, newItem]);
     };
+
+    const handleBatchAdd = (count: number) => {
+        const newItemsToAdd: DictionaryItem[] = Array.from({ length: count }).map((_, i) => ({
+            id: 0,
+            key: '',
+            value: '',
+            is_enabled: true,
+            is_default: false,
+            sort_order: items.length > 0 ? (items[items.length - 1].sort_order || 0) + (i + 1) * 10 : (i + 1) * 10,
+            description: '',
+            extra: '',
+        }));
+        onChange([...items, ...newItemsToAdd]);
+    };
+
+    const hasInitialized = useRef(false);
+    useEffect(() => {
+        if (!hasInitialized.current && items.length === 0) {
+            handleAddItem();
+            hasInitialized.current = true;
+        }
+    }, [items.length]); // Dependencies adjusted, but logic guards with ref
 
     return (
         <div className="flex flex-col h-full bg-background space-y-4">
@@ -244,14 +268,49 @@ export function DictionaryItems({ items, onChange, keySameAsValue }: DictionaryI
                         {/* Quick Add Row at bottom of list */}
                         <TableRow className="hover:bg-transparent border-t-0">
                             <TableCell colSpan={6} className="p-2">
-                                <Button
-                                    variant="ghost"
-                                    className="w-full border border-dashed border-muted-foreground/25 hover:border-primary/50 hover:bg-blue-500/5 hover:text-blue-600 h-10 flex items-center justify-center gap-2 transition-all mt-2 rounded-lg"
-                                    onClick={handleAddItem}
-                                >
-                                    <Plus className="h-4 w-4" />
-                                    添加新行
-                                </Button>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        className="flex-1 border border-dashed border-muted-foreground/25 hover:border-primary/50 hover:bg-blue-500/5 hover:text-blue-600 h-10 flex items-center justify-center gap-2 transition-all rounded-lg"
+                                        onClick={handleAddItem}
+                                    >
+                                        <Plus className="h-4 w-4" />
+                                        添加新行
+                                    </Button>
+
+                                    <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg border border-dashed border-muted-foreground/25 h-10">
+                                        <span className="text-xs text-muted-foreground pl-2 whitespace-nowrap">批量添加</span>
+                                        <Input
+                                            type="number"
+                                            min={1}
+                                            max={50}
+                                            defaultValue={5}
+                                            className="h-7 w-16 bg-background text-center px-1"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    const val = parseInt((e.target as HTMLInputElement).value) || 0;
+                                                    if (val > 0) handleBatchAdd(val);
+                                                }
+                                            }}
+                                            id="batch-add-input"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 px-2 text-xs hover:bg-blue-500/10 hover:text-blue-600"
+                                            onClick={() => {
+                                                const input = document.getElementById('batch-add-input') as HTMLInputElement;
+                                                const val = parseInt(input.value) || 0;
+                                                if (val > 0) handleBatchAdd(val);
+                                            }}
+                                        >
+                                            添加
+                                        </Button>
+                                    </div>
+                                </div>
                             </TableCell>
                         </TableRow>
                     </TableBody>

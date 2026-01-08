@@ -164,7 +164,8 @@ func TestUpdateDeviceFromNode(t *testing.T) {
 	// ClusterID 不再被更新，应保持默认值
 	assert.Equal(t, 0, device.ClusterID)
 	assert.Equal(t, "Ready", device.K8sStatus)
-	assert.Equal(t, "worker", device.Role)
+	// Role 不再被更新，应保持默认值
+	assert.Equal(t, "", device.Role)
 }
 
 func TestUpdateDeviceFromNode_DeviceNotFound(t *testing.T) {
@@ -195,7 +196,8 @@ func TestClearDeviceClusterInfo(t *testing.T) {
 	assert.Empty(t, device.Cluster)
 	assert.Equal(t, 0, device.ClusterID)
 	assert.Empty(t, device.K8sStatus)
-	assert.Empty(t, device.Role)
+	// Role 不再被清除，应保持原值
+	assert.Equal(t, "worker", device.Role)
 }
 
 func TestCleanOrphanDevices(t *testing.T) {

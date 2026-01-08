@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/internal/models/navy"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
@@ -89,6 +90,16 @@ func (d *Database) AutoMigrate() error {
 		&models.DictionaryItem{},
 		&models.EmailTemplate{},
 		&models.EmailContact{},
+		&navy.Device{},
+		&navy.K8sNode{},
+		&navy.QueryTemplate{},
+		&navy.K8sCluster{},
+		&navy.TaintManagement{},
+		&navy.DeviceApp{},
+		&navy.F5Info{},
+		&navy.LabelManagement{},
+		&navy.LabelValue{},
+		&navy.ResourceSnapshot{},
 	}
 
 	for _, table := range tables {

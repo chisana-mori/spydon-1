@@ -5,10 +5,15 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { toast } from 'sonner'
-import { Loader2, Server } from 'lucide-react'
+import { Loader2, Server, Settings2, Network } from 'lucide-react'
 import yaml from 'js-yaml'
 
+import { useDictionaryPreload, CLUSTER_DICTIONARY_CODES } from '@/hooks/useDictionaryPreload'
+
 import { Button } from '@/components/ui/button'
+import { DictionarySelect } from '@/components/common/DictionarySelect'
+import { DictionaryMultiSelect } from '@/components/common/DictionaryMultiSelect'
+import { DictionaryCodeBadge } from '@/components/common/DictionaryCodeBadge'
 import {
     Dialog,
     DialogContent,
@@ -36,6 +41,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { YamlEditor } from '@/components/ui/yaml-editor'
+import { Separator } from '@/components/ui/separator'
 import RobustaAPI from '@/lib/api'
 import { Cluster } from '@/types/api'
 
@@ -54,6 +60,15 @@ const formSchema = z.object({
         }
     }, '请输入有效的 YAML 格式'),
     prometheus_url: z.string().url('请输入有效的 URL').optional().or(z.literal('')),
+    // Navy fields
+    cluster_version: z.string().optional(),
+    idc: z.string().optional(),
+    zone: z.string().optional(),
+    flow_type: z.string().optional(),
+    purpose: z.string().optional(),
+    arch: z.string().optional(),
+    priority: z.string().optional(),
+    cluster_group: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof formSchema>
@@ -74,6 +89,9 @@ export function ClusterDialog({
     const [loading, setLoading] = useState(false)
     const isEdit = !!cluster
 
+    // Preload all required dictionaries in parallel
+    useDictionaryPreload([...CLUSTER_DICTIONARY_CODES])
+
     const form = useForm({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -83,6 +101,15 @@ export function ClusterDialog({
             status: 'active' as const,
             kube_config: '',
             prometheus_url: '',
+            // Navy fields
+            cluster_version: '',
+            idc: '',
+            zone: '',
+            flow_type: '',
+            purpose: '',
+            arch: '',
+            priority: '0',
+            cluster_group: '',
         },
     })
 
@@ -97,6 +124,14 @@ export function ClusterDialog({
                     status: cluster.status || 'active',
                     kube_config: cluster.kube_config || '',
                     prometheus_url: cluster.prometheus_url || '',
+                    cluster_version: cluster.cluster_version || '',
+                    idc: cluster.idc || '',
+                    zone: cluster.zone || '',
+                    flow_type: cluster.flow_type || '',
+                    purpose: cluster.purpose || '',
+                    arch: cluster.arch || '',
+                    priority: cluster.priority?.toString() || '0',
+                    cluster_group: cluster.cluster_group || '',
                 })
             } else {
                 form.reset({
@@ -106,6 +141,14 @@ export function ClusterDialog({
                     status: 'active',
                     kube_config: '',
                     prometheus_url: '',
+                    cluster_version: '',
+                    idc: '',
+                    zone: '',
+                    flow_type: '',
+                    purpose: '',
+                    arch: '',
+                    priority: '0',
+                    cluster_group: '',
                 })
             }
         }
@@ -135,6 +178,14 @@ export function ClusterDialog({
                     kube_config: values.kube_config,
                     prometheus_url: values.prometheus_url,
                     status: values.status,
+                    cluster_version: values.cluster_version,
+                    idc: values.idc,
+                    zone: values.zone,
+                    flow_type: values.flow_type,
+                    purpose: values.purpose,
+                    arch: values.arch,
+                    priority: parseInt(values.priority || '0', 10),
+                    cluster_group: values.cluster_group,
                 })
                 toast.success('集群更新成功')
             } else {
@@ -145,6 +196,14 @@ export function ClusterDialog({
                     kube_config: values.kube_config,
                     prometheus_url: values.prometheus_url,
                     status: values.status,
+                    cluster_version: values.cluster_version,
+                    idc: values.idc,
+                    zone: values.zone,
+                    flow_type: values.flow_type,
+                    purpose: values.purpose,
+                    arch: values.arch,
+                    priority: parseInt(values.priority || '0', 10),
+                    cluster_group: values.cluster_group,
                 })
                 toast.success('集群创建成功')
             }
@@ -246,6 +305,184 @@ export function ClusterDialog({
                                     </FormItem>
                                 )}
                             />
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField
+                                    control={form.control}
+                                    name="cluster_version"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                集群版本
+                                                <DictionaryCodeBadge code="cluster_version" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionarySelect
+                                                    code="cluster_version"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择版本"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="idc"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                IDC
+                                                <DictionaryCodeBadge code="idc" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionarySelect
+                                                    code="idc"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择 IDC"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField
+                                    control={form.control}
+                                    name="zone"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                Zone
+                                                <DictionaryCodeBadge code="zone" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionarySelect
+                                                    code="zone"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择 Zone"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="flow_type"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                流量类型
+                                                <DictionaryCodeBadge code="flow_type" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionarySelect
+                                                    code="flow_type"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择类型"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField
+                                    control={form.control}
+                                    name="purpose"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                用途
+                                                <DictionaryCodeBadge code="purpose" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionaryMultiSelect
+                                                    code="purpose"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择用途（可多选）"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="arch"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                架构
+                                                <DictionaryCodeBadge code="arch" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionarySelect
+                                                    code="arch"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择架构"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField
+                                    control={form.control}
+                                    name="priority"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>优先级</FormLabel>
+                                            <FormControl>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="0"
+                                                    {...field}
+                                                    value={field.value || "0"}
+                                                    onChange={(e) => field.onChange(e.target.value)}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="cluster_group"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-2">
+                                                集群分组
+                                                <DictionaryCodeBadge code="cluster_group" />
+                                            </FormLabel>
+                                            <FormControl>
+                                                <DictionarySelect
+                                                    code="cluster_group"
+                                                    value={field.value}
+                                                    onValueChange={field.onChange}
+                                                    placeholder="选择分组"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
 
                             <FormField
                                 control={form.control}

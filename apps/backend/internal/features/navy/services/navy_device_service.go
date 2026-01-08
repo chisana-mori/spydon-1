@@ -473,19 +473,19 @@ func (s *NavyDeviceService) GetFilterOptions(ctx context.Context) (*FilterOption
 
 	// 获取受管理的标签键列表（从 label_feature 表）
 	if err := s.db.WithContext(ctx).Table("label_feature").
-		Distinct("key").
-		Order("key").
+		Distinct("`key`").
+		Order("`key`").
 		Limit(200).
-		Pluck("key", &response.LabelKeys).Error; err != nil {
+		Pluck("`key`", &response.LabelKeys).Error; err != nil {
 		// 忽略错误，返回空列表
 	}
 
 	// 获取受管理的污点键列表（从 taint_feature 表）
 	if err := s.db.WithContext(ctx).Table("taint_feature").
-		Distinct("key").
-		Order("key").
+		Distinct("`key`").
+		Order("`key`").
 		Limit(100).
-		Pluck("key", &response.TaintKeys).Error; err != nil {
+		Pluck("`key`", &response.TaintKeys).Error; err != nil {
 		// 忽略错误，返回空列表
 	}
 

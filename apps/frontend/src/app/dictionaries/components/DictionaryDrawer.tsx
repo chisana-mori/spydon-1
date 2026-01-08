@@ -32,7 +32,7 @@ import { DictionaryItems } from './DictionaryItems';
 import { toast } from 'sonner';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { BookMarked, LayoutDashboard, List } from 'lucide-react';
+import { BookMarked, LayoutDashboard, List, ChevronRight } from 'lucide-react';
 import { createDictionary, updateDictionary, batchUpdateDictionaryItems, getDictionary } from '@/lib/api/dictionaries';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -114,20 +114,31 @@ export function DictionaryDrawer({ open, onClose, dictionaryId }: DictionaryDraw
     }, [open, dictionaryId, form]);
 
     const onSubmit = async (data: DictionaryFormValues) => {
+        // 如果当前在基本信息页签，阻止保存并跳转到字典项页签
+        if (activeTab === 'basic') {
+            setActiveTab('items');
+            return;
+        }
+
         setIsLoading(true);
         try {
+            // 过滤掉空的字典项（key 和 value 都为空的视为无效项）
+            const validItems = items.filter(item => item.key.trim() !== '' || item.value.trim() !== '');
+
             if (dictionaryId) {
                 // Update
                 await updateDictionary(dictionaryId, data);
-                await batchUpdateDictionaryItems(dictionaryId, items);
+                // 只有在有有效项时才调用批量更新
+                if (validItems.length > 0) {
+                    await batchUpdateDictionaryItems(dictionaryId, validItems);
+                }
                 toast.success('字典更新成功');
             } else {
-                // Create
-                const newDict = await createDictionary(data);
-                // If there are items, add them
-                if (items.length > 0) {
-                    await batchUpdateDictionaryItems(newDict.id, items);
-                }
+                // Create - 同样提交字典基本信息和字典项
+                await createDictionary({
+                    ...data,
+                    items: validItems
+                });
                 toast.success('字典创建成功');
             }
 
@@ -135,7 +146,8 @@ export function DictionaryDrawer({ open, onClose, dictionaryId }: DictionaryDraw
             onClose();
         } catch (error) {
             console.error(error);
-            toast.error('保存失败');
+            const errorMessage = error instanceof Error ? error.message : '保存失败';
+            toast.error(errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -173,7 +185,20 @@ export function DictionaryDrawer({ open, onClose, dictionaryId }: DictionaryDraw
 
                 <div className="flex-1 overflow-hidden flex flex-col">
                     <Form {...form}>
-                        <form id="dictionary-form" onSubmit={form.handleSubmit(onSubmit)} className="h-full flex flex-col">
+                        <form
+                            id="dictionary-form"
+                            onSubmit={form.handleSubmit(onSubmit)}
+                            className="h-full flex flex-col"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && activeTab === 'basic') {
+                                    e.preventDefault();
+                                    // Optional: Trigger 'Next' logic on Enter if desired, but for now just block submit
+                                    form.trigger(['name', 'code', 'module']).then((isValid) => {
+                                        if (isValid) setActiveTab('items');
+                                    });
+                                }
+                            }}
+                        >
                             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
                                 <div className="px-6 py-2 border-b bg-background">
                                     <TabsList className="grid w-full grid-cols-2 bg-muted/50">
@@ -340,10 +365,32 @@ export function DictionaryDrawer({ open, onClose, dictionaryId }: DictionaryDraw
 
                 <SheetFooter className="px-6 py-4 border-t bg-muted/20 sm:space-x-4">
                     <Button variant="outline" onClick={onClose} disabled={isLoading} className="w-24">取消</Button>
-                    <Button type="submit" form="dictionary-form" disabled={isLoading} className="w-24">
-                        {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        保存
-                    </Button>
+                    {activeTab === 'basic' ? (
+                        <Button
+                            key="btn-next"
+                            type="button"
+                            onClick={async (e) => {
+                                e.preventDefault();
+                                const isValid = await form.trigger(['name', 'code', 'module']);
+                                if (isValid) setActiveTab('items');
+                            }}
+                            className="w-24"
+                        >
+                            下一步
+                            <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                    ) : (
+                        <Button
+                            key="btn-save"
+                            type="submit"
+                            form="dictionary-form"
+                            disabled={isLoading}
+                            className="w-24"
+                        >
+                            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            保存
+                        </Button>
+                    )}
                 </SheetFooter>
             </SheetContent>
         </Sheet>

@@ -11,8 +11,8 @@ import (
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/features/holmes/services"
 	ingestservice "robusta-web/backend/internal/features/ingest/services"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/middleware"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-resty/resty/v2"

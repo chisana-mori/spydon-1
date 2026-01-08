@@ -9,6 +9,32 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// =============================================================================
+// SafeDrainHandler - 安全驱逐处理器
+// =============================================================================
+
+// SafeDrainHandler 处理安全驱逐相关的 HTTP 请求
+type SafeDrainHandler struct {
+	svc           *services.SimpleDrainService
+	changeManager *services.ChangeManager
+}
+
+// NewSafeDrainHandler 创建 SafeDrainHandler
+func NewSafeDrainHandler(svc *services.SimpleDrainService, changeMgr *services.ChangeManager) *SafeDrainHandler {
+	return &SafeDrainHandler{svc: svc, changeManager: changeMgr}
+}
+
+// RegisterRoutes 注册安全驱逐路由
+func (h *SafeDrainHandler) RegisterRoutes(navyGroup *gin.RouterGroup) {
+	drain := navyGroup.Group(RouteGroupDrain)
+	{
+		drain.POST(RouteStart, h.StartDrain)
+		drain.POST(RouteParamDrainIDCancel, h.CancelDrain)
+		drain.GET(RouteParamDrainIDMigrations, h.GetDrainMigrations)
+		drain.GET(RouteParamDrainIDEvents, h.DrainEvents)
+	}
+}
+
 // StartDrain 启动安全驱逐
 // @Summary Start node drain
 // @Tags Drain
@@ -19,7 +45,7 @@ import (
 // @Failure 400 {object} services.GenericResponse "Bad request"
 // @Failure 500 {object} services.GenericResponse "Internal error"
 // @Router /api/v1/navy/drain/start [post]
-func (h *Handler) StartDrain(c *gin.Context) {
+func (h *SafeDrainHandler) StartDrain(c *gin.Context) {
 	var req services.SimpleDrainRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, services.GenericResponse{
@@ -38,7 +64,7 @@ func (h *Handler) StartDrain(c *gin.Context) {
 		[]string{req.NodeName},
 		map[string]any{"cluster": req.ClusterName, "force": req.Force, "dry_run": req.DryRun},
 		func(tid string) error {
-			response, opErr = h.safeDrainService.StartDrain(c.Request.Context(), &req)
+			response, opErr = h.svc.StartDrain(c.Request.Context(), &req)
 			return opErr
 		},
 	)
@@ -83,7 +109,7 @@ func (h *Handler) StartDrain(c *gin.Context) {
 // @Failure 400 {object} services.GenericResponse "Bad request"
 // @Failure 500 {object} services.GenericResponse "Internal error"
 // @Router /api/v1/navy/drain/{drainId}/cancel [post]
-func (h *Handler) CancelDrain(c *gin.Context) {
+func (h *SafeDrainHandler) CancelDrain(c *gin.Context) {
 	drainID := c.Param("drain_id")
 	if drainID == "" {
 		drainID = c.Param("drainId")
@@ -96,7 +122,7 @@ func (h *Handler) CancelDrain(c *gin.Context) {
 		return
 	}
 
-	if err := h.safeDrainService.CancelDrain(drainID); err != nil {
+	if err := h.svc.CancelDrain(drainID); err != nil {
 		c.JSON(http.StatusInternalServerError, services.GenericResponse{
 			Success: false,
 			Message: "Cancel failed: " + err.Error(),
@@ -125,7 +151,7 @@ func (h *Handler) CancelDrain(c *gin.Context) {
 // @Failure 400 {object} services.GenericResponse "Bad request"
 // @Failure 500 {object} services.GenericResponse "Internal error"
 // @Router /api/v1/navy/drain/{drainId}/migrations [get]
-func (h *Handler) GetDrainMigrations(c *gin.Context) {
+func (h *SafeDrainHandler) GetDrainMigrations(c *gin.Context) {
 	drainID := c.Param("drain_id")
 	if drainID == "" {
 		drainID = c.Param("drainId")
@@ -138,7 +164,7 @@ func (h *Handler) GetDrainMigrations(c *gin.Context) {
 		return
 	}
 
-	migrations, err := h.safeDrainService.GetDrainMigrations(drainID)
+	migrations, err := h.svc.GetDrainMigrations(drainID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, services.GenericResponse{
 			Success: false,
@@ -172,8 +198,8 @@ func (h *Handler) GetDrainMigrations(c *gin.Context) {
 // @Param drainId path string true "Drain ID"
 // @Success 200 {string} string "SSE stream"
 // @Router /api/v1/navy/drain/{drainId}/stream [get]
-func (h *Handler) DrainEvents(c *gin.Context) {
-	h.safeDrainService.HandleSSE(c)
+func (h *SafeDrainHandler) DrainEvents(c *gin.Context) {
+	h.svc.HandleSSE(c)
 }
 
 // buildMigrationsSummary 构建迁移统计摘要

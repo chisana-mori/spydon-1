@@ -9,6 +9,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// =============================================================================
+// F5Handler - F5 负载均衡处理器
+// =============================================================================
+
+// F5Handler 处理 F5 负载均衡相关的 HTTP 请求
+type F5Handler struct {
+	svc *services.F5InfoService
+}
+
+// NewF5Handler 创建 F5Handler
+func NewF5Handler(svc *services.F5InfoService) *F5Handler {
+	return &F5Handler{svc: svc}
+}
+
+// RegisterRoutes 注册 F5 路由
+func (h *F5Handler) RegisterRoutes(navyGroup *gin.RouterGroup) {
+	f5 := navyGroup.Group(RouteGroupF5)
+	{
+		f5.GET("", h.ListF5Infos)
+		f5.GET(RouteParamID, h.GetF5Info)
+		f5.PUT(RouteParamID, h.UpdateF5Info)
+		f5.DELETE(RouteParamID, h.DeleteF5Info)
+	}
+}
+
 // GetF5Info handles GET /api/v1/navy/f5/:id
 // @Summary 获取F5负载均衡详情
 // @Description 根据指定的ID查询特定F5负载均衡器（Load Balancer）的详细配置信息。返回数据包含管理地址、所在的VLAN、分区以及当前的状态快照。该接口对于排查网络流量分发问题或进行F5资源清单配置审计非常有用。
@@ -20,7 +45,7 @@ import (
 // @Failure 404 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/f5/{id} [get]
-func (h *Handler) GetF5Info(c *gin.Context) {
+func (h *F5Handler) GetF5Info(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -28,7 +53,7 @@ func (h *Handler) GetF5Info(c *gin.Context) {
 		return
 	}
 
-	f5Info, err := h.f5Service.GetF5Info(c.Request.Context(), id)
+	f5Info, err := h.svc.GetF5Info(c.Request.Context(), id)
 	if err != nil {
 		if err.Error() == fmt.Sprintf("F5 info with id %d not found", id) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -53,14 +78,14 @@ func (h *Handler) GetF5Info(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/f5 [get]
-func (h *Handler) ListF5Infos(c *gin.Context) {
+func (h *F5Handler) ListF5Infos(c *gin.Context) {
 	var query services.F5InfoQuery
 	if err := c.ShouldBindQuery(&query); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid query parameters: " + err.Error()})
 		return
 	}
 
-	response, err := h.f5Service.ListF5Infos(c.Request.Context(), &query)
+	response, err := h.svc.ListF5Infos(c.Request.Context(), &query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to list F5 infos: %s", err.Error())})
 		return
@@ -82,7 +107,7 @@ func (h *Handler) ListF5Infos(c *gin.Context) {
 // @Failure 404 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/f5/{id} [put]
-func (h *Handler) UpdateF5Info(c *gin.Context) {
+func (h *F5Handler) UpdateF5Info(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -96,7 +121,7 @@ func (h *Handler) UpdateF5Info(c *gin.Context) {
 		return
 	}
 
-	if err := h.f5Service.UpdateF5Info(c.Request.Context(), id, &dto); err != nil {
+	if err := h.svc.UpdateF5Info(c.Request.Context(), id, &dto); err != nil {
 		if err.Error() == fmt.Sprintf("F5 info with id %d not found", id) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
@@ -118,7 +143,7 @@ func (h *Handler) UpdateF5Info(c *gin.Context) {
 // @Failure 404 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/f5/{id} [delete]
-func (h *Handler) DeleteF5Info(c *gin.Context) {
+func (h *F5Handler) DeleteF5Info(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -126,7 +151,7 @@ func (h *Handler) DeleteF5Info(c *gin.Context) {
 		return
 	}
 
-	if err := h.f5Service.DeleteF5Info(c.Request.Context(), id); err != nil {
+	if err := h.svc.DeleteF5Info(c.Request.Context(), id); err != nil {
 		if err.Error() == fmt.Sprintf("F5 info with id %d not found", id) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {

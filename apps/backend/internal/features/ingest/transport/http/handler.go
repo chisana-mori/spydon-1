@@ -8,8 +8,8 @@ import (
 	queryservice "robusta-web/backend/internal/features/query/services"
 	rcaservice "robusta-web/backend/internal/features/rca/services"
 	sharedservices "robusta-web/backend/internal/features/shared/services"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

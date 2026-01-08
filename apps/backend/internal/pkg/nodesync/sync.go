@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"robusta-web/backend/internal/db"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models/navy"
+	"robusta-web/backend/pkg/logger"
 
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
@@ -15,10 +15,10 @@ import (
 
 // UpdateDeviceFromNode 根据节点信息更新 device 表
 // 通过 nodename 匹配 ci_code 进行关联
-// 注意：仅更新 cluster 名称，不更新 cluster_id（cluster_id 由其他系统管理）
+// 注意：仅更新 cluster 名称和 k8s_status，不更新 cluster_id 和 role（由其他系统管理）
 func UpdateDeviceFromNode(ctx context.Context, navyDB *db.NavyDatabase, clusterName string, node *corev1.Node) error {
 	nodeName := node.Name
-	role, k8sStatus := ExtractNodeInfo(node)
+	_, k8sStatus := ExtractNodeInfo(node)
 
 	// 通过 ci_code 查找设备
 	var device navy.Device
@@ -51,17 +51,13 @@ func UpdateDeviceFromNode(ctx context.Context, navyDB *db.NavyDatabase, clusterN
 		}
 	}
 
-	// 比较后仅在有变化时更新（不更新 cluster_id）
+	// 比较后仅在有变化时更新（不更新 cluster_id 和 role）
 	updates := map[string]interface{}{}
 	if device.Cluster != clusterName {
 		updates["cluster"] = clusterName
 	}
 	if device.K8sStatus != k8sStatus {
 		updates["k8s_status"] = k8sStatus
-	}
-	// 只在 role 非空且发生变化时更新，避免覆盖已有数据
-	if role != "" && device.Role != role {
-		updates["role"] = role
 	}
 
 	if len(updates) == 0 {
@@ -70,8 +66,7 @@ func UpdateDeviceFromNode(ctx context.Context, navyDB *db.NavyDatabase, clusterN
 			"device_id", device.ID,
 			"ci_code", nodeName,
 			"cluster", clusterName,
-			"k8s_status", k8sStatus,
-			"role", role)
+			"k8s_status", k8sStatus)
 		return nil
 	}
 
@@ -85,8 +80,7 @@ func UpdateDeviceFromNode(ctx context.Context, navyDB *db.NavyDatabase, clusterN
 		"device_id", device.ID,
 		"ci_code", nodeName,
 		"cluster", clusterName,
-		"k8s_status", k8sStatus,
-		"role", role)
+		"k8s_status", k8sStatus)
 
 	return nil
 }
@@ -100,7 +94,6 @@ func ClearDeviceClusterInfo(ctx context.Context, navyDB *db.NavyDatabase, ciCode
 			"cluster":    "",
 			"cluster_id": 0,
 			"k8s_status": "",
-			"role":       "",
 		})
 
 	if result.Error != nil {
@@ -125,7 +118,6 @@ func CleanOrphanDevices(ctx context.Context, navyDB *db.NavyDatabase, clusterID 
 				"cluster":    "",
 				"cluster_id": 0,
 				"k8s_status": "",
-				"role":       "",
 			}).Error
 	}
 
@@ -136,7 +128,6 @@ func CleanOrphanDevices(ctx context.Context, navyDB *db.NavyDatabase, clusterID 
 			"cluster":    "",
 			"cluster_id": 0,
 			"k8s_status": "",
-			"role":       "",
 		}).Error
 }
 

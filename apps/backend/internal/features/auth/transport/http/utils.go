@@ -11,8 +11,8 @@ import (
 
 	"robusta-web/backend/internal/config"
 	"robusta-web/backend/internal/features/auth/services"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"

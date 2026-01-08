@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"robusta-web/backend/internal/db"
@@ -119,7 +120,7 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 			c.last_heartbeat,
 			COALESCE(alert_counts.total_alerts, 0) as alert_count,
 			COALESCE(alert_counts.critical_alerts, 0) as critical_count
-		FROM clusters c
+		FROM k8s_clusters c
 		LEFT JOIN (
 			SELECT
 				cluster_name,
@@ -141,26 +142,80 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 
 // ... (getAlertTrends omitted)
 
-// GetClusters 获取集群列表
-func (s *ClusterService) GetClusters(page, limit int, status string) ([]models.Cluster, int64, error) {
+// GetClusters 获取集群列表 - 使用 LEFT JOIN 优化查询效率
+func (s *ClusterService) GetClusters(page, limit int, status, keyword string) ([]models.Cluster, int64, error) {
 	var clusters []models.Cluster
 	var total int64
 
-	query := s.db.Model(&models.Cluster{})
-
+	// 基础查询条件
+	baseQuery := s.db.Model(&models.Cluster{})
 	if status != "" {
-		query = query.Where("status = ?", status)
+		baseQuery = baseQuery.Where("status = ?", status)
+	}
+	if keyword != "" {
+		likePattern := "%" + keyword + "%"
+		baseQuery = baseQuery.Where("name LIKE ? OR cluster_id LIKE ? OR idc LIKE ? OR zone LIKE ? OR purpose LIKE ?", likePattern, likePattern, likePattern, likePattern, likePattern)
 	}
 
 	// 获取总数
-	if err := query.Count(&total).Error; err != nil {
+	if err := baseQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取集群总数失败: %w", err)
 	}
 
-	// 分页查询
+	// 使用 LEFT JOIN 和 GROUP_CONCAT 进行聚合查询
+	// 定义临时结构体接收聚合后的数据
+	type ClusterWithIPs struct {
+		models.Cluster
+		MasterIPsRaw    string `gorm:"column:master_ips_raw"`
+		EtcdIPsRaw      string `gorm:"column:etcd_ips_raw"`
+		EtcdEventIPsRaw string `gorm:"column:etcd_event_ips_raw"`
+	}
+
+	var results []ClusterWithIPs
 	offset := (page - 1) * limit
-	if err := query.Order("name").Offset(offset).Limit(limit).Find(&clusters).Error; err != nil {
+
+	// 构建 LEFT JOIN 查询
+	// 使用子查询来聚合 device 的 IP，按角色分组
+	joinQuery := s.db.Table("k8s_clusters AS c").
+		Select(`c.*,
+			GROUP_CONCAT(DISTINCT CASE WHEN LOWER(d.role) LIKE '%master%' THEN d.ip END ORDER BY d.ip SEPARATOR ',') AS master_ips_raw,
+			GROUP_CONCAT(DISTINCT CASE WHEN LOWER(d.role) LIKE '%kube-etcd%' AND LOWER(d.role) NOT LIKE '%eventer%' THEN d.ip END ORDER BY d.ip SEPARATOR ',') AS etcd_ips_raw,
+			GROUP_CONCAT(DISTINCT CASE WHEN LOWER(d.role) LIKE '%kube-etcd-eventer%' THEN d.ip END ORDER BY d.ip SEPARATOR ',') AS etcd_event_ips_raw`).
+		Joins("LEFT JOIN device AS d ON c.name = d.cluster").
+		Group("c.id")
+
+	// 应用过滤条件
+	if status != "" {
+		joinQuery = joinQuery.Where("c.status = ?", status)
+	}
+	if keyword != "" {
+		likePattern := "%" + keyword + "%"
+		joinQuery = joinQuery.Where("c.name LIKE ? OR c.cluster_id LIKE ? OR c.idc LIKE ? OR c.zone LIKE ? OR c.purpose LIKE ?", likePattern, likePattern, likePattern, likePattern, likePattern)
+	}
+
+	// 分页
+	if err := joinQuery.Order("c.name").Offset(offset).Limit(limit).Find(&results).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取集群列表失败: %w", err)
+	}
+
+	// 转换结果
+	clusters = make([]models.Cluster, len(results))
+	for i, r := range results {
+		clusters[i] = r.Cluster
+		// 解析逗号分隔的 IP 字符串
+		if r.MasterIPsRaw != "" {
+			clusters[i].MasterIPs = strings.Split(r.MasterIPsRaw, ",")
+		}
+		if r.EtcdIPsRaw != "" {
+			clusters[i].EtcdIPs = strings.Split(r.EtcdIPsRaw, ",")
+		}
+		if r.EtcdEventIPsRaw != "" {
+			clusters[i].EtcdEventIPs = strings.Split(r.EtcdEventIPsRaw, ",")
+		}
+		// 兼容：如果数据库里的 kube_config 为空，则用已解密的 config 值回填
+		if clusters[i].KubeConfig == "" && clusters[i].Config != "" {
+			clusters[i].KubeConfig = string(clusters[i].Config)
+		}
 	}
 
 	return clusters, total, nil
@@ -181,6 +236,9 @@ func (s *ClusterService) GetClusterByID(clusterName string) (*models.Cluster, er
 			return nil, fmt.Errorf("集群不存在")
 		}
 		return nil, fmt.Errorf("获取集群失败: %w", err)
+	}
+	if cluster.KubeConfig == "" && cluster.Config != "" {
+		cluster.KubeConfig = string(cluster.Config)
 	}
 	return &cluster, nil
 }
@@ -289,8 +347,25 @@ func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 
 		// 只更新允许修改的字段
 		existingCluster.Description = cluster.Description
-		existingCluster.Config = cluster.Config
+		// kubeconfig 兼容：只有在请求显式携带非空 kubeconfig 时才覆盖，避免前端未回填导致误清空
+		if cluster.Config != "" {
+			existingCluster.Config = cluster.Config
+			if cluster.KubeConfig != "" {
+				existingCluster.KubeConfig = cluster.KubeConfig
+			} else {
+				existingCluster.KubeConfig = string(cluster.Config)
+			}
+		}
 		existingCluster.PrometheusURL = cluster.PrometheusURL
+		existingCluster.Status = cluster.Status
+		existingCluster.ClusterVersion = cluster.ClusterVersion
+		existingCluster.Idc = cluster.Idc
+		existingCluster.Zone = cluster.Zone
+		existingCluster.FlowType = cluster.FlowType
+		existingCluster.Purpose = cluster.Purpose
+		existingCluster.Arch = cluster.Arch
+		existingCluster.Priority = cluster.Priority
+		existingCluster.ClusterGroup = cluster.ClusterGroup
 
 		return tx.Save(&existingCluster).Error
 	})
@@ -351,4 +426,28 @@ func (s *ClusterService) GetClient(clusterName string) (kubernetes.Interface, er
 	config.Timeout = 10 * time.Second
 
 	return kubernetes.NewForConfig(config)
+}
+
+// SyncClusterConfig 同步集群配置：扫描所有集群，将 config 为空但 kube_config 不为空的记录进行 config 加密回填
+func (s *ClusterService) SyncClusterConfig() (int64, error) {
+	var clusters []models.Cluster
+	if err := s.db.Find(&clusters).Error; err != nil {
+		return 0, fmt.Errorf("failed to list clusters: %w", err)
+	}
+
+	var updatedCount int64 = 0
+	for _, cluster := range clusters {
+		// 如果 Config 为空（解密后为空），且 KubeConfig（明文）不为空
+		if string(cluster.Config) == "" && cluster.KubeConfig != "" {
+			// 将明文 KubeConfig 赋值给 Config，GORM Value() hook 会自动加密
+			cluster.Config = models.KiteSecretString(cluster.KubeConfig)
+
+			// 只更新 config 字段
+			if err := s.db.Model(&cluster).Update("config", cluster.Config).Error; err != nil {
+				return updatedCount, fmt.Errorf("failed to update cluster %s: %w", cluster.Name, err)
+			}
+			updatedCount++
+		}
+	}
+	return updatedCount, nil
 }

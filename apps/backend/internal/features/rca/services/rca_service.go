@@ -12,8 +12,8 @@ import (
 	knowledgeservice "robusta-web/backend/internal/features/knowledge/services"
 	sharedservices "robusta-web/backend/internal/features/shared/services"
 	systemsettingservice "robusta-web/backend/internal/features/systemsetting/services"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"

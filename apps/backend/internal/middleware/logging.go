@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"robusta-web/backend/internal/logger"
+	"robusta-web/backend/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

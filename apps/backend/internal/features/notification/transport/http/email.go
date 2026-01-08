@@ -162,8 +162,8 @@ func (h *EmailHandler) UpdateTemplate(c *gin.Context) {
 	}
 
 	var req services.UpdateEmailTemplateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.BadRequest(c, "", "参数错误: "+err.Error())
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		httpx.BadRequest(c, "", "参数错误: "+bindErr.Error())
 		return
 	}
 
@@ -301,8 +301,8 @@ func (h *EmailHandler) UpdateContact(c *gin.Context) {
 	}
 
 	var req services.UpdateEmailContactRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.BadRequest(c, "", "参数错误: "+err.Error())
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		httpx.BadRequest(c, "", "参数错误: "+bindErr.Error())
 		return
 	}
 

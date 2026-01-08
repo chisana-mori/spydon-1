@@ -33,6 +33,7 @@ func (h *Handler) GetClustersSummary(c *gin.Context) {
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
 // @Param status query string false "集群状态"
+// @Param keyword query string false "搜索关键字 (名称/ID/IDC/Zone/Purpose)"
 // @Success 200 {object} httpx.Response{data=[]models.Cluster}
 // @Failure 400 {object} httpx.ErrorResponse
 // @Failure 500 {object} httpx.ErrorResponse
@@ -40,7 +41,8 @@ func (h *Handler) GetClustersSummary(c *gin.Context) {
 func (h *Handler) GetClusters(c *gin.Context) {
 	var query struct {
 		httpx.PaginationQuery
-		Status string `form:"status"`
+		Status  string `form:"status"`
+		Keyword string `form:"keyword"`
 	}
 	if derr := httpx.BindQuery(c, &query); derr != nil {
 		httpx.AbortWithDomainError(c, derr)
@@ -52,7 +54,7 @@ func (h *Handler) GetClusters(c *gin.Context) {
 	}
 	params := query.PaginationQuery.ToParams()
 
-	clusters, total, err := h.clusterService.GetClusters(params.Page, params.PageSize, query.Status)
+	clusters, total, err := h.clusterService.GetClusters(params.Page, params.PageSize, query.Status, query.Keyword)
 	if err != nil {
 		httpx.InternalError(c, "GET_CLUSTERS_ERROR", "获取集群列表失败")
 		return
@@ -130,15 +132,36 @@ func (h *Handler) GetClusterNodes(c *gin.Context) {
 // @Router /admin/clusters [post]
 func (h *Handler) CreateCluster(c *gin.Context) {
 	var req struct {
-		Name          string `json:"name" binding:"required"`
-		ClusterID     string `json:"cluster_id"`
-		Description   string `json:"description"`
-		Config        string `json:"kube_config"` // KubeConfig
+		Name        string `json:"name" binding:"required"`
+		ClusterID   string `json:"cluster_id"`
+		Description string `json:"description"`
+		// 兼容字段：历史上部分客户端使用 config 传 kubeconfig
+		Config        string `json:"config"`
+		KubeConfig    string `json:"kube_config"`
 		PrometheusURL string `json:"prometheus_url"`
 		Status        string `json:"status"`
+
+		// Navy 字段
+		ClusterVersion string `json:"cluster_version"`
+		Idc            string `json:"idc"`
+		Zone           string `json:"zone"`
+		FlowType       string `json:"flow_type"`
+		ClusterGroup   string `json:"cluster_group"`
+		Purpose        string `json:"purpose"`
+		Arch           string `json:"arch"`
+		Priority       int    `json:"priority"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+
+	kubeConfig := req.KubeConfig
+	if kubeConfig == "" {
+		kubeConfig = req.Config
+	}
+	if kubeConfig == "" {
+		httpx.BadRequest(c, "INVALID_REQUEST", "kube_config 不能为空")
 		return
 	}
 
@@ -146,9 +169,19 @@ func (h *Handler) CreateCluster(c *gin.Context) {
 		Name:          req.Name,
 		ClusterID:     req.ClusterID,
 		Description:   req.Description,
-		Config:        models.KiteSecretString(req.Config),
+		Config:        models.KiteSecretString(kubeConfig),
+		KubeConfig:    kubeConfig,
 		PrometheusURL: req.PrometheusURL,
 		Status:        req.Status,
+
+		ClusterVersion: req.ClusterVersion,
+		Idc:            req.Idc,
+		Zone:           req.Zone,
+		FlowType:       req.FlowType,
+		ClusterGroup:   req.ClusterGroup,
+		Purpose:        req.Purpose,
+		Arch:           req.Arch,
+		Priority:       req.Priority,
 	}
 
 	if cluster.Status == "" {
@@ -185,22 +218,52 @@ func (h *Handler) UpdateCluster(c *gin.Context) {
 	}
 
 	var req struct {
-		Description   string `json:"description"`
-		Config        string `json:"kube_config"` // KubeConfig
-		PrometheusURL string `json:"prometheus_url"`
-		Status        string `json:"status"`
+		Description string `json:"description"`
+		// 兼容字段：历史上部分客户端使用 config 传 kubeconfig
+		Config        *string `json:"config"`
+		KubeConfig    *string `json:"kube_config"`
+		PrometheusURL string  `json:"prometheus_url"`
+		Status        string  `json:"status"`
+
+		// Navy 字段
+		ClusterVersion string `json:"cluster_version"`
+		Idc            string `json:"idc"`
+		Zone           string `json:"zone"`
+		FlowType       string `json:"flow_type"`
+		ClusterGroup   string `json:"cluster_group"`
+		Purpose        string `json:"purpose"`
+		Arch           string `json:"arch"`
+		Priority       int    `json:"priority"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "INVALID_REQUEST", "请求参数无效")
 		return
 	}
 
+	// kube_config 可能不在请求里：此时不应覆盖已有配置
+	var kubeConfig string
+	if req.KubeConfig != nil {
+		kubeConfig = *req.KubeConfig
+	} else if req.Config != nil {
+		kubeConfig = *req.Config
+	}
+
 	cluster := &models.Cluster{
 		Name:          path.ID, // Using Name as ID based on existing logic
 		Description:   req.Description,
-		Config:        models.KiteSecretString(req.Config),
+		Config:        models.KiteSecretString(kubeConfig),
+		KubeConfig:    kubeConfig,
 		PrometheusURL: req.PrometheusURL,
 		Status:        req.Status,
+
+		ClusterVersion: req.ClusterVersion,
+		Idc:            req.Idc,
+		Zone:           req.Zone,
+		FlowType:       req.FlowType,
+		ClusterGroup:   req.ClusterGroup,
+		Purpose:        req.Purpose,
+		Arch:           req.Arch,
+		Priority:       req.Priority,
 	}
 
 	if err := h.clusterService.UpdateCluster(cluster); err != nil {
@@ -234,4 +297,21 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 	}
 
 	httpx.SuccessWithMessage(c, "集群删除成功", nil)
+}
+
+// SyncClusterConfig 同步集群配置（管理员功能）
+// @Summary 手动同步并加密集群KubeConfig
+// @Description 扫描所有集群记录，对于 KubeConfig（明文）存在但 Config（加密字段）为空的记录，进行自动加密迁移并回填。此接口用于历史数据迁移或修复数据不一致问题。
+// @Tags Admin,Clusters
+// @Success 200 {object} httpx.Response{data=object}
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /admin/clusters/sync-config [post]
+func (h *Handler) SyncClusterConfig(c *gin.Context) {
+	updatedCount, err := h.clusterService.SyncClusterConfig()
+	if err != nil {
+		httpx.InternalError(c, "SYNC_CLUSTER_CONFIG_ERROR", "同步集群配置失败: "+err.Error())
+		return
+	}
+
+	httpx.SuccessWithMessage(c, "集群配置同步成功", gin.H{"updated_count": updatedCount})
 }

@@ -2,8 +2,8 @@ package services
 
 import (
 	"robusta-web/backend/internal/config"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/pkg/awx"
+	"robusta-web/backend/pkg/logger"
 )
 
 // NewAWXClientFromConfig 从应用配置创建AWX客户端

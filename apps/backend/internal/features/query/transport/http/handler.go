@@ -52,6 +52,7 @@ func (h *Handler) RegisterRoutes(v1, admin *gin.RouterGroup) {
 		adminClustersGroup.POST("", h.CreateCluster)
 		adminClustersGroup.PUT("/:id", h.UpdateCluster)
 		adminClustersGroup.DELETE("/:id", h.DeleteCluster)
+		adminClustersGroup.POST("/sync-config", h.SyncClusterConfig)
 	}
 
 	// Alerts routes

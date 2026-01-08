@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/db"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 
 	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"

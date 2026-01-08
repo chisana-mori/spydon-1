@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"robusta-web/backend/internal/db"
@@ -93,7 +94,7 @@ func (s *LabelManagementService) ListLabels(ctx context.Context, query LabelList
 func (s *LabelManagementService) GetLabel(ctx context.Context, id int) (*LabelManagementDTO, error) {
 	var label navy.LabelManagement
 	if err := s.db.WithContext(ctx).Preload("LabelValues").First(&label, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("标签不存在")
 		}
 		return nil, fmt.Errorf("查询标签失败: %w", err)
@@ -175,7 +176,7 @@ func (s *LabelManagementService) DoCreateLabel(ctx context.Context, req CreateLa
 func (s *LabelManagementService) UpdateLabel(ctx context.Context, id int, req UpdateLabelRequest) (*LabelManagementDTO, error) {
 	var label navy.LabelManagement
 	if err := s.db.WithContext(ctx).Preload("LabelValues").First(&label, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("标签不存在")
 		}
 		return nil, fmt.Errorf("查询标签失败: %w", err)

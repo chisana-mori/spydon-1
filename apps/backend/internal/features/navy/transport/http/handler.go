@@ -9,20 +9,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Handler aggregates all Navy-related HTTP handlers
-// (device inventory, device operations, safe drain, k8s node management, F5 management).
+// =============================================================================
+// Handler - Navy 功能聚合处理器
+// =============================================================================
+
+// Handler 聚合所有 Navy 相关 HTTP 处理器
+// 包括：设备查询、设备操作、安全驱逐、K8s 节点管理、F5 管理
 type Handler struct {
-	cfg                  *config.Config
-	navyDB               *db.NavyDatabase
-	navyDeviceService    *services.NavyDeviceService
-	deviceOpsService     *services.DeviceOperationsService
-	safeDrainService     *services.SimpleDrainService
-	k8sNodeManageService *services.K8sNodeManageService
-	changeManager        *services.ChangeManager
-	f5Service            *services.F5InfoService
+	cfg    *config.Config
+	navyDB *db.NavyDatabase
+
+	// 子处理器
+	device *DeviceHandler
+	ops    *DeviceOpsHandler
+	drain  *SafeDrainHandler
+	k8s    *K8sNodeHandler
+	f5     *F5Handler
 }
 
-// New creates a new Navy feature handler.
+// New 创建 Navy 功能聚合处理器
 func New(
 	cfg *config.Config,
 	navyDB *db.NavyDatabase,
@@ -34,101 +39,42 @@ func New(
 	f5Service *services.F5InfoService,
 ) *Handler {
 	return &Handler{
-		cfg:                  cfg,
-		navyDB:               navyDB,
-		navyDeviceService:    navyDeviceService,
-		deviceOpsService:     deviceOpsService,
-		safeDrainService:     safeDrainService,
-		k8sNodeManageService: k8sNodeManageService,
-		changeManager:        changeManager,
-		f5Service:            f5Service,
+		cfg:    cfg,
+		navyDB: navyDB,
+
+		device: NewDeviceHandler(navyDeviceService),
+		ops:    NewDeviceOpsHandler(deviceOpsService, changeManager),
+		drain:  NewSafeDrainHandler(safeDrainService, changeManager),
+		k8s:    NewK8sNodeHandler(k8sNodeManageService),
+		f5:     NewF5Handler(f5Service),
 	}
 }
 
-// RegisterRoutes mounts all Navy-related routes under /api/v1.
-// The URL paths and middleware stack are kept identical to the
-// legacy internal/api router setup.
+// RegisterRoutes 挂载所有 Navy 相关路由
 func (h *Handler) RegisterRoutes(v1 *gin.RouterGroup) {
 	// /api/v1/navy
-	navyGroup := v1.Group("/navy")
+	navyGroup := v1.Group(RouteGroupNavy)
 	navyGroup.Use(middleware.CookieAuthMiddleware(h.cfg))
 
-	// /api/v1/navy/devices
-	deviceGroup := navyGroup.Group("/devices")
-	{
-		deviceGroup.GET("", h.ListDevices)
-		deviceGroup.POST("/query", h.QueryDevices)
-		deviceGroup.GET("/filter-options", h.GetFilterOptions)
-		deviceGroup.GET("/label-values", h.GetLabelValues)
-		deviceGroup.GET("/taint-values", h.GetTaintValues)
-		deviceGroup.GET("/device-field-values", h.GetDeviceFieldValues)
-		deviceGroup.POST("/features", h.GetDeviceFeatures)
-		deviceGroup.GET("/feature-details", h.GetFeatureDetails)
-		deviceGroup.GET("/export", h.ExportDevices)
-		deviceGroup.GET("/:id", h.GetDevice)
-		deviceGroup.PATCH("/:id/role", h.UpdateDeviceRole)
-		deviceGroup.PATCH("/:id/group", h.UpdateDeviceGroup)
+	// 设备查询 + 模板管理
+	h.device.RegisterRoutes(navyGroup)
 
-		// Safe drain shortcuts under device path (kept for backward compatibility)
-		deviceGroup.POST("/:node/drain/start", h.StartDrain)
-		deviceGroup.POST("/:node/drain/cancel", h.CancelDrain)
-	}
+	// 安全驱逐（无需管理员权限的只读/启动操作）
+	h.drain.RegisterRoutes(navyGroup)
 
-	// /api/v1/navy/drain - primary Safe Drain endpoints
-	drainGroup := navyGroup.Group("/drain")
-	{
-		drainGroup.POST("/start", h.StartDrain)
-		drainGroup.POST("/:drain_id/cancel", h.CancelDrain)
-		drainGroup.GET("/:drain_id/migrations", h.GetDrainMigrations)
-		drainGroup.GET("/:drain_id/events", h.DrainEvents)
-	}
-
-	// /api/v1/navy/templates - query template management
-	templateGroup := navyGroup.Group("/templates")
-	{
-		templateGroup.GET("", h.GetTemplates)
-		templateGroup.POST("", h.SaveTemplate)
-		templateGroup.GET("/:id", h.GetTemplate)
-		templateGroup.DELETE("/:id", h.DeleteTemplate)
-	}
-
-	// /api/v1/navy/device-ops - bulk device operations
-	opsGroup := navyGroup.Group("/device-ops")
+	// 设备批量操作（需要管理员权限 + 审计日志）
+	opsGroup := navyGroup.Group("")
 	opsGroup.Use(middleware.RequireAdmin())
 	opsGroup.Use(middleware.AuditLogMiddleware())
-	{
-		// K8s node operations with pre-check: node must exist & be associated with a cluster
-		k8sOps := opsGroup.Group("")
-		k8sOps.Use(middleware.ValidateClusterAssociation(h.navyDB))
-		{
-			k8sOps.POST("/cordon", h.CordonNodes)
-			k8sOps.POST("/uncordon", h.UncordonNodes)
-			// k8sOps.POST("/drain", h.DrainNodes)
-			k8sOps.POST("/taint", h.TaintNodes)
-			k8sOps.POST("/label", h.LabelNodes)
-		}
+	opsGroup.Use(middleware.ValidateClusterAssociation(h.navyDB))
+	h.ops.RegisterRoutes(opsGroup)
 
-		// Power operations (AWX) - only need IP, no K8s cluster association
-		opsGroup.POST("/shutdown", h.ShutdownNodes)
-		opsGroup.POST("/reboot", h.RebootNodes)
-	}
+	// K8s 节点管理（需要管理员权限 + 审计日志）
+	k8sGroup := navyGroup.Group("")
+	k8sGroup.Use(middleware.RequireAdmin())
+	k8sGroup.Use(middleware.AuditLogMiddleware())
+	h.k8s.RegisterRoutes(k8sGroup)
 
-	// /api/v1/navy/k8s-nodes - real-time K8s node label/taint management
-	k8sNodeGroup := navyGroup.Group("/k8s-nodes")
-	k8sNodeGroup.Use(middleware.RequireAdmin())
-	k8sNodeGroup.Use(middleware.AuditLogMiddleware())
-	{
-		// Queries
-		k8sNodeGroup.GET("", h.ListClusterNodes)
-		k8sNodeGroup.GET("/labels-taints", h.GetNodeLabelsAndTaints)
-	}
-
-	// /api/v1/navy/f5 - F5 load balancer management
-	f5Group := navyGroup.Group("/f5")
-	{
-		f5Group.GET("/:id", h.GetF5Info)
-		f5Group.GET("", h.ListF5Infos)
-		f5Group.PUT("/:id", h.UpdateF5Info)
-		f5Group.DELETE("/:id", h.DeleteF5Info)
-	}
+	// F5 管理
+	h.f5.RegisterRoutes(navyGroup)
 }

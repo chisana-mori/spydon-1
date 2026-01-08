@@ -31,6 +31,18 @@ export interface Cluster {
   last_heartbeat?: string
   created_at: string
   updated_at: string
+  // Navy fields
+  cluster_version?: string
+  idc?: string
+  zone?: string
+  flow_type?: string
+  purpose?: string
+  arch?: string
+  priority?: number
+  cluster_group?: string
+  master_ips?: string[]
+  etcd_ips?: string[]
+  etcd_event_ips?: string[]
 }
 
 export interface ClusterStats {

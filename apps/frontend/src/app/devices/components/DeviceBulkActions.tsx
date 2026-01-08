@@ -200,7 +200,14 @@ export function DeviceBulkActions({
                     })
                 }
 
+
+                // 立即刷新
                 onRefresh()
+                // 延迟 3 秒再次刷新以确保状态更新
+                setTimeout(() => {
+                    onRefresh()
+                }, 3000)
+
                 onClearSelection()
             }
         } catch (error) {

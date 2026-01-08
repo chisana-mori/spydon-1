@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"robusta-web/backend/internal/config"
-	"robusta-web/backend/internal/logger"
 	"robusta-web/backend/internal/models"
+	"robusta-web/backend/pkg/logger"
 )
 
 // EmailService 邮件发送服务

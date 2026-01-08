@@ -1,246 +1,91 @@
-# Antigravity: Coding Standards
+# Spydon / robusta-web：AGENTS 工作指南（精简版）
 
-> **Objective:** Defy technical debt. Keep it light, fast, and simple.
+> **目标**：压制技术债，优先可维护性、可读性与可验证性。
 
-## 1. Philosophy (KISS)
-*   **WHAT:** Code must be simple, explicit, and flat.
-*   **WHY:** Readability > Cleverness. Maintenance is 90% of the cost.
-*   **HOW:**
-    *   Files < 300 lines. Functions < 50 lines.
-    *   No over-engineering ("YAGNI"). Implement only what is needed *now*.
-    *   Logic > Abstraction. Explicit is better than implicit.
+## 0. 使用方式（给 Agent）
 
-## 2. Architecture (Feature-First)
-*   **WHAT:** Vertical slicing by feature (`internal/features/{feature}`).
-*   **WHY:** High cohesion, low coupling. Isolation makes code safer to change or delete.
-*   **HOW:**
-    *   **Structure:**
-        ```text
-        /internal/features/{feature}/
-          ├── services/       # Business logic
-          ├── transport/      # HTTP/GRPC handlers
-          └── models/         # Domain models
-        ```
-    *   **Layers:** Transport (Validation) → Service (Logic) → Repository (Data).
-    *   **Imports:** MUST use `internal/features/{feature}/services`. (Forbidden: `internal/services`).
-    *   **Shared:** Common logic goes to `internal/shared`. Export types (`Capitalized`) if used across features.
 
-## 3. Go Rules
-*   **WHAT:** Idiomatic Go with explicit error handling and concurrency.
-*   **WHY:** Robustness and ease of debugging.
-*   **HOW:**
-    *   **Errors:** Handle explicitly. `if err != nil { return fmt.Errorf("ctx: %w", err) }`. Never use `_` to ignore errors.
-    *   **Concurrency:** Use `errgroup` or `WaitGroup` for synchronization. Avoid channels unless passing data. No global state.
-    *   **Handlers:** Keep them thin. 1. Parse Input → 2. Call Service → 3. Return Response (use `httpx`).
-    *   **Documentation:** Handlers under `features` MUST include standard Swagger annotations. The description MUST be detailed (20-50 words) to facilitate future MCP extraction.
+1. **按需再读**：`docs/` 下相关文档（渐进式披露），不要把大量细节重复写进本文件。
+2. **以代码与自动化检查为准**：文档可能滞后。
+3. **谨慎操作**：任何会安装依赖、下载大文件、或改动运行环境的操作，先征求确认。
 
-## 4. Node/TS Rules
-*   **WHAT:** Type-safe, modern TypeScript with standard linting.
-*   **WHY:** Compile-time safety prevents runtime crashes.
-*   **HOW:**
-    *   **Async:** Use `async/await`. No callbacks, no chained `.then`.
-    *   **Types:** Strict interfaces. `any` is strictly forbidden.
-    *   **Modules:** ES Modules (`import/export`).
+## 1. 项目地图（WHAT）
 
-## 5. Anti-Patterns
-*   **WHAT:** Common pitfalls that degrade code quality.
-*   **WHY:** They introduce debt and complexity that is hard to remove later.
-*   **HOW:**
-    *   ❌ **Manager/Util Dumpsters:** No `utils.go`. Name files by specific intent (e.g., `PasswordHasher.go`).
-    *   ❌ **Magic Numbers:** Extract constants (`const MaxRetries = 3`).
-    *   ❌ **Premature Optimization:** Write clean code first. Optimize only when profiling proves necessary.
+核心目录（以 `robusta-web/` 为根）：
 
-## 6. UI Layout Rules
-*   **Content Container Margins:** Do not use `container`, `mx-auto`, or `max-w-*` on high-level page wrappers. Let the specific component or global shell handle the width to ensure consistent sidebar alignment.
-*   **Page Main Title Styling:** All page main titles (h1 elements in page containers) MUST use `text-2xl font-bold` for consistency. Additional classes like `tracking-tight` are optional for visual enhancement.
-    *   ✅ **Correct**: `<h1 className="text-2xl font-bold">设备管理</h1>`
-    *   ✅ **Correct**: `<h1 className="text-2xl font-bold tracking-tight">集群管理</h1>`
-    *   ❌ **Incorrect**: `<h1 className="text-3xl font-bold">...</h1>` (too large)
-    *   ❌ **Incorrect**: `<h1 className="text-xl font-bold">...</h1>` (too small)
-*   **Page Title Icon:** All page main titles MUST be preceded by a semantically relevant icon wrapped in a styled container for visual consistency.
-    *   **Icon Container**: Use `<div className="p-2 rounded-lg bg-primary/10">` with icon size `h-6 w-6 text-primary`
-    *   **Layout Structure**: Wrap icon container and title in `flex items-center gap-3`
-    *   **Icon Selection**: Choose icons that visually represent the page content (e.g., `Users` for user management, `Server` for clusters, `Database` for resources)
-    *   ✅ **Correct Pattern**:
-      ```tsx
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-primary/10">
-          <Server className="h-6 w-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">设备管理</h1>
-          <p className="text-muted-foreground">...</p>
-        </div>
-      </div>
-      ```
-
-## 7. Frontend Design System
-
-This section is the **SINGLE SOURCE OF TRUTH** for color usage and frontend patterns.
-
-### 7.1. Core Color Philosophy
-Our color system conveys meaning instantaneously:
-*   **Trust & Information**: Blue/Primary spectrum (Stock, Info)
-*   **Action & Alertness**: Semantic colors (Success, Warning, Error)
-*   **Domain Specificity**: Consistent mapping of asset classes/features to specific hues.
-
-### 7.2. Semantic Color System
-**DO NOT** hardcode hex values. Use these semantic mappings.
-
-**A. Domain/Feature Colors**
-| Domain | Color Scale | Tailwind Class | Semantic Meaning |
-| :--- | :--- | :--- | :--- |
-| **Crypto** | Orange | `text-orange-500` / `bg-orange-500` | Energy, volatility, digital assets |
-| **Stock** | Blue | `text-blue-500` / `bg-blue-500` | Stability, traditional markets, trust |
-| **ETF** | Green | `text-green-500` / `bg-green-500` | Growth, composition, aggregation |
-| **Forex** | Purple | `text-purple-500` / `bg-purple-500` | Global, exchange, luxury/value |
-| **Commodity**| Yellow | `text-yellow-500` / `bg-yellow-500` | Gold, resources, raw materials |
-| **Index** | Red | `text-red-500` / `bg-red-500` | Market pulse, urgency, heatmaps |
-
-**B. Status & Feedback Colors**
-| State | Color Scale | Tailwind Class | Usage Context |
-| :--- | :--- | :--- | :--- |
-| **Success** | Green | `text-green-600` | Operation completed, system healthy, online |
-| **Warning** | Yellow/Amber | `text-yellow-500` | Non-critical issues, pending actions, degrading |
-| **Error** | Red | `text-red-500` | Critical failures, offline, danger zones |
-| **Info** | Blue | `text-blue-500` | Neutral information, tips, help text |
-| **Muted** | Slate/Gray | `text-muted-foreground`| Secondary text, disabled states, placeholders |
-
-### 7.3. Color Usage & Theming Rules
-1.  **Subtle Backgrounds**: Use `bg-{color}-50` (light) or `bg-{color}-900/10` (dark).
-    *   *Prefer*: `bg-blue-500/10` (Works automatically in both modes via opacity).
-    *   *Avoid*: `bg-blue-100` (Too bright in dark mode).
-2.  **Icon Containers**:
-    *   Pattern: `className="p-2.5 rounded-xl bg-{color}-500/10 text-{color}-500 ring-1 ring-{color}-500/20"`
-    *   Icons representing a domain MUST use the domain's primary color.
-3.  **Text Hierarchy**:
-    *   **Primary**: `text-foreground`
-    *   **Secondary**: `text-muted-foreground`
-    *   **Interactive**: `text-primary` or `text-blue-600`
-
-```typescript
-// Reference Object
-export const DESIGN_COLORS = {
-  crypto: 'orange-500',
-  stock: 'blue-500',
-  etf: 'green-500',
-  forex: 'purple-500',
-  commodity: 'yellow-500',
-  index: 'red-500',
-  success: 'green-500',
-  warning: 'yellow-500',
-  error: 'red-500',
-  info: 'blue-500'
-}
+```text
+apps/
+  backend/    # Go API（Gin），入口 cmd/server
+  frontend/   # Next.js（App Router）+ TS + Tailwind
+infrastructure/  # docker-compose / k8s / nginx / scripts
+docs/            # 架构、设计、部署、CI 等文档
+var/             # 工具/缓存（如 Go modules）
 ```
 
-### 7.4. Component Patterns
+## 2. 我们在优化什么（WHY）
 
-**Dialog Header** (MANDATORY):
-```tsx
-<DialogHeader className="space-y-3 pb-6">
-  <DialogTitle className="text-2xl font-bold flex items-center gap-3">
-    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-      <Icon className="w-4 h-4 text-primary" />
-    </div>
-    Dialog Title
-  </DialogTitle>
-  <DialogDescription className="text-base">Description</DialogDescription>
-</DialogHeader>
-```
+- **可删除/可重构**：按业务域切片，避免“全局大包/大组件”。
+- **可排障**：错误信息要带上下文，日志要可追踪。
+- **可验证**：改动必须能通过现有测试、lint、type-check（至少在相关模块可跑）。
 
-**Card Layout**:
-```tsx
-// Interactive card
-<Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
+## 3. 代码组织与改动策略（HOW）
 
-// Information card
-<Card className="bg-muted/30 border-blue-200 dark:border-blue-800">
-```
+### 3.1 通用原则
 
-**Form Elements** (h-11 height required):
-```tsx
-<Input className="h-11" />
-<Select><SelectTrigger className="h-11" /></Select>
-<Button className="h-11" />
+- **KISS + YAGNI**：优先最小改动、最少抽象。
+- **别制造债**：避免“通用 utils/manager 大杂烩”；文件/函数过大时优先拆分。
+- **遵循现有结构**：新代码尽量放到已有的 feature/domain 目录中。
 
-// Labels with icons
-<Label className="text-sm font-medium flex items-center gap-2">
-  <Icon className="w-4 h-4 text-{color}-600" />
-  Field Name
-</Label>
-```
+### 3.2 后端（Go）
 
-### 7.5. Status Indicators
+- **分层建议**：路由/handler（入参校验）→ service（业务逻辑）→ db/repo（数据访问）。
+- **Feature-First 优先**：能放进 `apps/backend/internal/features/<feature>/...` 的新逻辑，优先放这里；不要继续扩大“全局包”。
+- **错误处理**：不要忽略错误；返回时用 `%w` 包装上下文（便于定位）。
+- **并发**：需要并发时优先用 `errgroup`/`WaitGroup`；避免不必要的 channel 与全局状态。
 
-```tsx
-// Animated status dot
-<div className="flex items-center gap-1 text-green-600">
-  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-  <span className="text-xs">Connected</span>
-</div>
+### 3.3 前端（Next.js / TypeScript）
 
-// Status badge
-<Badge variant={status === 'active' ? 'default' : 'secondary'}>
-  {statusLabel}
-</Badge>
-```
+- **类型安全**：禁止 `any`；优先定义清晰的 `type/interface`。
+- **异步风格**：统一 `async/await`，避免链式 `.then()` 堆叠。
+- **目录约定**：业务功能放 `apps/frontend/src/features`；通用 UI 放 `src/components` / `src/components/ui`。
+- **组件体量**：超大组件请拆分（UI/数据/状态/副作用分离），避免单文件承担多职责。
 
-### 7.6. Table Enhancements
+## 4. UI / 设计规则（精简版）
 
-```tsx
-<TableRow className="hover:bg-muted/50">
-  <TableCell>
-    <div className="flex items-center gap-3">
-      <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-        <Icon className="w-4 h-4 text-primary" />
-      </div>
-      <div>
-        <div className="font-medium">Primary Information</div>
-        <div className="text-sm text-muted-foreground">Secondary info</div>
-      </div>
-    </div>
-  </TableCell>
-</TableRow>
-```
+1. **页面容器宽度**：高层 page wrapper 不要随意加 `container` / `mx-auto` / `max-w-*`，避免与侧边栏对齐漂移。
+2. **页面主标题（h1）**：统一 `text-2xl font-bold`。
+3. **标题图标**：主标题前放语义化 icon，并使用一致的容器样式（示例见旧实现/现有页面）。
+4. **颜色与主题**：不要硬编码 hex；遵循语义化颜色与暗黑模式规则。
 
-### 7.7. Sizing Reference
+> 颜色与语义的**单一事实来源**：`docs/notes/frontend-design.mdc`（不要在本文件复制整套表格）。
 
-| Element | Size |
-|---------|------|
-| Form Elements | `h-11` |
-| Large Buttons | `h-12` |
-| Icon Containers | `w-8 h-8` (standard), `w-12 h-12` (large) |
-| Icons | `w-4 h-4` (small), `w-5 h-5` (medium), `w-6 h-6` (large) |
+## 5. 验证方式（建议最小闭环）
 
-### 7.8. Spacing Guidelines
+按改动范围选择最小集合运行：
 
-| Context | Spacing |
-|---------|---------|
-| Page Sections | `space-y-6` or `space-y-8` |
-| Card Content | `space-y-4` |
-| Icon Gaps | `gap-2` or `gap-3` |
-| Button Groups | `gap-3` or `gap-4` |
-| Grid Layouts | `grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4` |
+### 5.1 代码质量（仓库级）
 
-### 7.9. Responsive Patterns (REQUIRED)
+- `make pre-commit`（通过 `uvx` 运行，无需额外安装）
 
-```tsx
-// Flex direction change
-<div className="flex flex-col sm:flex-row gap-4">
+### 5.2 后端（Go）
 
-// Grid columns
-<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+- `cd apps/backend && go test ./...`
+- 更全面（会尝试拉起依赖）：`cd apps/backend && bash test/tests.sh`
 
-// Action buttons
-<div className="flex flex-col sm:flex-row justify-between gap-4 pt-6 border-t">
-```
+### 5.3 前端（Next.js）
 
-### 7.10. Transitions (MANDATORY)
+- `cd apps/frontend && npm run lint`
+- `cd apps/frontend && npm run type-check`
+- `cd apps/frontend && npm test`
+- 端到端：`cd apps/frontend && npm run test:e2e`（如需安装浏览器，先确认再执行）
 
-```tsx
-className="transition-colors hover:border-primary/50"
-className="transition-all hover:shadow-lg"
-className="animate-pulse"  // For loading states
-className="animate-spin"   // For spinners
-```
+## 6. 常见反模式（请避免）
+
+- ❌ “顺手塞进 utils/”导致不可维护
+- ❌ 忽略错误 / 吞异常 / 缺少上下文
+- ❌ 为了“未来可能需要”过度抽象
+- ❌ UI 规则各写一套（颜色/间距/标题样式不一致）
+
+## 7. 进一步阅读（渐进式披露）
+
+- 前端配色与语义：`docs/notes/frontend-design.mdc`

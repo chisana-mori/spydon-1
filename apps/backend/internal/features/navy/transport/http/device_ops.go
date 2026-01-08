@@ -10,6 +10,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// =============================================================================
+// DeviceOpsHandler - 设备操作处理器
+// =============================================================================
+
+// DeviceOpsHandler 处理设备批量操作相关的 HTTP 请求
+type DeviceOpsHandler struct {
+	svc           *services.DeviceOperationsService
+	changeManager *services.ChangeManager
+}
+
+// NewDeviceOpsHandler 创建 DeviceOpsHandler
+func NewDeviceOpsHandler(svc *services.DeviceOperationsService, changeMgr *services.ChangeManager) *DeviceOpsHandler {
+	return &DeviceOpsHandler{svc: svc, changeManager: changeMgr}
+}
+
+// RegisterRoutes 注册设备操作路由
+func (h *DeviceOpsHandler) RegisterRoutes(navyGroup *gin.RouterGroup) {
+	ops := navyGroup.Group(RouteGroupDeviceOps)
+	{
+		ops.POST(RouteCordon, h.CordonNodes)
+		ops.POST(RouteUncordon, h.UncordonNodes)
+		ops.POST(RouteDrain, h.DrainNodes)
+		ops.POST(RouteTaint, h.TaintNodes)
+		ops.POST(RouteLabel, h.LabelNodes)
+		ops.POST(RouteShutdown, h.ShutdownNodes)
+		ops.POST(RouteReboot, h.RebootNodes)
+	}
+}
+
 // BatchNodeOperationRequest 批量节点操作请求
 type BatchNodeOperationRequest struct {
 	CICodes []string `json:"ci_codes" binding:"required,min=1"`
@@ -41,7 +70,7 @@ type LabelNodesRequest struct {
 }
 
 // helper: handle batch operations that return BatchOperationResult
-func (h *Handler) handleBatchResultOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error)) {
+func (h *DeviceOpsHandler) handleBatchResultOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error)) {
 	var req BatchNodeOperationRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
@@ -75,7 +104,7 @@ func (h *Handler) handleBatchResultOp(c *gin.Context, opType services.ChangeOper
 }
 
 // helper: handle batch operations that return AWX Job handles
-func (h *Handler) handleBatchJobOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error), message string) {
+func (h *DeviceOpsHandler) handleBatchJobOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error), message string) {
 	var req BatchNodeOperationRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
@@ -129,9 +158,9 @@ func (h *Handler) handleBatchJobOp(c *gin.Context, opType services.ChangeOperati
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/cordon [post]
-func (h *Handler) CordonNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) CordonNodes(c *gin.Context) {
 	h.handleBatchResultOp(c, services.ChangeOpCordon, func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error) {
-		return h.deviceOpsService.CordonNodes(ctx, ciCodes)
+		return h.svc.CordonNodes(ctx, ciCodes)
 	})
 }
 
@@ -146,9 +175,9 @@ func (h *Handler) CordonNodes(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/uncordon [post]
-func (h *Handler) UncordonNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) UncordonNodes(c *gin.Context) {
 	h.handleBatchResultOp(c, services.ChangeOpUncordon, func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error) {
-		return h.deviceOpsService.UncordonNodes(ctx, ciCodes)
+		return h.svc.UncordonNodes(ctx, ciCodes)
 	})
 }
 
@@ -163,7 +192,7 @@ func (h *Handler) UncordonNodes(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/drain [post]
-func (h *Handler) DrainNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) DrainNodes(c *gin.Context) {
 	var req DrainNodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -179,7 +208,7 @@ func (h *Handler) DrainNodes(c *gin.Context) {
 		req.CICodes,
 		map[string]any{"force": req.Force, "ignore_daemonsets": req.IgnoreDaemonsets},
 		func(tid string) error {
-			result, opErr = h.deviceOpsService.DrainNodes(c.Request.Context(), req.CICodes, services.DrainOptions{
+			result, opErr = h.svc.DrainNodes(c.Request.Context(), req.CICodes, services.DrainOptions{
 				Force:            req.Force,
 				IgnoreDaemonsets: req.IgnoreDaemonsets,
 				DeleteLocalData:  req.DeleteLocalData,
@@ -225,7 +254,7 @@ func (h *Handler) DrainNodes(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/taint [post]
-func (h *Handler) TaintNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) TaintNodes(c *gin.Context) {
 	var req TaintNodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -241,7 +270,7 @@ func (h *Handler) TaintNodes(c *gin.Context) {
 		req.CICodes,
 		map[string]any{"key": req.Key, "value": req.Value, "effect": req.Effect, "action": req.Action},
 		func(ticketID string) error {
-			result, opErr = h.deviceOpsService.TaintNodes(c.Request.Context(), req.CICodes, services.TaintOperation{
+			result, opErr = h.svc.TaintNodes(c.Request.Context(), req.CICodes, services.TaintOperation{
 				Key:    req.Key,
 				Value:  req.Value,
 				Effect: req.Effect,
@@ -274,7 +303,7 @@ func (h *Handler) TaintNodes(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/label [post]
-func (h *Handler) LabelNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) LabelNodes(c *gin.Context) {
 	var req LabelNodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -290,7 +319,7 @@ func (h *Handler) LabelNodes(c *gin.Context) {
 		req.CICodes,
 		map[string]any{"labels": req.Labels, "action": req.Action},
 		func(ticketID string) error {
-			result, opErr = h.deviceOpsService.LabelNodes(c.Request.Context(), req.CICodes, services.LabelOperation{
+			result, opErr = h.svc.LabelNodes(c.Request.Context(), req.CICodes, services.LabelOperation{
 				Labels: req.Labels,
 				Action: req.Action,
 			})
@@ -321,9 +350,9 @@ func (h *Handler) LabelNodes(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/shutdown [post]
-func (h *Handler) ShutdownNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) ShutdownNodes(c *gin.Context) {
 	h.handleBatchJobOp(c, services.ChangeOpShutdown, func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error) {
-		return h.deviceOpsService.ShutdownNodes(ctx, ciCodes)
+		return h.svc.ShutdownNodes(ctx, ciCodes)
 	}, "关机任务已提交")
 }
 
@@ -338,8 +367,8 @@ func (h *Handler) ShutdownNodes(c *gin.Context) {
 // @Failure 400 {object} gin.H
 // @Failure 500 {object} gin.H
 // @Router /navy/nodes/reboot [post]
-func (h *Handler) RebootNodes(c *gin.Context) {
+func (h *DeviceOpsHandler) RebootNodes(c *gin.Context) {
 	h.handleBatchJobOp(c, services.ChangeOpReboot, func(ctx context.Context, ciCodes []string) (*pipelineservice.JobHandle, error) {
-		return h.deviceOpsService.RebootNodes(ctx, ciCodes)
+		return h.svc.RebootNodes(ctx, ciCodes)
 	}, "重启任务已提交")
 }

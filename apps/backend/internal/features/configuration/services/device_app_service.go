@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"robusta-web/backend/internal/db"
@@ -90,7 +91,7 @@ func (s *DeviceAppService) ListDeviceApps(ctx context.Context, query DeviceAppLi
 func (s *DeviceAppService) GetDeviceApp(ctx context.Context, id int) (*DeviceAppDTO, error) {
 	var app navy.DeviceApp
 	if err := s.db.WithContext(ctx).First(&app, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("设备应用不存在")
 		}
 		return nil, fmt.Errorf("查询设备应用失败: %w", err)
@@ -149,7 +150,7 @@ func (s *DeviceAppService) CreateDeviceApp(ctx context.Context, req CreateDevice
 func (s *DeviceAppService) UpdateDeviceApp(ctx context.Context, id int, req UpdateDeviceAppRequest) (*DeviceAppDTO, error) {
 	var app navy.DeviceApp
 	if err := s.db.WithContext(ctx).First(&app, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("设备应用不存在")
 		}
 		return nil, fmt.Errorf("查询设备应用失败: %w", err)
