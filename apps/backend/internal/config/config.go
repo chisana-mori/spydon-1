@@ -91,8 +91,7 @@ type Config struct {
 	Port        string `mapstructure:"port" json:"port" yaml:"port"`
 	BasePath    string `mapstructure:"base_path" json:"base_path" yaml:"base_path"` // 应用部署的基础路径，如 /spydon
 
-	DatabaseURL     string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
-	NavyDatabaseURL string `mapstructure:"navy_database_url" json:"navy_database_url" yaml:"navy_database_url"`
+	DatabaseURL string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
 
 	JWTSecret    string `mapstructure:"jwt_secret" json:"jwt_secret" yaml:"jwt_secret"`
 	HMACSecret   string `mapstructure:"hmac_secret" json:"hmac_secret" yaml:"hmac_secret"`
@@ -182,7 +181,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("port", strconv.Itoa(constants.DefaultPort))
 
 	v.SetDefault("database_url", "root:password@tcp(localhost:3306)/robusta_hub?charset=utf8mb4&parseTime=True&loc=Local")
-	v.SetDefault("navy_database_url", "navy.db")
 
 	v.SetDefault("jwt_secret", "your-jwt-secret-key")
 	v.SetDefault("hmac_secret", "your-hmac-secret-key")

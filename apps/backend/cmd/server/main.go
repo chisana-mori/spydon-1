@@ -28,14 +28,13 @@ import (
 // =============================================================================
 
 type Application struct {
-	cfg          *config.Config
-	database     *db.Database
-	navyDatabase *db.NavyDatabase
-	router       *gin.Engine
-	server       *http.Server
-	nodeSyncMgr  *nodesync.Manager
-	bgServices   *api.BackgroundServices
-	awxRuntime   *pipelineservice.AWXRuntime
+	cfg         *config.Config
+	database    *db.Database
+	router      *gin.Engine
+	server      *http.Server
+	nodeSyncMgr *nodesync.Manager
+	bgServices  *api.BackgroundServices
+	awxRuntime  *pipelineservice.AWXRuntime
 
 	// 用于优雅关闭的 context
 	nodeSyncCtx    context.Context
@@ -141,9 +140,6 @@ func (app *Application) initDatabase() error {
 		return fmt.Errorf("创建数据库索引失败: %w", err)
 	}
 
-	// Navy 数据库（复用主数据库连接）
-	app.navyDatabase = &db.NavyDatabase{DB: database.DB}
-
 	return nil
 }
 
@@ -168,7 +164,6 @@ func (app *Application) initServices() error {
 	bgServices, err := api.SetupRoutes(
 		app.router,
 		app.database,
-		app.navyDatabase,
 		app.cfg,
 		app.nodeSyncMgr,
 		app.awxRuntime,
@@ -186,7 +181,7 @@ func (app *Application) initServices() error {
 
 // startNodeSyncManager 启动节点同步管理器
 func (app *Application) startNodeSyncManager() {
-	app.nodeSyncMgr = nodesync.NewManager(app.database, app.navyDatabase)
+	app.nodeSyncMgr = nodesync.NewManager(app.database)
 	app.nodeSyncCtx, app.nodeSyncCancel = context.WithCancel(context.Background())
 
 	go func() {

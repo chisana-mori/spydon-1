@@ -19,7 +19,7 @@ type ciCodesRequest struct {
 }
 
 // ValidateClusterAssociation 验证设备是否关联了集群
-func ValidateClusterAssociation(navyDB *db.NavyDatabase) gin.HandlerFunc {
+func ValidateClusterAssociation(navyDB *db.Database) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 读取 Body
 		bodyBytes, err := io.ReadAll(c.Request.Body)

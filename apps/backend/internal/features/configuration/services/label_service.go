@@ -13,11 +13,11 @@ import (
 
 // LabelManagementService 标签管理服务
 type LabelManagementService struct {
-	db *db.NavyDatabase
+	db *db.Database
 }
 
 // NewLabelManagementService 创建标签管理服务
-func NewLabelManagementService(database *db.NavyDatabase) *LabelManagementService {
+func NewLabelManagementService(database *db.Database) *LabelManagementService {
 	return &LabelManagementService{db: database}
 }
 

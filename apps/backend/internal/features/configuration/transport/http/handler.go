@@ -18,7 +18,7 @@ type ConfigurationHandler struct {
 }
 
 // NewConfigurationHandler 创建配置管理处理器
-func NewConfigurationHandler(navyDB *db.NavyDatabase) *ConfigurationHandler {
+func NewConfigurationHandler(navyDB *db.Database) *ConfigurationHandler {
 	return &ConfigurationHandler{
 		labelService:     services.NewLabelManagementService(navyDB),
 		taintService:     services.NewTaintManagementService(navyDB),

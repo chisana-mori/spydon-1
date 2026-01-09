@@ -13,11 +13,11 @@ import (
 
 // TaintManagementService 污点管理服务
 type TaintManagementService struct {
-	db *db.NavyDatabase
+	db *db.Database
 }
 
 // NewTaintManagementService 创建污点管理服务
-func NewTaintManagementService(database *db.NavyDatabase) *TaintManagementService {
+func NewTaintManagementService(database *db.Database) *TaintManagementService {
 	return &TaintManagementService{db: database}
 }
 

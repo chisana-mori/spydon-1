@@ -16,7 +16,7 @@ import (
 // NodeReconciler Node 资源的 reconciler
 type NodeReconciler struct {
 	clusterName string
-	navyDB      *db.NavyDatabase
+	database    *db.Database
 	client      client.Client
 }
 
@@ -32,7 +32,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 			logger.S().Infow("节点已删除，清除设备集群关联",
 				"cluster", r.clusterName,
 				"node", nodeName)
-			if clearErr := ClearDeviceClusterInfo(ctx, r.navyDB, nodeName); clearErr != nil {
+			if clearErr := ClearDeviceClusterInfo(ctx, r.database, nodeName); clearErr != nil {
 				logger.S().Errorw("清除设备集群关联失败",
 					"cluster", r.clusterName,
 					"node", nodeName,
@@ -44,7 +44,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 	}
 
 	// 同步节点信息到 device 表
-	if err := UpdateDeviceFromNode(ctx, r.navyDB, r.clusterName, &node); err != nil {
+	if err := UpdateDeviceFromNode(ctx, r.database, r.clusterName, &node); err != nil {
 		logger.S().Warnw("同步节点到设备表失败",
 			"cluster", r.clusterName,
 			"node", nodeName,

@@ -17,7 +17,7 @@ import (
 // 包括：设备查询、设备操作、安全驱逐、K8s 节点管理、F5 管理
 type Handler struct {
 	cfg    *config.Config
-	navyDB *db.NavyDatabase
+	navyDB *db.Database
 
 	// 子处理器
 	device *DeviceHandler
@@ -30,7 +30,7 @@ type Handler struct {
 // New 创建 Navy 功能聚合处理器
 func New(
 	cfg *config.Config,
-	navyDB *db.NavyDatabase,
+	navyDB *db.Database,
 	navyDeviceService *services.NavyDeviceService,
 	deviceOpsService *services.DeviceOperationsService,
 	safeDrainService *services.SimpleDrainService,

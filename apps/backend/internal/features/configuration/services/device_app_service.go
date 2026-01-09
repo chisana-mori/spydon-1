@@ -13,11 +13,11 @@ import (
 
 // DeviceAppService 设备应用管理服务
 type DeviceAppService struct {
-	db *db.NavyDatabase
+	db *db.Database
 }
 
 // NewDeviceAppService 创建设备应用管理服务
-func NewDeviceAppService(database *db.NavyDatabase) *DeviceAppService {
+func NewDeviceAppService(database *db.Database) *DeviceAppService {
 	return &DeviceAppService{db: database}
 }
 

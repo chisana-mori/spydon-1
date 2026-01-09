@@ -27,8 +27,8 @@ func (testDevice) TableName() string {
 }
 
 // setupTestDB 创建内存 SQLite 测试数据库
-func setupTestDB(t *testing.T) *db.NavyDatabase {
-	navyDB, err := db.InitializeNavy(":memory:")
+func setupTestDB(t *testing.T) *db.Database {
+	navyDB, err := db.Initialize(":memory:")
 	require.NoError(t, err)
 
 	// 创建 device 表
@@ -52,7 +52,7 @@ func setupTestDB(t *testing.T) *db.NavyDatabase {
 }
 
 // createTestDevice 创建测试设备
-func createTestDevice(t *testing.T, navyDB *db.NavyDatabase, ciCode string) int {
+func createTestDevice(t *testing.T, navyDB *db.Database, ciCode string) int {
 	result := navyDB.Exec(`
 		INSERT INTO device (ci_code, ip, status, created_at, updated_at)
 		VALUES (?, ?, ?, datetime('now'), datetime('now'))
@@ -65,7 +65,7 @@ func createTestDevice(t *testing.T, navyDB *db.NavyDatabase, ciCode string) int 
 }
 
 // getTestDevice 查询测试设备
-func getTestDevice(t *testing.T, navyDB *db.NavyDatabase, id int) testDevice {
+func getTestDevice(t *testing.T, navyDB *db.Database, id int) testDevice {
 	var device testDevice
 	err := navyDB.First(&device, id).Error
 	require.NoError(t, err)

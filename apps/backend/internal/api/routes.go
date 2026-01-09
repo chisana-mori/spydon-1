@@ -87,7 +87,6 @@ func (s *BackgroundServices) Stop() {
 func SetupRoutes(
 	router *gin.Engine,
 	database *db.Database,
-	navyDatabase *db.NavyDatabase,
 	cfg *config.Config,
 	nodesyncManager *nodesync.Manager,
 	awxRuntime *pipelineservice.AWXRuntime,
@@ -126,9 +125,9 @@ func SetupRoutes(
 	}
 
 	safeDrainSvc := navyservice.NewSimpleDrainService(connMgr, redisHandler)
-	deviceSvc := navyservice.NewNavyDeviceService(navyDatabase, nodesyncManager)
+	deviceSvc := navyservice.NewNavyDeviceService(database, nodesyncManager)
 	deviceOpsSvc := navyservice.NewDeviceOperationsService(
-		navyDatabase, database, nodesyncManager, awxRuntime, cfg, logger.L(), safeDrainSvc,
+		database, database, nodesyncManager, awxRuntime, cfg, logger.L(), safeDrainSvc,
 	)
 	changeMgrCfg := navyservice.ChangeManagerConfig{
 		Enabled: cfg.ChangeManagement.Enabled,
@@ -136,7 +135,7 @@ func SetupRoutes(
 	}
 	changeMgr := navyservice.NewChangeManager(changeMgrCfg, redisHandler, nil, logger.L())
 	k8sNodeMgrSvc := navyservice.NewK8sNodeManageService(database, nodesyncManager)
-	f5Svc := navyservice.NewF5InfoService(navyDatabase.DB)
+	f5Svc := navyservice.NewF5InfoService(database.DB)
 
 	// =========================================================================
 	// 3. 构建外部依赖
@@ -228,7 +227,7 @@ func SetupRoutes(
 
 	// ----- Navy (设备管理) -----
 	navyHandler := navyhttp.New(
-		cfg, navyDatabase, deviceSvc, deviceOpsSvc,
+		cfg, database, deviceSvc, deviceOpsSvc,
 		safeDrainSvc, k8sNodeMgrSvc, changeMgr, f5Svc,
 	)
 	navyHandler.RegisterRoutes(v1)
@@ -238,7 +237,7 @@ func SetupRoutes(
 	sharedHandler.RegisterRoutes(v1)
 
 	// ----- Configuration -----
-	configHandler := configurationhttp.NewConfigurationHandler(navyDatabase)
+	configHandler := configurationhttp.NewConfigurationHandler(database)
 	configGroup := v1.Group("/configuration")
 	configGroup.Use(middleware.CookieAuthMiddleware(cfg))
 	configGroup.Use(middleware.RequireAdmin())

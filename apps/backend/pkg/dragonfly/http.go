@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -65,7 +65,7 @@ func doGet(reqUrl string, rst interface{}) error {
 		_ = res.Body.Close()
 	}()
 
-	dat, err := ioutil.ReadAll(res.Body)
+	dat, err := io.ReadAll(res.Body)
 	if err != nil {
 		debugLogf("dragonfly http io read error, [%s], [%s]", reqUrl, err.Error())
 		return err
@@ -120,7 +120,7 @@ func doPost(reqUrl string, req interface{}, rst interface{}) (string, error) {
 		_ = res.Body.Close()
 	}()
 
-	dat, err := ioutil.ReadAll(res.Body)
+	dat, err := io.ReadAll(res.Body)
 	if err != nil {
 		return unicodeToZh(dat), fmt.Errorf("dragonfly http io read error, [%s], [%s]", reqUrl, err.Error())
 	}

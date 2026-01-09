@@ -20,7 +20,7 @@ import (
 
 // DeviceOperationsService 设备批量操作服务
 type DeviceOperationsService struct {
-	navyDB           *db.NavyDatabase
+	navyDB           *db.Database
 	mainDB           *db.Database
 	nodeSyncManager  *nodesync.Manager
 	awxRuntime       *pipelineservice.AWXRuntime
@@ -31,7 +31,7 @@ type DeviceOperationsService struct {
 
 // NewDeviceOperationsService 创建设备操作服务
 func NewDeviceOperationsService(
-	navyDB *db.NavyDatabase,
+	navyDB *db.Database,
 	mainDB *db.Database,
 	nodeSyncManager *nodesync.Manager,
 	awxRuntime *pipelineservice.AWXRuntime,

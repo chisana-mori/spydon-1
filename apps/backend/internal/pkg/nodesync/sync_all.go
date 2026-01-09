@@ -55,14 +55,14 @@ func (m *Manager) syncCluster(ctx context.Context, clusterName string) error {
 	for _, node := range nodes {
 		activeNodeNames = append(activeNodeNames, node.Name)
 		// 使用 nodesync 包中已有的 UpdateDeviceFromNode 函数
-		if err := UpdateDeviceFromNode(ctx, m.navyDB, clusterName, &node); err != nil {
+		if err := UpdateDeviceFromNode(ctx, m.mainDB, clusterName, &node); err != nil {
 			// 单个失败不中断整体
 			logger.S().Errorw("同步单节点状态失败", "cluster", clusterName, "node", node.Name, "error", err)
 		}
 	}
 
 	// 对齐状态：清理数据库中有但实际集群中没有的节点关联信息
-	if err := CleanOrphanDevices(ctx, m.navyDB, int(cluster.ID), activeNodeNames); err != nil {
+	if err := CleanOrphanDevices(ctx, m.mainDB, int(cluster.ID), activeNodeNames); err != nil {
 		return fmt.Errorf("清理孤儿节点失败: %w", err)
 	}
 

@@ -22,7 +22,6 @@ const ClusterStatusMaintenance = "maintenance"
 // Manager 节点同步管理器，管理所有集群的节点同步
 type Manager struct {
 	mainDB      *db.Database
-	navyDB      *db.NavyDatabase
 	controllers map[string]*Controller
 	mu          sync.RWMutex
 	stopCh      chan struct{}
@@ -30,10 +29,9 @@ type Manager struct {
 }
 
 // NewManager 创建节点同步管理器
-func NewManager(mainDB *db.Database, navyDB *db.NavyDatabase) *Manager {
+func NewManager(mainDB *db.Database) *Manager {
 	return &Manager{
 		mainDB:      mainDB,
-		navyDB:      navyDB,
 		controllers: make(map[string]*Controller),
 		stopCh:      make(chan struct{}),
 	}
@@ -114,7 +112,7 @@ func (m *Manager) startController(ctx context.Context, cluster *models.Cluster) 
 		delete(m.controllers, cluster.Name)
 	}
 
-	ctrl, err := NewController(cluster, m.navyDB)
+	ctrl, err := NewController(cluster, m.mainDB)
 	if err != nil {
 		return err
 	}

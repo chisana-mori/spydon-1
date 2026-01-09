@@ -16,12 +16,12 @@ import (
 
 // NavyDeviceService Navy 设备管理服务
 type NavyDeviceService struct {
-	db              *db.NavyDatabase
+	db              *db.Database
 	nodesyncManager *nodesync.Manager
 }
 
 // NewNavyDeviceService 创建 Navy 设备管理服务
-func NewNavyDeviceService(db *db.NavyDatabase, nodesyncManager *nodesync.Manager) *NavyDeviceService {
+func NewNavyDeviceService(db *db.Database, nodesyncManager *nodesync.Manager) *NavyDeviceService {
 	return &NavyDeviceService{
 		db:              db,
 		nodesyncManager: nodesyncManager,

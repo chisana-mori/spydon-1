@@ -22,13 +22,13 @@ import (
 // Controller 单集群节点同步控制器
 type Controller struct {
 	clusterName string
-	navyDB      *db.NavyDatabase
+	database    *db.Database
 	mgr         manager.Manager
 	cancel      context.CancelFunc
 }
 
 // NewController 创建集群控制器
-func NewController(cluster *models.Cluster, navyDB *db.NavyDatabase) (*Controller, error) {
+func NewController(cluster *models.Cluster, database *db.Database) (*Controller, error) {
 	// 从 KubeConfig 创建 REST 配置
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(cluster.Config))
 	if err != nil {
@@ -53,7 +53,7 @@ func NewController(cluster *models.Cluster, navyDB *db.NavyDatabase) (*Controlle
 
 	return &Controller{
 		clusterName: cluster.Name,
-		navyDB:      navyDB,
+		database:    database,
 		mgr:         mgr,
 	}, nil
 }
@@ -63,7 +63,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	// 注册 Node reconciler
 	reconciler := &NodeReconciler{
 		clusterName: c.clusterName,
-		navyDB:      c.navyDB,
+		database:    c.database,
 		client:      c.mgr.GetClient(),
 	}
 
