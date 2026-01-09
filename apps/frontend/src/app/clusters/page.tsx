@@ -96,6 +96,7 @@ export default function Clusters() {
   const [editingCluster, setEditingCluster] = useState<Cluster | null>(null)
   const [nodesSheetOpen, setNodesSheetOpen] = useState(false)
   const [selectedClusterForNodes, setSelectedClusterForNodes] = useState<Cluster | null>(null)
+  const [selectedNodeType, setSelectedNodeType] = useState<'master' | 'etcd' | 'event' | 'all'>('all')
   const [deletingCluster, setDeletingCluster] = useState<Cluster | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [inventoryCluster, setInventoryCluster] = useState<Cluster | null>(null)
@@ -323,6 +324,7 @@ export default function Clusters() {
                           ips={cluster.master_ips}
                           onClick={() => {
                             setSelectedClusterForNodes(cluster);
+                            setSelectedNodeType('master');
                             setNodesSheetOpen(true);
                           }}
                         />
@@ -332,6 +334,7 @@ export default function Clusters() {
                           ips={cluster.etcd_ips}
                           onClick={() => {
                             setSelectedClusterForNodes(cluster);
+                            setSelectedNodeType('etcd');
                             setNodesSheetOpen(true);
                           }}
                         />
@@ -341,6 +344,7 @@ export default function Clusters() {
                           ips={cluster.etcd_event_ips}
                           onClick={() => {
                             setSelectedClusterForNodes(cluster);
+                            setSelectedNodeType('event');
                             setNodesSheetOpen(true);
                           }}
                         />
@@ -486,6 +490,7 @@ export default function Clusters() {
         open={nodesSheetOpen}
         onOpenChange={setNodesSheetOpen}
         cluster={selectedClusterForNodes}
+        nodeType={selectedNodeType}
       />
     </div>
   )

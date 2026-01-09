@@ -13,13 +13,16 @@ import { toast } from 'sonner'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
+type NodeType = 'master' | 'etcd' | 'event' | 'all'
+
 interface ClusterNodesSheetProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     cluster: Cluster | null
+    nodeType?: NodeType // 控制显示哪种类型的节点，默认为 'all'
 }
 
-export function ClusterNodesSheet({ open, onOpenChange, cluster }: ClusterNodesSheetProps) {
+export function ClusterNodesSheet({ open, onOpenChange, cluster, nodeType = 'all' }: ClusterNodesSheetProps) {
     if (!cluster) return null
 
     const copyToClipboard = (text: string) => {
@@ -118,37 +121,83 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster }: ClusterNodesS
         )
     }
 
+    // 根据 nodeType 获取标题文字
+    const getSheetTitle = () => {
+        switch (nodeType) {
+            case 'master': return 'Master 节点'
+            case 'etcd': return 'Etcd 节点'
+            case 'event': return 'Etcd Event 节点'
+            default: return '节点详情'
+        }
+    }
+
+    const getSheetDescription = () => {
+        switch (nodeType) {
+            case 'master': return `查看 ${cluster.name} 的 Master 控制平面节点列表。`
+            case 'etcd': return `查看 ${cluster.name} 的 Etcd 存储节点列表。`
+            case 'event': return `查看 ${cluster.name} 的 Etcd Event 节点列表。`
+            default: return `查看 ${cluster.name} 的 Master、Etcd 和 Etcd Event 节点列表。`
+        }
+    }
+
+    // 根据 nodeType 获取对应的样式配置
+    const getHeaderStyle = () => {
+        switch (nodeType) {
+            case 'master': return SECTION_STYLES.master
+            case 'etcd': return SECTION_STYLES.etcd
+            case 'event': return SECTION_STYLES.event
+            default: return { color: 'text-indigo-500', bg: 'bg-indigo-500/10', icon: Server }
+        }
+    }
+
+    const headerStyle = getHeaderStyle()
+    const HeaderIcon = headerStyle.icon || Server
+
+    // 判断当前类型是否有节点数据
+    const hasNodesForCurrentType = () => {
+        if (nodeType === 'all') {
+            return cluster.master_ips?.length || cluster.etcd_ips?.length || cluster.etcd_event_ips?.length
+        }
+        switch (nodeType) {
+            case 'master': return cluster.master_ips?.length
+            case 'etcd': return cluster.etcd_ips?.length
+            case 'event': return cluster.etcd_event_ips?.length
+            default: return false
+        }
+    }
+
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent className="w-[400px] sm:w-[540px] flex flex-col h-full bg-background/95 backdrop-blur-sm border-l shadow-2xl">
                 <SheetHeader className="pb-6 border-b z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                     <SheetTitle className="flex items-center gap-3 text-xl">
-                        <div className="p-2.5 bg-indigo-500/10 rounded-xl ring-1 ring-indigo-500/20 text-indigo-500">
-                            <Server className="h-5 w-5" />
+                        <div className={cn("p-2.5 rounded-xl ring-1 ring-inset", headerStyle.bg, `ring-${headerStyle.color.replace('text-', '')}/20`, headerStyle.color)}>
+                            <HeaderIcon className="h-5 w-5" />
                         </div>
-                        节点详情
+                        {getSheetTitle()}
                     </SheetTitle>
                     <SheetDescription>
-                        查看 {cluster.name} 的 Master、Etcd 和 Etcd Event 节点列表。
+                        {getSheetDescription()}
                     </SheetDescription>
                 </SheetHeader>
 
                 <ScrollArea className="flex-1 -mx-6 px-6">
                     <div className="py-6 space-y-8">
-                        {!cluster.master_ips?.length && !cluster.etcd_ips?.length && !cluster.etcd_event_ips?.length && (
+                        {!hasNodesForCurrentType() && (
                             <div className="text-center py-10 text-muted-foreground">
                                 <Server className="h-10 w-10 mx-auto mb-3 opacity-20" />
                                 <p>暂无节点信息</p>
                             </div>
                         )}
 
-                        {renderNodeSection('Master 节点', cluster.master_ips, 'master')}
-                        {(cluster.master_ips?.length && (cluster.etcd_ips?.length || cluster.etcd_event_ips?.length)) ? <Separator /> : null}
+                        {/* 根据 nodeType 显示对应的节点列表 */}
+                        {(nodeType === 'all' || nodeType === 'master') && renderNodeSection('Master 节点', cluster.master_ips, 'master')}
+                        {nodeType === 'all' && (cluster.master_ips?.length && (cluster.etcd_ips?.length || cluster.etcd_event_ips?.length)) ? <Separator /> : null}
 
-                        {renderNodeSection('Etcd 节点', cluster.etcd_ips, 'etcd')}
-                        {((cluster.etcd_ips?.length || cluster.master_ips?.length) && cluster.etcd_event_ips?.length) ? <Separator /> : null}
+                        {(nodeType === 'all' || nodeType === 'etcd') && renderNodeSection('Etcd 节点', cluster.etcd_ips, 'etcd')}
+                        {nodeType === 'all' && ((cluster.etcd_ips?.length || cluster.master_ips?.length) && cluster.etcd_event_ips?.length) ? <Separator /> : null}
 
-                        {renderNodeSection('Etcd Event 节点', cluster.etcd_event_ips, 'event')}
+                        {(nodeType === 'all' || nodeType === 'event') && renderNodeSection('Etcd Event 节点', cluster.etcd_event_ips, 'event')}
                     </div>
                 </ScrollArea>
             </SheetContent>

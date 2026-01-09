@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"robusta-web/backend/internal/config"
@@ -186,9 +187,11 @@ func (s *DeviceOperationsService) DrainNodes(ctx context.Context, ciCodes []stri
 			defer wg.Done()
 
 			// 调用 SimpleDrainService
+			// K8s 集群中 nodename 都是小写的，需要将 CICode 转换为小写
+			nodeName := strings.ToLower(device.CICode)
 			resp, err := s.safeDrainService.StartDrain(ctx, &SimpleDrainRequest{
 				ClusterName: device.Cluster,
-				NodeName:    device.CICode,
+				NodeName:    nodeName,
 				Force:       opts.Force,
 				DryRun:      false,
 			})
@@ -440,7 +443,9 @@ func (s *DeviceOperationsService) executeNodeOperation(
 
 			// 执行每个节点的操作
 			for _, d := range deviceList {
-				opErr := fn(k8sClient, d.CICode) // 使用 ci_code 作为节点名
+				// K8s 集群中 nodename 都是小写的，需要将 CICode 转换为小写
+				nodeName := strings.ToLower(d.CICode)
+				opErr := fn(k8sClient, nodeName) // 使用小写的 ci_code 作为节点名
 				mu.Lock()
 				if opErr != nil {
 					result.Results = append(result.Results, NodeOperationResult{
