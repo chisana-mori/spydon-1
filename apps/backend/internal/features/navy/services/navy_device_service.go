@@ -98,6 +98,9 @@ func (s *NavyDeviceService) ListDevices(ctx context.Context, query *DeviceQuery)
 	if size <= 0 {
 		size = 10
 	}
+	if size > 100 {
+		size = 100
+	}
 	offset := (page - 1) * size
 
 	if err := db.Offset(offset).Limit(size).Find(&models).Error; err != nil {
@@ -174,6 +177,9 @@ func (s *NavyDeviceService) QueryDevices(ctx context.Context, req *NavyDeviceQue
 	size := req.Size
 	if size <= 0 {
 		size = 10
+	}
+	if size > 100 {
+		size = 100
 	}
 	offset := (page - 1) * size
 

@@ -2,14 +2,14 @@
 # 使用 buildx 进行多架构构建
 
 # ============== 阶段 1: 基础依赖层 ==============
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS base
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS base
 
 # 可配置的 Go 代理 (国内可设置为 https://goproxy.cn,direct)
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 
 WORKDIR /app
-RUN apk add --no-cache git ca-certificates tzdata curl
+# Go 编译不需要额外安装包，golang 基础镜像已包含必要工具
 
 # ============== 阶段 2: 依赖下载 ==============
 FROM base AS deps
@@ -55,22 +55,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ============== 阶段 4: 运行阶段 ==============
 FROM alpine:3.20 AS runtime
 
-# 安装运行时依赖
-RUN apk --no-cache add ca-certificates tzdata curl && \
-    addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup && \
-    rm -rf /var/cache/apk/*
-
 # 设置时区
 ENV TZ=UTC
 
-# 创建配置目录 (用于 ConfigMap 挂载)
-RUN mkdir -p /app/config && \
+# 创建用户和组（无需网络）
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup && \
+    mkdir -p /app/config && \
     chown -R appuser:appgroup /app
-
-# 复制 CA 证书和时区信息
-COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=base /usr/share/zoneinfo /usr/share/zoneinfo
 
 # 复制构建产物
 COPY --from=builder /app/main /app/main
@@ -93,10 +85,6 @@ WORKDIR /app
 ENV CONFIG_FILE=/app/config/config.yaml
 ENV ENVIRONMENT=production
 ENV GIN_MODE=release
-
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
 
 # 暴露端口
 EXPOSE 8080

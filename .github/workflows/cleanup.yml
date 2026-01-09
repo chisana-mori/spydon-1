@@ -1,0 +1,42 @@
+# Cleanup old Docker images from GitHub Container Registry
+name: Cleanup Old Images
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  cleanup-images:
+    name: Cleanup Old Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Delete old backend images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: '${{ github.repository }}/backend'
+          package-type: 'container'
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: 'false'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete old frontend images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: '${{ github.repository }}/frontend'
+          package-type: 'container'
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: 'false'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "🧹 Cleanup completed"
+          echo "Kept the 10 most recent versions of each image"

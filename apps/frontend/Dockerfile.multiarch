@@ -1,5 +1,6 @@
 # 多阶段构建：前端 Dockerfile (支持 amd64/arm64)
 # 使用 buildx 进行多架构构建
+# 优化：所有网络操作在 BUILDPLATFORM 上执行，避免 QEMU 模拟时的网络问题
 
 # ============== 阶段 1: 基础依赖层 ==============
 FROM --platform=$BUILDPLATFORM node:24-alpine AS base
@@ -8,7 +9,7 @@ FROM --platform=$BUILDPLATFORM node:24-alpine AS base
 ARG NPM_REGISTRY=https://registry.npmjs.org
 
 WORKDIR /app
-# 安装依赖工具和 bun
+# 安装依赖工具和 bun（在构建平台上执行）
 RUN apk add --no-cache libc6-compat bash curl && \
     npm install -g bun && \
     npm config set registry ${NPM_REGISTRY}
@@ -31,6 +32,8 @@ FROM base AS builder
 # 继承 NPM 镜像源配置
 ARG NPM_REGISTRY=https://registry.npmjs.org
 RUN npm config set registry ${NPM_REGISTRY}
+
+
 
 # 构建参数
 ARG VERSION=dev
@@ -64,11 +67,14 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun run build
 
 # ============== 阶段 4: 运行阶段 ==============
+# 注意：这个阶段会在目标平台上运行，避免在这里执行网络操作
 FROM node:24-alpine AS runtime
 
-# 安装运行时工具
-RUN apk add --no-cache curl bash && \
-    addgroup -g 1001 -S nodejs && \
+# 设置时区（不需要网络）
+ENV TZ=UTC
+
+# 创建用户和组（不需要网络）
+RUN addgroup -g 1001 -S nodejs && \
     adduser -u 1001 -S nextjs -G nodejs
 
 WORKDIR /app
@@ -99,9 +105,9 @@ ENV HOSTNAME=0.0.0.0
 # 运行时配置路径 (支持 ConfigMap 挂载)
 ENV RUNTIME_CONFIG_PATH=/app/config/runtime.json
 
-# 健康检查
+# 健康检查 - 使用 wget 替代 curl（Alpine 自带 wget）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
 # 暴露端口
 EXPOSE 3000

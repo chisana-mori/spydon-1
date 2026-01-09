@@ -34,6 +34,13 @@ import {
     PaginationNext,
     PaginationPrevious,
 } from "@/components/ui/pagination"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 type QueryMode = 'simple' | 'advanced' | 'template'
 
@@ -74,7 +81,7 @@ function DevicesContent() {
 
     // 分页状态
     const [page, setPage] = useState(1)
-    const [pageSize] = useState(20)
+    const [pageSize, setPageSize] = useState(20)
 
     // 选中设备（单个详情）
     const [selectedDevice, setSelectedDevice] = useState<NavyDevice | null>(null)
@@ -96,12 +103,12 @@ function DevicesContent() {
     })
 
     // 高级查询
-    const advancedQueryMutation = useMutation({
+    const { mutate: queryDevices, data: advancedQueryData, isPending: isAdvancedQueryLoading } = useMutation({
         mutationFn: (req: NavyDeviceQueryRequest) => RobustaAPI.queryNavyDevices(req),
     })
 
     // 执行高级查询
-    const executeAdvancedQuery = useCallback(() => {
+    const executeAdvancedQuery = useCallback((isSilent = false) => {
         // 过滤激活的组和块
         const activeGroups = queryState.advancedGroups
             .map(group => ({
@@ -111,16 +118,18 @@ function DevicesContent() {
             .filter(group => group.blocks.length > 0)
 
         if (activeGroups.length === 0) {
-            toast.error('请至少添加一个有效的筛选条件')
+            if (!isSilent) {
+                toast.error('请至少添加一个有效的筛选条件')
+            }
             return
         }
 
-        advancedQueryMutation.mutate({
+        queryDevices({
             groups: activeGroups,
             page,
             size: pageSize,
         })
-    }, [queryState.advancedGroups, page, pageSize, advancedQueryMutation])
+    }, [queryState.advancedGroups, page, pageSize, queryDevices])
 
     // 加载模板并执行查询
     const loadAndExecuteTemplate = useCallback(async (templateId: number) => {
@@ -139,8 +148,9 @@ function DevicesContent() {
                 advancedSourceTemplateId: template.id,
                 advancedSourceTemplateName: template.name,
             }))
-            // 自动执行查询
-            advancedQueryMutation.mutate({
+
+            // 模板加载后直接执行查询
+            queryDevices({
                 groups: activeGroups,
                 page,
                 size: pageSize,
@@ -148,7 +158,7 @@ function DevicesContent() {
         } catch (err) {
             toast.error('加载模板失败')
         }
-    }, [page, pageSize, advancedQueryMutation])
+    }, [page, pageSize, queryDevices])
 
     // 处理简单搜索
     const handleSimpleSearch = useCallback((keyword: string) => {
@@ -167,6 +177,17 @@ function DevicesContent() {
         setPage(1)
     }, [])
 
+    // 监听分页变化，自动执行高级查询（仅在已经在展示数据的情况下）
+    // 注意：这里去掉了 mode 和 queryState 的依赖，防止循环触发
+    // 以及避免切换 Tab 时自动触发查询（切换 Tab 应由用户手动点击查询，除非是分页翻页）
+    useEffect(() => {
+        if (queryState.mode === 'advanced') {
+            // 只有当有数据时（意味着已经执行过查询），才会在分页变化时自动刷新
+            // 或者通过 silent 模式尝试刷新，如果条件不满足则忽略
+            executeAdvancedQuery(true)
+        }
+    }, [page, pageSize, executeAdvancedQuery, queryState.mode])
+
     // 处理设备选择
     const handleDeviceSelect = useCallback((device: NavyDevice) => {
         setSelectedDevice(device)
@@ -178,7 +199,7 @@ function DevicesContent() {
         if (queryState.mode === 'simple') {
             simpleQuery.refetch()
         } else {
-            executeAdvancedQuery()
+            executeAdvancedQuery(false)
         }
     }, [queryState.mode, simpleQuery, executeAdvancedQuery])
 
@@ -197,9 +218,9 @@ function DevicesContent() {
             }
         } else {
             return {
-                data: advancedQueryMutation.data?.data || [],
-                total: advancedQueryMutation.data?.pagination?.total || 0,
-                isLoading: advancedQueryMutation.isPending,
+                data: advancedQueryData?.data || [],
+                total: advancedQueryData?.pagination?.total || 0,
+                isLoading: isAdvancedQueryLoading,
             }
         }
     }
@@ -420,8 +441,8 @@ function DevicesContent() {
                     <AdvancedQueryPanel
                         groups={queryState.advancedGroups}
                         onChange={handleAdvancedGroupsChange}
-                        onExecute={executeAdvancedQuery}
-                        isLoading={advancedQueryMutation.isPending}
+                        onExecute={() => executeAdvancedQuery(false)}
+                        isLoading={isAdvancedQueryLoading}
                         sourceTemplateId={queryState.advancedSourceTemplateId}
                         sourceTemplateName={queryState.advancedSourceTemplateName}
                     />
@@ -445,7 +466,7 @@ function DevicesContent() {
                             }))
                             // 切换到高级模式并执行
                             handleModeChange('advanced')
-                            advancedQueryMutation.mutate({
+                            queryDevices({
                                 groups: activeGroups,
                                 page: 1,
                                 size: pageSize,
@@ -466,7 +487,7 @@ function DevicesContent() {
             {/* 设备列表 */}
             <DeviceDataTable
                 devices={processedDevices}
-                isLoading={isLoading || advancedQueryMutation.isPending}
+                isLoading={isLoading || isAdvancedQueryLoading}
                 onSelect={handleDeviceSelect}
                 selectedId={selectedDevice?.id}
                 onRefresh={handleRefresh}
@@ -477,9 +498,33 @@ function DevicesContent() {
             {/* 分页 */}
             {total > 0 && (
                 <div className="flex items-center justify-between py-4">
-                    <p className="text-sm text-muted-foreground">
-                        共 {total} 条记录
-                    </p>
+                    <div className="flex items-center gap-6">
+                        <p className="text-sm text-muted-foreground">
+                            共 {total} 条记录
+                        </p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span>每页</span>
+                            <Select
+                                value={pageSize.toString()}
+                                onValueChange={(value) => {
+                                    setPageSize(Number(value))
+                                    setPage(1)
+                                }}
+                            >
+                                <SelectTrigger className="h-8 w-[80px]">
+                                    <SelectValue placeholder={pageSize.toString()} />
+                                </SelectTrigger>
+                                <SelectContent side="top">
+                                    {[10, 20, 50, 100].map((size) => (
+                                        <SelectItem key={size} value={size.toString()}>
+                                            {size}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <span>条</span>
+                        </div>
+                    </div>
                     <Pagination className="w-auto mx-0">
                         <PaginationContent>
                             <PaginationItem>

@@ -1,58 +1,111 @@
+# Spydon GitHub Actions CI Pipeline
+# 职责：代码验证、测试、构建镜像
+# 部署由 ArgoCD 负责（GitOps 模式）
+
 name: CI Pipeline
 
 on:
-  push:
-    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE_NAME: ${{ github.repository }}/backend
-  FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
+  BACKEND_IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/backend
+  FRONTEND_IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/frontend
 
 jobs:
-  # 代码质量检查
-  quality-check:
-    name: Code Quality Check
+  # 1. 代码质量检查
+  pre-commit:
+    name: Pre-commit Checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pre-commit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files
+
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-          cache: true
+          cache-dependency-path: apps/backend/go.sum
 
-      - name: Setup Node.js
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: v1.54.2
+          working-directory: apps/backend
+          args: --timeout=5m
+
+  frontend-lint:
+    name: Frontend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: apps/frontend/package-lock.json
 
-      - name: Run backend linting
-        run: |
-          cd apps/backend
-          go fmt ./...
-          go vet ./...
-          if command -v golangci-lint &> /dev/null; then
-            golangci-lint run
-          fi
+      - name: Install dependencies
+        working-directory: apps/frontend
+        run: npm ci
 
-      - name: Run frontend linting
-        run: |
-          cd apps/frontend
-          npm ci
-          npm run lint
-          npm run type-check
+      - name: Run lint
+        working-directory: apps/frontend
+        run: npm run lint
 
-  # 安全扫描
+      - name: Type check
+        working-directory: apps/frontend
+        run: npm run type-check
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-lint-artifacts
+          path: apps/frontend/coverage/
+          retention-days: 7
+
+  # 2. 安全扫描
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    needs: [backend-lint, frontend-lint]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -63,17 +116,43 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-repo.sarif'
 
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v2
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: 'trivy-repo.sarif'
 
-  # 后端单元测试
-  backend-tests:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/frontend
+        run: npm ci
+
+      - name: Run npm audit
+        working-directory: apps/frontend
+        run: npm audit --audit-level moderate || true
+        continue-on-error: true
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-results
+          path: trivy-repo.sarif
+          retention-days: 7
+
+  # 3. 后端单元测试
+  backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    needs: backend-lint
     services:
       postgres:
         image: postgres:15-alpine
@@ -103,73 +182,96 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: '1.23'
-          cache: true
+          cache-dependency-path: apps/backend/go.sum
 
       - name: Install dependencies
-        run: |
-          cd apps/backend
-          go mod download
+        working-directory: apps/backend
+        run: go mod download
 
       - name: Run unit tests
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db?sslmode=disable
           REDIS_URL: redis://localhost:6379
+        working-directory: apps/backend
         run: |
-          cd apps/backend
-          go test -v -race -coverprofile=coverage.out ./...
+          echo "🧪 Running backend tests..."
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test.log
+          go tool cover -html=coverage.out -o coverage.html
+          echo "Coverage:"
+          go tool cover -func=coverage.out
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: |
+            apps/backend/coverage.out
+            apps/backend/coverage.html
+            apps/backend/test.log
+          retention-days: 7
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           file: apps/backend/coverage.out
           flags: backend
+          token: ${{ secrets.CODECOV_TOKEN }}
 
-  # 前端单元测试
-  frontend-tests:
+  # 4. 前端单元测试
+  frontend-test:
     name: Frontend Tests
     runs-on: ubuntu-latest
+    needs: frontend-lint
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           cache-dependency-path: apps/frontend/package-lock.json
 
       - name: Install dependencies
-        run: |
-          cd apps/frontend
-          npm ci
+        working-directory: apps/frontend
+        run: npm ci
 
       - name: Run tests
+        working-directory: apps/frontend
         run: |
-          cd apps/frontend
+          echo "🧪 Running frontend tests..."
           npm run test:coverage
 
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: apps/frontend/coverage/
+          retention-days: 7
+
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           file: apps/frontend/coverage/lcov.info
           flags: frontend
+          token: ${{ secrets.CODECOV_TOKEN }}
 
-  # 构建 Docker 镜像
-  build-images:
-    name: Build Docker Images
+  # 5. 构建 Docker 镜像
+  build-backend-image:
+    name: Build Backend Image
     runs-on: ubuntu-latest
-    needs: [quality-check, security-scan, backend-tests, frontend-tests]
-    if: github.event_name == 'push'
+    needs: [backend-test, frontend-test, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     outputs:
-      backend-image: ${{ steps.backend-meta.outputs.tags }}
-      frontend-image: ${{ steps.frontend-meta.outputs.tags }}
-      backend-digest: ${{ steps.backend-build.outputs.digest }}
-      frontend-digest: ${{ steps.frontend-build.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -184,237 +286,239 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract backend metadata
-        id: backend-meta
+      - name: Extract metadata
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
+          images: ${{ env.BACKEND_IMAGE }}
           tags: |
+            type=sha,format=long
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push backend image
-        id: backend-build
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: apps/backend
+          file: apps/backend/Dockerfile.optimized
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.backend-meta.outputs.tags }}
-          labels: ${{ steps.backend-meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Extract frontend metadata
-        id: frontend-meta
+      - name: Run Trivy vulnerability scanner on image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          format: 'json'
+          output: 'backend-trivy.json'
+          exit-code: '0'
+
+      - name: Upload Trivy scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-trivy-results
+          path: backend-trivy.json
+          retention-days: 7
+
+  build-frontend-image:
+    name: Build Frontend Image
+    runs-on: ubuntu-latest
+    needs: [frontend-test, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+          images: ${{ env.FRONTEND_IMAGE }}
           tags: |
+            type=sha,format=long
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push frontend image
-        id: frontend-build
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: apps/frontend
+          file: apps/frontend/Dockerfile.optimized
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.frontend-meta.outputs.tags }}
-          labels: ${{ steps.frontend-meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # 端到端测试
-  e2e-tests:
-    name: End-to-End Tests
-    runs-on: ubuntu-latest
-    needs: build-images
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Run Trivy vulnerability scanner on image
+        uses: aquasecurity/trivy-action@master
         with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: apps/frontend/package-lock.json
+          image-ref: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+          format: 'json'
+          output: 'frontend-trivy.json'
+          exit-code: '0'
 
-      - name: Start test environment
-        run: |
-          # 创建测试环境的 Docker Compose 文件
-          cat > docker-compose.test.yml << EOF
-          version: '3.8'
-          services:
-            postgres:
-              image: postgres:15-alpine
-              environment:
-                POSTGRES_DB: test_db
-                POSTGRES_USER: postgres
-                POSTGRES_PASSWORD: postgres
-              ports:
-                - "5432:5432"
-              healthcheck:
-                test: ["CMD-SHELL", "pg_isready -U postgres"]
-                interval: 10s
-                timeout: 5s
-                retries: 5
-
-            redis:
-              image: redis:7-alpine
-              ports:
-                - "6379:6379"
-              healthcheck:
-                test: ["CMD", "redis-cli", "ping"]
-                interval: 10s
-                timeout: 3s
-                retries: 3
-
-            backend:
-              image: ${{ needs.build-images.outputs.backend-image }}
-              environment:
-                DATABASE_URL: postgres://postgres:postgres@postgres:5432/test_db?sslmode=disable
-                REDIS_URL: redis://redis:6379
-                ENVIRONMENT: test
-              ports:
-                - "8080:8080"
-              depends_on:
-                postgres:
-                  condition: service_healthy
-                redis:
-                  condition: service_healthy
-              healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-
-            frontend:
-              image: ${{ needs.build-images.outputs.frontend-image }}
-              environment:
-                NEXT_PUBLIC_API_URL: http://localhost:8080
-              ports:
-                - "3000:3000"
-              depends_on:
-                backend:
-                  condition: service_healthy
-          EOF
-
-          # 启动测试环境
-          docker compose -f docker-compose.test.yml up -d
-
-          # 等待服务启动
-          timeout 300 bash -c 'until curl -f http://localhost:8080/health && curl -f http://localhost:3000; do sleep 5; done'
-
-      - name: Install Playwright
-        run: |
-          cd apps/frontend
-          npm ci
-          npx playwright install --with-deps
-
-      - name: Run E2E tests
-        run: |
-          cd apps/frontend
-          npx playwright test
-
-      - name: Upload E2E test results
-        uses: actions/upload-artifact@v3
-        if: failure()
+      - name: Upload Trivy scan results
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: playwright-report
-          path: apps/frontend/playwright-report/
+          name: frontend-trivy-results
+          path: frontend-trivy.json
           retention-days: 7
 
-      - name: Cleanup test environment
-        if: always()
-        run: |
-          docker compose -f docker-compose.test.yml down -v
-          docker system prune -f
-
-  # 部署到预览环境 (PR)
-  deploy-preview:
-    name: Deploy Preview Environment
+  # 6. 打包 Helm Chart
+  package-chart:
+    name: Package Helm Chart
     runs-on: ubuntu-latest
-    needs: build-images
-    if: github.event_name == 'pull_request'
-    environment:
-      name: preview-pr-${{ github.event.number }}
-      url: https://spydon-preview-${{ github.event.number }}.example.com
+    needs: [build-backend-image, build-frontend-image]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/')
+    outputs:
+      chart-version: ${{ steps.package.outputs.chart-version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Install Helm
+        uses: azure/setup-helm@v4
         with:
-          version: 'v1.28.0'
+          version: '3.14.4'
 
-      - name: Configure kubectl
+      - name: Install yq
         run: |
-          echo "${{ secrets.KUBE_CONFIG_PREVIEW }}" | base64 -d > kubeconfig
-          export KUBECONFIG=kubeconfig
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
-      - name: Deploy preview environment
+      - name: Package Helm Chart
+        id: package
         run: |
-          export KUBECONFIG=kubeconfig
+          echo "📦 Packaging Helm Chart..."
 
-          # 创建预览环境的命名空间
-          kubectl create namespace preview-pr-${{ github.event.number }} --dry-run=client -o yaml | kubectl apply -f -
+          # 设置版本号
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            CHART_VERSION="${{ github.ref_name }}"
+          else
+            CHART_VERSION="0.1.0-${{ github.sha }}"
+          fi
+          APP_VERSION="${{ github.sha }}"
 
-          # 使用 Helm 部署预览环境
-          helm upgrade --install preview-pr-${{ github.event.number }} \
-            ./infrastructure/helm/spydon \
-            --namespace preview-pr-${{ github.event.number }} \
-            --set environment=preview \
-            --set backend.image.repository=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }} \
-            --set backend.image.tag=${{ github.sha }} \
-            --set frontend.image.repository=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }} \
-            --set frontend.image.tag=${{ github.sha }} \
-            --set ingress.host=spydon-preview-${{ github.event.number }}.example.com \
-            --wait \
-            --timeout=10m
+          echo "chart-version=${CHART_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Wait for deployment
-        run: |
-          export KUBECONFIG=kubeconfig
-          kubectl wait --for=condition=available --timeout=300s deployment/robusta-backend -n preview-pr-${{ github.event.number }}
-          kubectl wait --for=condition=available --timeout=300s deployment/robusta-frontend -n preview-pr-${{ github.event.number }}
+          # 创建 Chart 目录
+          mkdir -p helm-package
+          cp -r infrastructure/k8s/helm/spydon helm-package/
 
-      - name: Run smoke tests
-        run: |
-          # 等待 Ingress 生效
-          timeout 300 bash -c 'until curl -f https://spydon-preview-${{ github.event.number }}.example.com/health; do sleep 5; done'
+          cd helm-package/spydon
 
-  # 更新 GitOps 仓库 (main 分支)
-  update-gitops:
-    name: Update GitOps Repository
-    runs-on: ubuntu-latest
-    needs: [build-images, e2e-tests]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout GitOps repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ secrets.GITOPS_REPO }}
-          token: ${{ secrets.GITOPS_TOKEN }}
-          path: gitops
-
-      - name: Update manifests
-        run: |
-          cd gitops
+          # 更新 Chart.yaml
+          yq eval ".version = \"${CHART_VERSION}\"" -i Chart.yaml
+          yq eval ".appVersion = \"${APP_VERSION}\"" -i Chart.yaml
 
           # 更新镜像标签
-          sed -i "s|image: .*backend:.*|image: ${{ needs.build-images.outputs.backend-image }}|g" environments/staging/backend.yaml
-          sed -i "s|image: .*frontend:.*|image: ${{ needs.build-images.outputs.frontend-image }}|g" environments/staging/frontend.yaml
+          yq eval ".backend.image.tag = \"${{ github.sha }}\"" -i values.yaml
+          yq eval ".frontend.image.tag = \"${{ github.sha }}\"" -i values.yaml
+          yq eval ".backend.image.repository = \"${{ env.BACKEND_IMAGE }}\"" -i values.yaml
+          yq eval ".frontend.image.repository = \"${{ env.FRONTEND_IMAGE }}\"" -i values.yaml
 
-          # 提交更改
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .
-          git diff --staged --quiet || git commit -m "Update images to ${{ github.sha }}"
-          git push
+          # 打包 Chart
+          cd ..
+          helm package spydon
+          helm repo index . --url "https://github.com/${{ github.repository }}/releases/download"
+
+          echo "✅ Helm Chart packaged successfully"
+          echo "Chart Version: ${CHART_VERSION}"
+          echo "App Version: ${APP_VERSION}"
+          ls -lh *.tgz
+
+      - name: Upload Helm Chart
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-${{ github.sha }}
+          path: |
+            helm-package/*.tgz
+            helm-package/index.yaml
+          retention-days: 30
+
+  # 7. 发布 Helm Chart 到 Harbor
+  publish-chart:
+    name: Publish Helm Chart
+    runs-on: ubuntu-latest
+    needs: package-chart
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download Helm Chart
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart-${{ github.sha }}
+          path: helm-package
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.14.4'
+
+      - name: Publish to Harbor
+        env:
+          HARBOR_REGISTRY: ${{ secrets.HARBOR_REGISTRY }}
+          HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          echo "📤 Publishing Helm Chart to Harbor..."
+
+          CHART_VERSION="${{ needs.package-chart.outputs.chart-version }}"
+          CHART_FILE="helm-package/spydon-${CHART_VERSION}.tgz"
+
+          if [ ! -f "$CHART_FILE" ]; then
+            echo "Error: Chart file not found: $CHART_FILE"
+            exit 1
+          fi
+
+          if [ -z "$HARBOR_REGISTRY" ] || [ -z "$HARBOR_PROJECT" ]; then
+            echo "Warning: Harbor credentials not configured, skipping publish"
+            exit 0
+          fi
+
+          helm registry login "$HARBOR_REGISTRY" -u "$HARBOR_USERNAME" -p "$HARBOR_PASSWORD"
+          helm push "$CHART_FILE" "oci://$HARBOR_REGISTRY/$HARBOR_PROJECT"
+
+          echo "✅ Helm Chart pushed to Harbor: oci://$HARBOR_REGISTRY/$HARBOR_PROJECT (version: $CHART_VERSION)"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: helm-package/*.tgz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS `spydon_refresh_tokens` (
     `expires_at` DATETIME(3) NOT NULL COMMENT '过期时间',
     UNIQUE INDEX `idx_spydon_refresh_tokens_token` (`token`),
     INDEX `idx_spydon_refresh_tokens_user_id` (`user_id`),
-    INDEX `idx_spydon_refresh_tokens_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_refresh_tokens_deleted_at` (`deleted_at`),
+    INDEX `idx_refresh_tokens_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户刷新令牌表';
 
 
@@ -88,7 +89,8 @@ CREATE TABLE IF NOT EXISTS `spydon_api_keys` (
     `permissions`  VARCHAR(32) DEFAULT 'read' COMMENT '权限范围 (read/write/admin)',
     UNIQUE INDEX `idx_spydon_api_keys_key` (`key`),
     INDEX `idx_spydon_api_keys_user_id` (`user_id`),
-    INDEX `idx_spydon_api_keys_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_api_keys_deleted_at` (`deleted_at`),
+    INDEX `idx_api_keys_key_prefix` (`key_prefix`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='API密钥表';
 
 
@@ -281,7 +283,7 @@ CREATE TABLE IF NOT EXISTS `spydon_stage_runs` (
     `stage_name`     VARCHAR(255) COMMENT '阶段名称',
     `stage_type`     VARCHAR(32) COMMENT '阶段类型 (awx_job/manual_gate/...)',
     `status`         VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT '阶段状态',
-    `awx_job_id`     INT COMMENT '关联的AWX Job ID',
+    `awx_job_id`     BIGINT COMMENT '关联的AWX Job ID',
     `awx_job_status` VARCHAR(32) COMMENT 'AWX Job 状态',
     `output`         JSON COMMENT '阶段输出/结果',
     `error_message`  TEXT COMMENT '错误信息',
@@ -289,8 +291,50 @@ CREATE TABLE IF NOT EXISTS `spydon_stage_runs` (
     `completed_at`   DATETIME(3) NULL COMMENT '完成时间',
     `approved_by`    BIGINT UNSIGNED COMMENT '审批人ID',
     `approval_notes` TEXT COMMENT '审批备注',
-    INDEX `idx_spydon_sr_execution_id` (`execution_id`)
+    INDEX `idx_spydon_sr_execution_id` (`execution_id`),
+    INDEX `idx_stage_runs_execution_id` (`execution_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='流水线阶段执行记录表';
 
 
-ALTER TABLE device ADD COLUMN k8s_status VARCHAR(50) DEFAULT '';
+-- -----------------------------------------------------------------------------
+-- 表: spydon_dictionaries
+-- 说明: 数据字典表，管理系统的数据字典定义
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `spydon_dictionaries` (
+    `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID，唯一标识一个数据字典',
+    `created_at`      DATETIME(3) DEFAULT NULL COMMENT '创建时间，精确到毫秒',
+    `updated_at`      DATETIME(3) DEFAULT NULL COMMENT '最后更新时间，精确到毫秒',
+    `deleted_at`      DATETIME(3) DEFAULT NULL COMMENT '软删除时间，精确到毫秒',
+    `code`            VARCHAR(100) NOT NULL COMMENT '字典编码，唯一标识字典，如alarm_status',
+    `name`            VARCHAR(255) NOT NULL COMMENT '字典名称，如告警状态',
+    `module`          VARCHAR(100) DEFAULT NULL COMMENT '所属模块，如alarm、system等',
+    `description`     TEXT COMMENT '字典描述，说明字典用途和取值范围',
+    `is_enabled`      TINYINT(1) DEFAULT '1' COMMENT '是否启用，1表示启用，0表示禁用',
+    `key_same_as_value` TINYINT(1) DEFAULT NULL COMMENT '键值是否相同，1表示相同，0表示不同',
+    `sort_order`      BIGINT DEFAULT '0' COMMENT '排序序号，用于字典列表排序',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_spydon_dictionaries_code` (`code`) COMMENT '字典编码唯一索引',
+    KEY `idx_spydon_dictionaries_deleted_at` (`deleted_at`) COMMENT '软删除索引'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据字典表';
+
+-- -----------------------------------------------------------------------------
+-- 表: spydon_dictionary_items
+-- 说明: 数据字典项表，管理数据字典的具体条目
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `spydon_dictionary_items` (
+    `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID，唯一标识一个字典项',
+    `created_at`     DATETIME(3) DEFAULT NULL COMMENT '创建时间，精确到毫秒',
+    `updated_at`     DATETIME(3) DEFAULT NULL COMMENT '最后更新时间，精确到毫秒',
+    `deleted_at`     DATETIME(3) DEFAULT NULL COMMENT '软删除时间，精确到毫秒',
+    `dictionary_id`  BIGINT UNSIGNED NOT NULL COMMENT '所属字典ID，关联spydon_dictionaries表',
+    `key`            VARCHAR(255) NOT NULL COMMENT '字典项键，字典项的标识符',
+    `value`          VARCHAR(255) NOT NULL COMMENT '字典项值，字典项的显示文本',
+    `description`    TEXT COMMENT '字典项描述，说明该项的含义和用途',
+    `is_default`     TINYINT(1) DEFAULT '0' COMMENT '是否为默认值，1表示是，0表示否',
+    `is_enabled`     TINYINT(1) DEFAULT '1' COMMENT '是否启用，1表示启用，0表示禁用',
+    `sort_order`     BIGINT DEFAULT '0' COMMENT '排序序号，用于字典项列表排序',
+    `extra`          TEXT COMMENT '扩展字段，存储额外的配置信息',
+    PRIMARY KEY (`id`),
+    KEY `idx_spydon_dictionary_items_deleted_at` (`deleted_at`) COMMENT '软删除索引',
+    KEY `idx_spydon_dictionary_items_dictionary_id` (`dictionary_id`) COMMENT '字典ID索引，用于查询某个字典的所有项'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据字典项表';

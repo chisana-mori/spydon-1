@@ -34,7 +34,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { createTaint, updateTaint, TaintManagement } from '@/lib/api/configuration';
-import { useDictionary } from '@/hooks/useDictionary';
+import { DictionarySelect } from '@/components/common/DictionarySelect';
+import { DictionaryCodeBadge } from '@/components/common/DictionaryCodeBadge';
+import { useDictionaryPreload } from '@/hooks/useDictionaryPreload';
 
 const formSchema = z.object({
     key: z.string().min(1, 'Key不能为空'),
@@ -61,7 +63,8 @@ const EFFECT_OPTIONS = [
 
 export function TaintSheet({ open, onOpenChange, taint }: TaintSheetProps) {
     const queryClient = useQueryClient();
-    const { items: statusItems } = useDictionary('taint_status');
+    // Preload required dictionaries
+    useDictionaryPreload(['taint_type', 'taint_status']);
 
     const form = useForm<FormValues>({
         resolver: zodResolver(formSchema) as any,
@@ -202,9 +205,17 @@ export function TaintSheet({ open, onOpenChange, taint }: TaintSheetProps) {
                             name="type"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>分类类型</FormLabel>
+                                    <FormLabel className="flex items-center gap-2">
+                                        分类类型
+                                        <DictionaryCodeBadge code="taint_type" />
+                                    </FormLabel>
                                     <FormControl>
-                                        <Input {...field} placeholder="例如：系统污点/硬件污点" />
+                                        <DictionarySelect
+                                            code="taint_type"
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                            placeholder="选择分类"
+                                        />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -216,24 +227,18 @@ export function TaintSheet({ open, onOpenChange, taint }: TaintSheetProps) {
                             name="status"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>状态</FormLabel>
-                                    <Select
-                                        onValueChange={(val) => field.onChange(Number(val))}
-                                        value={field.value?.toString()}
-                                    >
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="选择状态" />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                            {statusItems.map(item => (
-                                                <SelectItem key={item.key} value={item.key.toString()}>
-                                                    {item.value}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <FormLabel className="flex items-center gap-2">
+                                        状态
+                                        <DictionaryCodeBadge code="taint_status" />
+                                    </FormLabel>
+                                    <FormControl>
+                                        <DictionarySelect
+                                            code="taint_status"
+                                            value={field.value?.toString()}
+                                            onValueChange={(val) => field.onChange(Number(val))}
+                                            placeholder="选择状态"
+                                        />
+                                    </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}

@@ -33,7 +33,9 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { createLabel, updateLabel, LabelManagement } from '@/lib/api/configuration';
-import { useDictionary } from '@/hooks/useDictionary';
+import { DictionarySelect } from '@/components/common/DictionarySelect';
+import { DictionaryCodeBadge } from '@/components/common/DictionaryCodeBadge';
+import { useDictionaryPreload } from '@/hooks/useDictionaryPreload';
 
 const formSchema = z.object({
     name: z.string().min(1, '名称不能为空'),
@@ -53,8 +55,8 @@ interface LabelSheetProps {
 
 export function LabelSheet({ open, onOpenChange, label }: LabelSheetProps) {
     const queryClient = useQueryClient();
-    const { items: sourceItems } = useDictionary('label_source');
-    const { items: statusItems } = useDictionary('label_status');
+    // Preload required dictionaries
+    useDictionaryPreload(['label_source', 'label_status']);
 
     const form = useForm<FormValues>({
         resolver: zodResolver(formSchema) as any,
@@ -234,24 +236,18 @@ export function LabelSheet({ open, onOpenChange, label }: LabelSheetProps) {
                                 name="source"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>来源</FormLabel>
-                                        <Select
-                                            onValueChange={(val) => field.onChange(Number(val))}
-                                            value={field.value?.toString()}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="选择来源" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                                {sourceItems.map(item => (
-                                                    <SelectItem key={item.key} value={item.key.toString()}>
-                                                        {item.value}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <FormLabel className="flex items-center gap-2">
+                                            来源
+                                            <DictionaryCodeBadge code="label_source" />
+                                        </FormLabel>
+                                        <FormControl>
+                                            <DictionarySelect
+                                                code="label_source"
+                                                value={field.value?.toString()}
+                                                onValueChange={(val) => field.onChange(Number(val))}
+                                                placeholder="选择来源"
+                                            />
+                                        </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
@@ -262,24 +258,18 @@ export function LabelSheet({ open, onOpenChange, label }: LabelSheetProps) {
                                 name="status"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>状态</FormLabel>
-                                        <Select
-                                            onValueChange={(val) => field.onChange(Number(val))}
-                                            value={field.value?.toString()}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="选择状态" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                                {statusItems.map(item => (
-                                                    <SelectItem key={item.key} value={item.key.toString()}>
-                                                        {item.value}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <FormLabel className="flex items-center gap-2">
+                                            状态
+                                            <DictionaryCodeBadge code="label_status" />
+                                        </FormLabel>
+                                        <FormControl>
+                                            <DictionarySelect
+                                                code="label_status"
+                                                value={field.value?.toString()}
+                                                onValueChange={(val) => field.onChange(Number(val))}
+                                                placeholder="选择状态"
+                                            />
+                                        </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
