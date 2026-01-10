@@ -33,6 +33,7 @@ import {
   Wrench,
   Settings2,
   Database,
+  Share2,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { toast } from 'sonner'
@@ -101,9 +102,22 @@ const navigation: NavigationItem[] = [
   },
   {
     name: '集群管理',
-    href: '/clusters',
     icon: Server,
-    description: '集群状态',
+    description: '集群状态管理',
+    children: [
+      {
+        name: '集群列表',
+        href: '/clusters',
+        icon: Server,
+        description: '集群基础信息',
+      },
+      {
+        name: 'Calico 网络',
+        href: '/calico',
+        icon: Share2,
+        description: 'Calico 网络监控',
+      },
+    ],
   },
   {
     name: '设备管理',

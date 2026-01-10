@@ -9,8 +9,10 @@ import (
 	"robusta-web/backend/internal/models"
 	"robusta-web/backend/pkg/logger"
 
+	calicov3 "github.com/projectcalico/api/pkg/apis/projectcalico/v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -18,6 +20,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
+
+// Scheme 包含 core 和 Calico CRD 类型
+var Scheme = runtime.NewScheme()
+
+func init() {
+	_ = corev1.AddToScheme(Scheme)
+	_ = calicov3.AddToScheme(Scheme)
+}
 
 // Controller 单集群节点同步控制器
 type Controller struct {
@@ -37,6 +47,7 @@ func NewController(cluster *models.Cluster, database *db.Database) (*Controller,
 
 	// 创建 controller-runtime manager
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+		Scheme: Scheme, // 使用包含 Calico CRD 的 Scheme
 		// 只 watch Node 资源，减少内存占用
 		Cache: cache.Options{
 			DefaultNamespaces: map[string]cache.Config{},

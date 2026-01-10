@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,27 +58,45 @@ import { parseDictionaryValues } from '@/lib/api/dictionaries'
 
 // Helper component for Node Count Button
 // Helper component for Node Count Button
-const NodeCountButton = ({
-  ips,
+const CombinedNodeButton = ({
+  masterCount,
+  etcdCount,
+  eventCount,
   onClick
 }: {
-  ips?: string[]
+  masterCount: number
+  etcdCount: number
+  eventCount: number
   onClick: () => void
 }) => {
-  if (!ips || ips.length === 0) return <span className="text-muted-foreground/40 text-xs font-mono">-</span>;
+  if (masterCount === 0 && etcdCount === 0 && eventCount === 0) {
+    return <span className="text-muted-foreground/40 text-xs font-mono">-</span>;
+  }
 
   return (
     <Button
       variant="outline"
       size="sm"
-      className="h-6 px-2 text-xs font-medium text-muted-foreground hover:text-primary hover:bg-primary/5 hover:border-primary/30 transition-all rounded-md gap-1.5"
+      className="h-7 px-2 text-xs font-medium hover:bg-muted/50 transition-all rounded-md gap-2"
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
     >
-      <div className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-pulse" />
-      {ips.length} 节点
+      <div className="flex items-center gap-1">
+        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+        <span className={cn(masterCount === 0 && "text-muted-foreground/50")}>{masterCount}</span>
+      </div>
+      <div className="w-px h-3 bg-border" />
+      <div className="flex items-center gap-1">
+        <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+        <span className={cn(etcdCount === 0 && "text-muted-foreground/50")}>{etcdCount}</span>
+      </div>
+      <div className="w-px h-3 bg-border" />
+      <div className="flex items-center gap-1">
+        <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+        <span className={cn(eventCount === 0 && "text-muted-foreground/50")}>{eventCount}</span>
+      </div>
     </Button>
   );
 };
@@ -96,7 +115,6 @@ export default function Clusters() {
   const [editingCluster, setEditingCluster] = useState<Cluster | null>(null)
   const [nodesSheetOpen, setNodesSheetOpen] = useState(false)
   const [selectedClusterForNodes, setSelectedClusterForNodes] = useState<Cluster | null>(null)
-  const [selectedNodeType, setSelectedNodeType] = useState<'master' | 'etcd' | 'event' | 'all'>('all')
   const [deletingCluster, setDeletingCluster] = useState<Cluster | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [inventoryCluster, setInventoryCluster] = useState<Cluster | null>(null)
@@ -261,9 +279,7 @@ export default function Clusters() {
                 <TableHead>名称/ID</TableHead>
                 <TableHead>用途</TableHead>
                 <TableHead>版本</TableHead>
-                <TableHead>Master</TableHead>
-                <TableHead>Etcd</TableHead>
-                <TableHead>Etcd Event</TableHead>
+                <TableHead>控制节点</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
@@ -320,31 +336,12 @@ export default function Clusters() {
                         </Badge>
                       </TableCell>
                       <TableCell className="align-top">
-                        <NodeCountButton
-                          ips={cluster.master_ips}
+                        <CombinedNodeButton
+                          masterCount={cluster.master_ips?.length || 0}
+                          etcdCount={cluster.etcd_ips?.length || 0}
+                          eventCount={cluster.etcd_event_ips?.length || 0}
                           onClick={() => {
                             setSelectedClusterForNodes(cluster);
-                            setSelectedNodeType('master');
-                            setNodesSheetOpen(true);
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <NodeCountButton
-                          ips={cluster.etcd_ips}
-                          onClick={() => {
-                            setSelectedClusterForNodes(cluster);
-                            setSelectedNodeType('etcd');
-                            setNodesSheetOpen(true);
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <NodeCountButton
-                          ips={cluster.etcd_event_ips}
-                          onClick={() => {
-                            setSelectedClusterForNodes(cluster);
-                            setSelectedNodeType('event');
                             setNodesSheetOpen(true);
                           }}
                         />
@@ -490,7 +487,6 @@ export default function Clusters() {
         open={nodesSheetOpen}
         onOpenChange={setNodesSheetOpen}
         cluster={selectedClusterForNodes}
-        nodeType={selectedNodeType}
       />
     </div>
   )

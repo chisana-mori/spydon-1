@@ -326,3 +326,15 @@ func (m *Manager) ListDeployments(clusterName string, namespace string) ([]appsv
 
 	return deployList.Items, nil
 }
+
+// GetManagedClusters 获取当前管理的所有活跃集群名称列表
+func (m *Manager) GetManagedClusters() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	clusters := make([]string, 0, len(m.controllers))
+	for name := range m.controllers {
+		clusters = append(clusters, name)
+	}
+	return clusters
+}

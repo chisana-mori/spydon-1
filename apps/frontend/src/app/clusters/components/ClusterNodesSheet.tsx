@@ -10,19 +10,14 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Copy, Server, HardDrive, Activity, Network } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
-
-type NodeType = 'master' | 'etcd' | 'event' | 'all'
-
 interface ClusterNodesSheetProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     cluster: Cluster | null
-    nodeType?: NodeType // 控制显示哪种类型的节点，默认为 'all'
 }
 
-export function ClusterNodesSheet({ open, onOpenChange, cluster, nodeType = 'all' }: ClusterNodesSheetProps) {
+export function ClusterNodesSheet({ open, onOpenChange, cluster }: ClusterNodesSheetProps) {
     if (!cluster) return null
 
     const copyToClipboard = (text: string) => {
@@ -83,10 +78,12 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster, nodeType = 'all
                     {ips.map((ip, index) => (
                         <div
                             key={ip}
+                            onClick={() => copyToClipboard(ip)}
                             className={cn(
-                                "group relative flex items-center justify-between p-3 rounded-xl border",
-                                "bg-card/50 hover:bg-accent hover:text-accent-foreground transition-all duration-200"
+                                "group relative flex items-center justify-between p-3 rounded-xl border cursor-pointer",
+                                "bg-card/50 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 hover:border-blue-200 dark:hover:border-blue-800 transition-all duration-200"
                             )}
+                            title="点击复制 IP"
                         >
                             <div className="flex items-center gap-4">
                                 {/* Semantic Icon Container */}
@@ -105,15 +102,18 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster, nodeType = 'all
                                 </div>
                             </div>
 
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted transition-all opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0"
-                                onClick={() => copyToClipboard(ip)}
-                                title="复制 IP"
-                            >
-                                <Copy className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center">
+                                <span className="opacity-0 group-hover:opacity-100 text-[10px] text-blue-500 font-medium mr-2 transition-opacity">
+                                    点击复制
+                                </span>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-blue-500 hover:bg-blue-100/50 dark:hover:bg-blue-900/50 transition-all"
+                                >
+                                    <Copy className="h-4 w-4" />
+                                </Button>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -121,83 +121,61 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster, nodeType = 'all
         )
     }
 
-    // 根据 nodeType 获取标题文字
-    const getSheetTitle = () => {
-        switch (nodeType) {
-            case 'master': return 'Master 节点'
-            case 'etcd': return 'Etcd 节点'
-            case 'event': return 'Etcd Event 节点'
-            default: return '节点详情'
-        }
-    }
-
-    const getSheetDescription = () => {
-        switch (nodeType) {
-            case 'master': return `查看 ${cluster.name} 的 Master 控制平面节点列表。`
-            case 'etcd': return `查看 ${cluster.name} 的 Etcd 存储节点列表。`
-            case 'event': return `查看 ${cluster.name} 的 Etcd Event 节点列表。`
-            default: return `查看 ${cluster.name} 的 Master、Etcd 和 Etcd Event 节点列表。`
-        }
-    }
-
-    // 根据 nodeType 获取对应的样式配置
-    const getHeaderStyle = () => {
-        switch (nodeType) {
-            case 'master': return SECTION_STYLES.master
-            case 'etcd': return SECTION_STYLES.etcd
-            case 'event': return SECTION_STYLES.event
-            default: return { color: 'text-indigo-500', bg: 'bg-indigo-500/10', icon: Server }
-        }
-    }
-
-    const headerStyle = getHeaderStyle()
-    const HeaderIcon = headerStyle.icon || Server
-
-    // 判断当前类型是否有节点数据
-    const hasNodesForCurrentType = () => {
-        if (nodeType === 'all') {
-            return cluster.master_ips?.length || cluster.etcd_ips?.length || cluster.etcd_event_ips?.length
-        }
-        switch (nodeType) {
-            case 'master': return cluster.master_ips?.length
-            case 'etcd': return cluster.etcd_ips?.length
-            case 'event': return cluster.etcd_event_ips?.length
-            default: return false
-        }
-    }
-
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="w-[400px] sm:w-[540px] flex flex-col h-full bg-background/95 backdrop-blur-sm border-l shadow-2xl">
+            <SheetContent className="w-full sm:max-w-[1200px] sm:w-[1200px] flex flex-col h-full bg-background/95 backdrop-blur-sm border-l shadow-2xl">
                 <SheetHeader className="pb-6 border-b z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                     <SheetTitle className="flex items-center gap-3 text-xl">
-                        <div className={cn("p-2.5 rounded-xl ring-1 ring-inset", headerStyle.bg, `ring-${headerStyle.color.replace('text-', '')}/20`, headerStyle.color)}>
-                            <HeaderIcon className="h-5 w-5" />
+                        <div className="p-2.5 bg-indigo-500/10 rounded-xl ring-1 ring-indigo-500/20 text-indigo-500">
+                            <Server className="h-5 w-5" />
                         </div>
-                        {getSheetTitle()}
+                        节点详情
                     </SheetTitle>
                     <SheetDescription>
-                        {getSheetDescription()}
+                        查看 {cluster.name} 的 Master、Etcd 和 Etcd Event 节点列表。
                     </SheetDescription>
                 </SheetHeader>
 
                 <ScrollArea className="flex-1 -mx-6 px-6">
-                    <div className="py-6 space-y-8">
-                        {!hasNodesForCurrentType() && (
+                    <div className="py-6">
+                        {!cluster.master_ips?.length && !cluster.etcd_ips?.length && !cluster.etcd_event_ips?.length && (
                             <div className="text-center py-10 text-muted-foreground">
                                 <Server className="h-10 w-10 mx-auto mb-3 opacity-20" />
                                 <p>暂无节点信息</p>
                             </div>
                         )}
 
-                        {/* 根据 nodeType 显示对应的节点列表 */}
-                        {(nodeType === 'all' || nodeType === 'master') && renderNodeSection('Master 节点', cluster.master_ips, 'master')}
-                        {nodeType === 'all' && (cluster.master_ips?.length && (cluster.etcd_ips?.length || cluster.etcd_event_ips?.length)) ? <Separator /> : null}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* Master 节点列 */}
+                            <div className="space-y-4">
+                                {renderNodeSection('Master 节点', cluster.master_ips, 'master')}
+                                {!cluster.master_ips?.length && (
+                                    <div className="h-full border rounded-xl border-dashed flex items-center justify-center min-h-[100px] bg-muted/30">
+                                        <span className="text-xs text-muted-foreground">无 Master 节点数据</span>
+                                    </div>
+                                )}
+                            </div>
 
-                        {(nodeType === 'all' || nodeType === 'etcd') && renderNodeSection('Etcd 节点', cluster.etcd_ips, 'etcd')}
-                        {nodeType === 'all' && ((cluster.etcd_ips?.length || cluster.master_ips?.length) && cluster.etcd_event_ips?.length) ? <Separator /> : null}
+                            {/* Etcd 节点列 */}
+                            <div className="space-y-4">
+                                {renderNodeSection('Etcd 节点', cluster.etcd_ips, 'etcd')}
+                                {!cluster.etcd_ips?.length && (
+                                    <div className="h-full border rounded-xl border-dashed flex items-center justify-center min-h-[100px] bg-muted/30">
+                                        <span className="text-xs text-muted-foreground">无 Etcd 节点数据</span>
+                                    </div>
+                                )}
+                            </div>
 
-                        {(nodeType === 'all' || nodeType === 'event') && renderNodeSection('Etcd Event 节点', cluster.etcd_event_ips, 'event')}
+                            {/* Etcd Event 节点列 */}
+                            <div className="space-y-4">
+                                {renderNodeSection('Etcd Event 节点', cluster.etcd_event_ips, 'event')}
+                                {!cluster.etcd_event_ips?.length && (
+                                    <div className="h-full border rounded-xl border-dashed flex items-center justify-center min-h-[100px] bg-muted/30">
+                                        <span className="text-xs text-muted-foreground">无 Event 节点数据</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </ScrollArea>
             </SheetContent>

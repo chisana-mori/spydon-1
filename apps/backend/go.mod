@@ -12,6 +12,7 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/imroc/req v0.3.2
 	github.com/minio/minio-go/v7 v7.0.67
+	github.com/projectcalico/api v0.0.0-20250916150628-d4009e4d7c50
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.11.1
@@ -62,6 +63,7 @@ require (
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
+	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/josharian/intern v1.0.0 // indirect

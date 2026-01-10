@@ -14,6 +14,7 @@ import (
 	apikeyhttp "robusta-web/backend/internal/features/apikey/transport/http"
 	authservice "robusta-web/backend/internal/features/auth/services"
 	authhttp "robusta-web/backend/internal/features/auth/transport/http"
+	calicohttp "robusta-web/backend/internal/features/calico/transport/http"
 	configurationhttp "robusta-web/backend/internal/features/configuration/transport/http"
 	healthhttp "robusta-web/backend/internal/features/health/transport/http"
 	holmesservice "robusta-web/backend/internal/features/holmes/services"
@@ -39,6 +40,7 @@ import (
 	userservice "robusta-web/backend/internal/features/user/services"
 	userhttp "robusta-web/backend/internal/features/user/transport/http"
 	"robusta-web/backend/internal/middleware"
+	"robusta-web/backend/internal/pkg/calico"
 	"robusta-web/backend/internal/pkg/nodesync"
 	"robusta-web/backend/pkg/logger"
 	"robusta-web/backend/pkg/redis"
@@ -246,6 +248,11 @@ func SetupRoutes(
 	// ----- Notification (邮件通知) -----
 	notificationHandler := buildNotificationHandler(database, cfg, nodesyncManager)
 	notificationHandler.RegisterRoutes(v1)
+
+	// ----- Calico (网络概览) -----
+	calicoSvc := calico.NewService(nodesyncManager)
+	calicoHandler := calicohttp.NewHandler(calicoSvc, nodesyncManager)
+	calicoHandler.RegisterRoutes(v1)
 
 	// =========================================================================
 	// 6. 返回后台服务

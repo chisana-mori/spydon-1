@@ -50,12 +50,15 @@ var/             # 工具/缓存（如 Go modules）
 - **目录约定**：业务功能放 `apps/frontend/src/features`；通用 UI 放 `src/components` / `src/components/ui`。
 - **组件体量**：超大组件请拆分（UI/数据/状态/副作用分离），避免单文件承担多职责。
 
-## 4. UI / 设计规则（精简版）
+## 4. UI / 设计规则（强制执行）
 
-1. **页面容器宽度**：高层 page wrapper 不要随意加 `container` / `mx-auto` / `max-w-*`，避免与侧边栏对齐漂移。
-2. **页面主标题（h1）**：统一 `text-2xl font-bold`。
-3. **标题图标**：主标题前放语义化 icon，并使用一致的容器样式（示例见旧实现/现有页面）。
-4. **颜色与主题**：不要硬编码 hex；遵循语义化颜色与暗黑模式规则。
+1.  **页面容器与边距**：高层 page wrapper **严禁**使用 `container` / `mx-auto` / `max-w-*`，也**禁止**自定义 `margin-left`。
+    *   **原因**：防止内容区与侧边栏（Sidebar）对齐错位。
+    *   **规范**：完全依赖 `AppShell` 的统一 padding。直接使用 `<div className="space-y-6">` 作为根节点。
+2.  **页面主标题（h1）**：必须统一使用 `text-2xl font-bold`。
+    *   **禁止**：使用 `text-3xl` 或自定义大小，确保与“设备管理”等核心页面一致。
+3.  **标题图标**：主标题前放语义化 icon，建议使用统一的容器样式（如 `bg-primary/10` 圆角容器）。
+4.  **颜色与主题**：禁止硬编码 Hex 颜色；严格遵循 `docs/notes/frontend-design.mdc` 定义的语义化颜色与 opacity 规则。
 
 > 颜色与语义的**单一事实来源**：`docs/notes/frontend-design.mdc`（不要在本文件复制整套表格）。
 

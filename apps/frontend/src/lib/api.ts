@@ -45,6 +45,7 @@ import type {
     SendEmailRequest,
     AffectedResource,
 } from '@/types/email'
+import type { OverviewResponse, ClusterDetailResponse } from '@/types/calico'
 
 // 获取 API Base URL
 function getApiBaseUrl(): string {
@@ -586,6 +587,15 @@ export class RobustaAPI {
         const params: Record<string, any> = { cluster: clusterName }
         if (nodes && nodes.length > 0) params.nodes = nodes.join(',')
         return handleResponse(apiClient.get('/email/affected-resources', { params }))
+    }
+
+    // ============ Calico Network Observability ============
+    static async getCalicoOverview(): Promise<OverviewResponse> {
+        return handleResponse(apiClient.get('/calico/overview'))
+    }
+
+    static async getCalicoClusterDetail(clusterName: string): Promise<ClusterDetailResponse> {
+        return handleResponse(apiClient.get(`/calico/clusters/${clusterName}`))
     }
 
 }
