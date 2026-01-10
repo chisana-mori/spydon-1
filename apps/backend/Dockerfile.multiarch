@@ -5,17 +5,19 @@
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS base
 
 # 可配置的 Go 代理 (国内可设置为 https://goproxy.cn,direct)
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 
 WORKDIR /app
-# Go 编译不需要额外安装包，golang 基础镜像已包含必要工具
+
+# 安装 git（某些 Go 模块需要）
+RUN apk add --no-cache git ca-certificates
 
 # ============== 阶段 2: 依赖下载 ==============
 FROM base AS deps
 
 # 继承 GOPROXY 配置
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 
 COPY go.mod go.sum ./
@@ -31,7 +33,7 @@ ARG TARGETOS
 ARG TARGETARCH
 
 # 继承 GOPROXY 配置
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 
 # 构建元信息

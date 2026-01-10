@@ -47,7 +47,7 @@ func (m *Manager) syncCluster(ctx context.Context, clusterName string) error {
 
 	// 获取 Cluster ID
 	var cluster models.Cluster
-	if err := m.mainDB.Where("name = ?", clusterName).First(&cluster).Error; err != nil {
+	if err := m.mainDB.Where("clustername = ?", clusterName).First(&cluster).Error; err != nil {
 		return fmt.Errorf("查询集群信息失败: %w", err)
 	}
 

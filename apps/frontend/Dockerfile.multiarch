@@ -33,8 +33,6 @@ FROM base AS builder
 ARG NPM_REGISTRY=https://registry.npmjs.org
 RUN npm config set registry ${NPM_REGISTRY}
 
-
-
 # 构建参数
 ARG VERSION=dev
 ARG COMMIT_SHA=unknown
@@ -67,14 +65,15 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun run build
 
 # ============== 阶段 4: 运行阶段 ==============
-# 注意：这个阶段会在目标平台上运行，避免在这里执行网络操作
+# 注意：这个阶段会在目标平台上运行
 FROM node:24-alpine AS runtime
 
-# 设置时区（不需要网络）
+# 设置时区
 ENV TZ=UTC
 
-# 创建用户和组（不需要网络）
-RUN addgroup -g 1001 -S nodejs && \
+# 安装运行时工具（bash 用于 entrypoint.sh）并创建用户
+RUN apk add --no-cache bash && \
+    addgroup -g 1001 -S nodejs && \
     adduser -u 1001 -S nextjs -G nodejs
 
 WORKDIR /app
@@ -92,7 +91,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/config/runtime.json /app/config/runtime.json
 
 # 复制启动脚本
-COPY --chown=nextjs:nodejs docker/entrypoint.sh /app/entrypoint.sh
+COPY --from=builder --chown=nextjs:nodejs /app/docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # 切换到非 root 用户

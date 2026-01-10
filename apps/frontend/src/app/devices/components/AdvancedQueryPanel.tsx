@@ -34,6 +34,19 @@ import {
     CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command"
+import {
     Plus,
     Trash2,
     Play,
@@ -46,6 +59,7 @@ import {
     AlertTriangle,
     Server,
     Layers,
+    Check,
 } from 'lucide-react'
 import RobustaAPI from '@/lib/api'
 import {
@@ -480,6 +494,7 @@ function FilterBlockRow({
 }: FilterBlockRowProps) {
     const [fieldValues, setFieldValues] = useState<string[]>([])
     const [loadingValues, setLoadingValues] = useState(false)
+    const [open, setOpen] = useState(false)
 
     // 获取可用的条件类型
     const availableConditions = getConditionTypesForFilterType(block.type)
@@ -561,33 +576,59 @@ function FilterBlockRow({
             />
 
             {/* 键选择 - 合并类型图标和字段选择为一个彩色 Tag Trigger */}
-            <Select
-                value={block.key}
-                onValueChange={(v) => onUpdate({ key: v, value: '' })}
-            >
-                <SelectTrigger
-                    className={cn(
-                        "flex-1 min-w-[240px] h-8 border-0 rounded-full font-medium transition-colors ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                        block.type === 'device' && "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/60",
-                        block.type === 'nodeLabel' && "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60",
-                        block.type === 'taint' && "bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:hover:bg-orange-900/60"
-                    )}
-                >
-                    <div className="flex items-center gap-1.5 mr-1 overflow-hidden">
-                        {getTypeIcon()}
-                        <SelectValue placeholder="选择字段" className="truncate" />
-                    </div>
-                </SelectTrigger>
-                <SelectContent>
-                    <ScrollArea className="h-[200px]">
-                        {getKeyOptions().map(opt => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </SelectItem>
-                        ))}
-                    </ScrollArea>
-                </SelectContent>
-            </Select>
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        role="combobox"
+                        aria-expanded={open}
+                        className={cn(
+                            "flex-1 min-w-[240px] justify-between h-8 border-0 rounded-full font-medium transition-colors ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                            block.type === 'device' && "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/60",
+                            block.type === 'nodeLabel' && "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60",
+                            block.type === 'taint' && "bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:hover:bg-orange-900/60"
+                        )}
+                    >
+                        <div className="flex items-center gap-1.5 mr-1 overflow-hidden">
+                            {getTypeIcon()}
+                            <span className="truncate">
+                                {block.key
+                                    ? getKeyOptions().find((opt) => opt.value === block.key)?.label || block.key
+                                    : "选择字段"}
+                            </span>
+                        </div>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                        <CommandInput placeholder="搜索字段..." />
+                        <CommandList>
+                            <CommandEmpty>未找到字段</CommandEmpty>
+                            <CommandGroup>
+                                {getKeyOptions().map((opt) => (
+                                    <CommandItem
+                                        key={opt.value}
+                                        value={opt.label}
+                                        onSelect={() => {
+                                            onUpdate({ key: opt.value, value: '' })
+                                            setOpen(false)
+                                        }}
+                                    >
+                                        <Check
+                                            className={cn(
+                                                "mr-2 h-4 w-4",
+                                                block.key === opt.value ? "opacity-100" : "opacity-0"
+                                            )}
+                                        />
+                                        {opt.label}
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        </CommandList>
+                    </Command>
+                </PopoverContent>
+            </Popover>
 
             {/* 条件类型 - 仿照参考图样式 */}
             <Select

@@ -31,7 +31,7 @@ type Cluster struct {
 	ID            uint             `json:"id" gorm:"primaryKey;autoIncrement"`
 	CreatedAt     time.Time        `json:"created_at"`
 	UpdatedAt     time.Time        `json:"updated_at"`
-	Name          string           `json:"name" gorm:"type:varchar(100);uniqueIndex;not null"`
+	Name          string           `json:"name" gorm:"type:varchar(100);uniqueIndex;not null;column:clustername"`
 	Description   string           `json:"description" gorm:"type:text"`
 	Config        KiteSecretString `json:"config" gorm:"type:text;column:config"` // KubeConfig - 自动加密
 	PrometheusURL string           `json:"prometheus_url" gorm:"type:varchar(255)"`
@@ -48,7 +48,7 @@ type Cluster struct {
 	ClusterVersion string   `json:"cluster_version" gorm:"default:'';size:128;column:cluster_version"`
 	Idc            string   `json:"idc" gorm:"default:'';size:36;column:idc"`   // gl ft wg qf
 	Zone           string   `json:"zone" gorm:"default:'';size:36;column:zone"` // egt
-	KubeConfig     string   `json:"kube_config" gorm:"default:'';size:1024;column:kube_config"`
+	KubeConfig     string   `json:"kube_config" gorm:"default:'';size:1024;column:kubeconfig"`
 	Updator        string   `json:"updator" gorm:"default:'';size:128;column:updater"`
 	FlowType       string   `json:"flow_type" gorm:"default:'';size:255"`
 	ClusterGroup   string   `json:"cluster_group" gorm:"default:'';size:128"` // 同IDC中上的集群分组信息

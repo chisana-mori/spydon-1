@@ -130,14 +130,23 @@ func (app *Application) initDatabase() error {
 	}
 	app.database = database
 
-	// 运行自动迁移
-	if err := database.AutoMigrate(); err != nil {
-		return fmt.Errorf("数据库自动迁移失败: %w", err)
-	}
+	// 只有 production 环境才执行自动迁移和创建索引
+	if app.cfg.Environment != "production" {
+		// 运行自动迁移
+		if err := database.AutoMigrate(); err != nil {
+			return fmt.Errorf("数据库自动迁移失败: %w", err)
+		}
 
-	// 创建索引
-	if err := database.CreateIndexes(); err != nil {
-		return fmt.Errorf("创建数据库索引失败: %w", err)
+		// 创建索引
+		if err := database.CreateIndexes(); err != nil {
+			return fmt.Errorf("创建数据库索引失败: %w", err)
+		}
+
+		logger.L().Info("数据库迁移和索引创建完成", zap.String("environment", app.cfg.Environment))
+	} else {
+		logger.L().Info("跳过自动迁移和索引创建（非 production 环境）",
+			zap.String("environment", app.cfg.Environment),
+			zap.String("hint", "请手动执行数据库迁移"))
 	}
 
 	return nil

@@ -56,7 +56,7 @@ type NodeLabelTaintResponse struct {
 // getClusterIDByName 通过集群名称获取集群 ID
 func (s *K8sNodeManageService) getClusterIDByName(ctx context.Context, clusterName string) (uint, error) {
 	var cluster models.Cluster
-	if err := s.mainDB.WithContext(ctx).Where("name = ?", clusterName).First(&cluster).Error; err != nil {
+	if err := s.mainDB.WithContext(ctx).Where("clustername = ?", clusterName).First(&cluster).Error; err != nil {
 		return 0, fmt.Errorf("集群 %s 不存在: %w", clusterName, err)
 	}
 	return cluster.ID, nil

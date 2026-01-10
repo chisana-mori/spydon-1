@@ -10,6 +10,7 @@ import (
 	"robusta-web/backend/internal/constants"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 // HolmesGPTConfig HolmesGPT 相关配置
@@ -123,6 +124,87 @@ func GetViper() *viper.Viper {
 	return globalViper
 }
 
+// diagnoseConfigError 诊断配置文件解析错误，提供详细的错误信息
+func diagnoseConfigError(configFile string, originalErr error) error {
+	// 尝试读取配置文件内容
+	content, readErr := os.ReadFile(configFile)
+	if readErr != nil {
+		return fmt.Errorf("读取配置文件失败: %w (无法读取文件内容进行诊断: %w)", originalErr, readErr)
+	}
+
+	// 使用 yaml.v3 解析以获取更详细的错误信息
+	var testMap map[string]interface{}
+	if yamlErr := yaml.Unmarshal(content, &testMap); yamlErr != nil {
+		// 提取 yaml.v3 的错误详情（通常包含行号和列号）
+		lines := strings.Split(string(content), "\n")
+		preview := buildErrorPreview(lines, yamlErr)
+
+		return fmt.Errorf(`YAML 配置文件解析失败
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+配置文件: %s
+文件大小: %d 字节
+总行数:   %d
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+解析错误: %w
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+%s
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+常见原因:
+  1. 冒号后缺少空格 (错误: key:value → 正确: key: value)
+  2. 缩进使用了 Tab 而非空格
+  3. 值包含特殊字符(:、#、{、}等)未加引号
+  4. 多行字符串格式不正确
+  5. ConfigMap 挂载时内容被截断
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+			configFile, len(content), len(lines), yamlErr, preview)
+	}
+
+	// yaml.v3 解析成功但 viper 失败，返回原始错误
+	return fmt.Errorf("读取配置文件失败: %w (YAML 语法验证通过，可能是类型不匹配)", originalErr)
+}
+
+// buildErrorPreview 构建错误位置的预览
+func buildErrorPreview(lines []string, yamlErr error) string {
+	errMsg := yamlErr.Error()
+	var sb strings.Builder
+
+	// 尝试从 yaml 错误中提取行号 (格式通常是 "yaml: line N: ...")
+	lineNum := 0
+	if _, scanErr := fmt.Sscanf(errMsg, "yaml: line %d:", &lineNum); scanErr == nil && lineNum > 0 {
+		sb.WriteString(fmt.Sprintf("错误位置附近 (第 %d 行):\n", lineNum))
+		start := lineNum - 3
+		if start < 1 {
+			start = 1
+		}
+		end := lineNum + 2
+		if end > len(lines) {
+			end = len(lines)
+		}
+		for i := start; i <= end && i <= len(lines); i++ {
+			marker := "   "
+			if i == lineNum {
+				marker = ">>>"
+			}
+			sb.WriteString(fmt.Sprintf("%s %4d | %s\n", marker, i, lines[i-1]))
+		}
+	} else {
+		// 无法提取行号，显示文件开头
+		sb.WriteString("配置文件内容预览 (前 15 行):\n")
+		showLines := 15
+		if len(lines) < showLines {
+			showLines = len(lines)
+		}
+		for i := 0; i < showLines; i++ {
+			sb.WriteString(fmt.Sprintf("   %4d | %s\n", i+1, lines[i]))
+		}
+		if len(lines) > showLines {
+			sb.WriteString(fmt.Sprintf("   ... (共 %d 行, 省略 %d 行)\n", len(lines), len(lines)-showLines))
+		}
+	}
+
+	return sb.String()
+}
+
 // Load 从 YAML 文件及环境变量加载配置
 func Load() (*Config, error) {
 	v := viper.New()
@@ -161,8 +243,9 @@ func Load() (*Config, error) {
 
 	v.SetConfigFile(configFile)
 
+	// 读取配置文件 - 增强错误诊断
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("读取配置文件失败: %w", err)
+		return nil, diagnoseConfigError(configFile, err)
 	}
 
 	var cfg Config

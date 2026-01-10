@@ -81,7 +81,7 @@ function DevicesContent() {
 
     // 分页状态
     const [page, setPage] = useState(1)
-    const [pageSize, setPageSize] = useState(20)
+    const [pageSize, setPageSize] = useState(10)
 
     // 选中设备（单个详情）
     const [selectedDevice, setSelectedDevice] = useState<NavyDevice | null>(null)

@@ -28,11 +28,18 @@ func NewNavyDeviceService(db *db.Database, nodesyncManager *nodesync.Manager) *N
 	}
 }
 
+// ManagedLabelExists checks for managed labels
+const ManagedLabelExists = "EXISTS (SELECT 1 FROM k8s_node_label knl JOIN label_feature lf ON knl.`key` = lf.`key` WHERE knl.node_id = kn.id)"
+
+// ManagedTaintExists checks for managed taints
+const ManagedTaintExists = "EXISTS (SELECT 1 FROM k8s_node_taint knt JOIN taint_feature tf ON knt.`key` = tf.`key` WHERE knt.node_id = kn.id)"
+
 // SpecialDeviceCondition 特殊设备判断条件 (移植自 auto-navy)
 // 满足以下任一条件即为特殊设备:
 // 1. device.group != ”
-// 2. 可以关联到 k8s_node
-const SpecialDeviceCondition = "device.`group` != '' OR kn.nodename IS NOT NULL"
+// 2. 拥有受管理的 label 或 taint
+// (不再仅仅因为关联了 k8s_node 就视为特殊设备)
+const SpecialDeviceCondition = "device.`group` != '' OR " + ManagedLabelExists + " OR " + ManagedTaintExists
 
 // buildDeviceBaseQuery 构建基础查询 (不含计数字段)
 func (s *NavyDeviceService) buildDeviceBaseQuery(ctx context.Context) *gorm.DB {
@@ -48,11 +55,13 @@ func (s *NavyDeviceService) buildDeviceQueryWithFeatures(ctx context.Context) *g
 	subqueryLabel := "(SELECT COUNT(*) FROM k8s_node_label knl2 JOIN k8s_node kn2 ON knl2.node_id = kn2.id WHERE LOWER(kn2.hostip) = LOWER(device.ip))"
 	subqueryTaint := "(SELECT COUNT(*) FROM k8s_node_taint knt2 JOIN k8s_node kn3 ON knt2.node_id = kn3.id WHERE LOWER(kn3.hostip) = LOWER(device.ip))"
 
+	isSpecialSQL := fmt.Sprintf("CASE WHEN device.`group` != '' OR %s OR %s THEN 1 ELSE 0 END as is_special", ManagedLabelExists, ManagedTaintExists)
+
 	selectFields := fmt.Sprintf(`device.*,
 		kn.role as k8s_role,
 		kn.nodename as k8s_nodename,
-		CASE WHEN device.`+"`group`"+` != '' OR kn.nodename IS NOT NULL THEN 1 ELSE 0 END as is_special,
-		(%s + %s) as feature_count`, subqueryLabel, subqueryTaint)
+		%s,
+		(%s + %s) as feature_count`, isSpecialSQL, subqueryLabel, subqueryTaint)
 
 	return s.db.WithContext(ctx).Table("device").
 		Select(selectFields).

@@ -57,7 +57,7 @@ type AlertTrendPoint struct {
 // UpdateHeartbeat 更新集群心跳
 func (s *ClusterService) UpdateHeartbeat(ctx context.Context, cluster *models.Cluster) error {
 	return s.dbWithContext(ctx).Model(&models.Cluster{}).
-		Where("name = ?", cluster.Name).
+		Where("clustername = ?", cluster.Name).
 		Updates(map[string]interface{}{
 			"last_heartbeat": time.Now(),
 			"status":         models.ClusterStatusActive,
@@ -115,7 +115,7 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 	query := `
 		SELECT
 			c.cluster_id,
-			c.name,
+			c.clustername as name,
 			c.status,
 			c.last_heartbeat,
 			COALESCE(alert_counts.total_alerts, 0) as alert_count,
@@ -129,8 +129,8 @@ func (s *ClusterService) getClusterStats() ([]ClusterStats, error) {
 			FROM spydon_alerts
 			WHERE deleted_at IS NULL
 			GROUP BY cluster_name
-		) alert_counts ON c.name = alert_counts.cluster_name
-		ORDER BY c.name
+		) alert_counts ON c.clustername = alert_counts.cluster_name
+		ORDER BY c.clustername
 	`
 
 	if err := s.db.Raw(query).Scan(&stats).Error; err != nil {
@@ -176,25 +176,26 @@ func (s *ClusterService) GetClusters(page, limit int, status, keyword string) ([
 
 	// 构建 LEFT JOIN 查询
 	// 使用子查询来聚合 device 的 IP，按角色分组
-	joinQuery := s.db.Table("k8s_clusters AS c").
-		Select(`c.*,
+	// 使用 Model() 代替 Table()，让 GORM 自动应用 models.Cluster 的列映射（包括 column:clustername -> Name）
+	joinQuery := s.db.Model(&models.Cluster{}).
+		Select(`k8s_clusters.*,
 			GROUP_CONCAT(DISTINCT CASE WHEN LOWER(d.role) LIKE '%master%' THEN d.ip END ORDER BY d.ip SEPARATOR ',') AS master_ips_raw,
 			GROUP_CONCAT(DISTINCT CASE WHEN LOWER(d.role) LIKE '%kube-etcd%' AND LOWER(d.role) NOT LIKE '%eventer%' THEN d.ip END ORDER BY d.ip SEPARATOR ',') AS etcd_ips_raw,
 			GROUP_CONCAT(DISTINCT CASE WHEN LOWER(d.role) LIKE '%kube-etcd-eventer%' THEN d.ip END ORDER BY d.ip SEPARATOR ',') AS etcd_event_ips_raw`).
-		Joins("LEFT JOIN device AS d ON c.name = d.cluster").
-		Group("c.id")
+		Joins("LEFT JOIN device AS d ON k8s_clusters.clustername = d.cluster").
+		Group("k8s_clusters.id")
 
 	// 应用过滤条件
 	if status != "" {
-		joinQuery = joinQuery.Where("c.status = ?", status)
+		joinQuery = joinQuery.Where("k8s_clusters.status = ?", status)
 	}
 	if keyword != "" {
 		likePattern := "%" + keyword + "%"
-		joinQuery = joinQuery.Where("c.name LIKE ? OR c.cluster_id LIKE ? OR c.idc LIKE ? OR c.zone LIKE ? OR c.purpose LIKE ?", likePattern, likePattern, likePattern, likePattern, likePattern)
+		joinQuery = joinQuery.Where("k8s_clusters.clustername LIKE ? OR k8s_clusters.cluster_id LIKE ? OR k8s_clusters.idc LIKE ? OR k8s_clusters.zone LIKE ? OR k8s_clusters.purpose LIKE ?", likePattern, likePattern, likePattern, likePattern, likePattern)
 	}
 
 	// 分页
-	if err := joinQuery.Order("c.name").Offset(offset).Limit(limit).Find(&results).Error; err != nil {
+	if err := joinQuery.Order("k8s_clusters.clustername").Offset(offset).Limit(limit).Find(&results).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取集群列表失败: %w", err)
 	}
 
@@ -231,7 +232,7 @@ func (s *ClusterService) dbWithContext(ctx context.Context) *gorm.DB {
 // GetClusterByID 根据ID获取集群
 func (s *ClusterService) GetClusterByID(clusterName string) (*models.Cluster, error) {
 	var cluster models.Cluster
-	if err := s.db.Where("name = ?", clusterName).First(&cluster).Error; err != nil {
+	if err := s.db.Where("clustername = ?", clusterName).First(&cluster).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("集群不存在")
 		}
@@ -246,7 +247,7 @@ func (s *ClusterService) GetClusterByID(clusterName string) (*models.Cluster, er
 // DeleteCluster 删除集群（硬删除）
 func (s *ClusterService) DeleteCluster(clusterName string) error {
 	// 硬删除集群
-	result := s.db.Unscoped().Where("name = ?", clusterName).Delete(&models.Cluster{})
+	result := s.db.Unscoped().Where("clustername = ?", clusterName).Delete(&models.Cluster{})
 	if result.Error != nil {
 		return fmt.Errorf("删除集群失败: %w", result.Error)
 	}
@@ -319,7 +320,7 @@ func (s *ClusterService) CreateCluster(cluster *models.Cluster) error {
 
 	// 检查是否存在同名集群
 	var count int64
-	if err := s.db.Model(&models.Cluster{}).Where("name = ?", cluster.Name).Count(&count).Error; err != nil {
+	if err := s.db.Model(&models.Cluster{}).Where("clustername = ?", cluster.Name).Count(&count).Error; err != nil {
 		return fmt.Errorf("check cluster existence failed: %w", err)
 	}
 	if count > 0 {
@@ -341,7 +342,7 @@ func (s *ClusterService) UpdateCluster(cluster *models.Cluster) error {
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		var existingCluster models.Cluster
-		if err := tx.Where("name = ?", cluster.Name).First(&existingCluster).Error; err != nil {
+		if err := tx.Where("clustername = ?", cluster.Name).First(&existingCluster).Error; err != nil {
 			return fmt.Errorf("cluster not found: %w", err)
 		}
 
