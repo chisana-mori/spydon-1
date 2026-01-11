@@ -16,7 +16,6 @@ type UserService struct {
 	db *db.Database
 }
 
-// NewUserService 创建用户服务实例
 func NewUserService(database *db.Database) *UserService {
 	return &UserService{
 		db: database,
@@ -44,27 +43,22 @@ func (s *UserService) GetUsers(page, limit int, keyword string) ([]UserListItem,
 
 	query := s.db.Model(&models.User{})
 
-	// 关键词搜索
 	if keyword != "" {
 		query = query.Where("username ILIKE ? OR email ILIKE ? OR name ILIKE ?",
 			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
 	}
 
-	// 获取总数
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("统计用户数量失败: %w", err)
 	}
 
-	// 分页查询
 	offset := (page - 1) * limit
 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&users).Error; err != nil {
 		return nil, 0, fmt.Errorf("查询用户列表失败: %w", err)
 	}
 
-	// 转换为列表项（应用掩码保护敏感信息）
 	items := make([]UserListItem, len(users))
 	for i, user := range users {
-		// 对敏感信息进行掩码处理
 		maskedUsername, maskedEmail, maskedName := utils.MaskUserInfo(user.Username, user.Email, user.Name)
 
 		items[i] = UserListItem{
@@ -86,7 +80,6 @@ func (s *UserService) GetUsers(page, limit int, keyword string) ([]UserListItem,
 	return items, total, nil
 }
 
-// GetUserByID 根据ID获取用户
 func (s *UserService) GetUserByID(userID uint64) (*models.User, error) {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
@@ -99,7 +92,6 @@ func (s *UserService) GetUserByID(userID uint64) (*models.User, error) {
 	return &user, nil
 }
 
-// SetUserAdmin 设置用户管理员权限
 func (s *UserService) SetUserAdmin(userID uint64, isAdmin bool) error {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
@@ -109,7 +101,6 @@ func (s *UserService) SetUserAdmin(userID uint64, isAdmin bool) error {
 		return fmt.Errorf("查询用户失败: %w", err)
 	}
 
-	// 更新管理员状态
 	user.IsAdmin = isAdmin
 	if err := s.db.Save(&user).Error; err != nil {
 		return fmt.Errorf("更新用户权限失败: %w", err)
@@ -118,7 +109,6 @@ func (s *UserService) SetUserAdmin(userID uint64, isAdmin bool) error {
 	return nil
 }
 
-// DeleteUser 删除用户（软删除）
 func (s *UserService) DeleteUser(userID uint64) error {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
@@ -128,7 +118,6 @@ func (s *UserService) DeleteUser(userID uint64) error {
 		return fmt.Errorf("查询用户失败: %w", err)
 	}
 
-	// 软删除
 	if err := s.db.Delete(&user).Error; err != nil {
 		return fmt.Errorf("删除用户失败: %w", err)
 	}
@@ -136,7 +125,6 @@ func (s *UserService) DeleteUser(userID uint64) error {
 	return nil
 }
 
-// GetAdminCount 获取管理员数量
 func (s *UserService) GetAdminCount() (int64, error) {
 	var count int64
 	if err := s.db.Model(&models.User{}).Where("is_admin = ?", true).Count(&count).Error; err != nil {
@@ -145,7 +133,6 @@ func (s *UserService) GetAdminCount() (int64, error) {
 	return count, nil
 }
 
-// UpdateUserProfile 更新用户资料
 func (s *UserService) UpdateUserProfile(userID uint64, name, picture string) error {
 	var user models.User
 	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
@@ -155,7 +142,6 @@ func (s *UserService) UpdateUserProfile(userID uint64, name, picture string) err
 		return fmt.Errorf("查询用户失败: %w", err)
 	}
 
-	// 更新资料
 	if name != "" {
 		user.Name = name
 	}

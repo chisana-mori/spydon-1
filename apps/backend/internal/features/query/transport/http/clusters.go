@@ -119,7 +119,7 @@ func (h *Handler) GetClusterNodes(c *gin.Context) {
 	httpx.Success(c, gin.H{"data": nodes})
 }
 
-// CreateCluster 创建集群（管理员功能）
+// CreateCluster 注册新K8s集群
 // @Summary 注册新K8s集群
 // @Description 向系统中添加一个新的K8s集群实例。管理员需要提供集群名称、KubeConfig认证信息以及关联的Prometheus监控地址。创建后，系统将尝试与集群建立连接并初始化基础的告警同步与资源采集流程。
 // @Tags Admin,Clusters
@@ -132,16 +132,13 @@ func (h *Handler) GetClusterNodes(c *gin.Context) {
 // @Router /admin/clusters [post]
 func (h *Handler) CreateCluster(c *gin.Context) {
 	var req struct {
-		Name        string `json:"name" binding:"required"`
-		ClusterID   string `json:"cluster_id"`
-		Description string `json:"description"`
-		// 兼容字段：历史上部分客户端使用 config 传 kubeconfig
-		Config        string `json:"config"`
-		KubeConfig    string `json:"kube_config"`
-		PrometheusURL string `json:"prometheus_url"`
-		Status        string `json:"status"`
-
-		// Navy 字段
+		Name           string `json:"name" binding:"required"`
+		ClusterID      string `json:"cluster_id"`
+		Description    string `json:"description"`
+		Config         string `json:"config"`
+		KubeConfig     string `json:"kube_config"`
+		PrometheusURL  string `json:"prometheus_url"`
+		Status         string `json:"status"`
 		ClusterVersion string `json:"cluster_version"`
 		Idc            string `json:"idc"`
 		Zone           string `json:"zone"`
@@ -166,14 +163,13 @@ func (h *Handler) CreateCluster(c *gin.Context) {
 	}
 
 	cluster := &models.Cluster{
-		Name:          req.Name,
-		ClusterID:     req.ClusterID,
-		Description:   req.Description,
-		Config:        models.KiteSecretString(kubeConfig),
-		KubeConfig:    kubeConfig,
-		PrometheusURL: req.PrometheusURL,
-		Status:        req.Status,
-
+		Name:           req.Name,
+		ClusterID:      req.ClusterID,
+		Description:    req.Description,
+		Config:         models.KiteSecretString(kubeConfig),
+		KubeConfig:     kubeConfig,
+		PrometheusURL:  req.PrometheusURL,
+		Status:         req.Status,
 		ClusterVersion: req.ClusterVersion,
 		Idc:            req.Idc,
 		Zone:           req.Zone,
@@ -218,29 +214,25 @@ func (h *Handler) UpdateCluster(c *gin.Context) {
 	}
 
 	var req struct {
-		Description string `json:"description"`
-		// 兼容字段：历史上部分客户端使用 config 传 kubeconfig
-		Config        *string `json:"config"`
-		KubeConfig    *string `json:"kube_config"`
-		PrometheusURL string  `json:"prometheus_url"`
-		Status        string  `json:"status"`
-
-		// Navy 字段
-		ClusterVersion string `json:"cluster_version"`
-		Idc            string `json:"idc"`
-		Zone           string `json:"zone"`
-		FlowType       string `json:"flow_type"`
-		ClusterGroup   string `json:"cluster_group"`
-		Purpose        string `json:"purpose"`
-		Arch           string `json:"arch"`
-		Priority       int    `json:"priority"`
+		Description    string  `json:"description"`
+		Config         *string `json:"config"`
+		KubeConfig     *string `json:"kube_config"`
+		PrometheusURL  string  `json:"prometheus_url"`
+		Status         string  `json:"status"`
+		ClusterVersion string  `json:"cluster_version"`
+		Idc            string  `json:"idc"`
+		Zone           string  `json:"zone"`
+		FlowType       string  `json:"flow_type"`
+		ClusterGroup   string  `json:"cluster_group"`
+		Purpose        string  `json:"purpose"`
+		Arch           string  `json:"arch"`
+		Priority       int     `json:"priority"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "INVALID_REQUEST", "请求参数无效")
 		return
 	}
 
-	// kube_config 可能不在请求里：此时不应覆盖已有配置
 	var kubeConfig string
 	if req.KubeConfig != nil {
 		kubeConfig = *req.KubeConfig
@@ -249,13 +241,12 @@ func (h *Handler) UpdateCluster(c *gin.Context) {
 	}
 
 	cluster := &models.Cluster{
-		Name:          path.ID, // Using Name as ID based on existing logic
-		Description:   req.Description,
-		Config:        models.KiteSecretString(kubeConfig),
-		KubeConfig:    kubeConfig,
-		PrometheusURL: req.PrometheusURL,
-		Status:        req.Status,
-
+		Name:           path.ID,
+		Description:    req.Description,
+		Config:         models.KiteSecretString(kubeConfig),
+		KubeConfig:     kubeConfig,
+		PrometheusURL:  req.PrometheusURL,
+		Status:         req.Status,
 		ClusterVersion: req.ClusterVersion,
 		Idc:            req.Idc,
 		Zone:           req.Zone,
@@ -299,7 +290,7 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 	httpx.SuccessWithMessage(c, "集群删除成功", nil)
 }
 
-// SyncClusterConfig 同步集群配置（管理员功能）
+// SyncClusterConfig 手动同步并加密集群KubeConfig
 // @Summary 手动同步并加密集群KubeConfig
 // @Description 扫描所有集群记录，对于 KubeConfig（明文）存在但 Config（加密字段）为空的记录，进行自动加密迁移并回填。此接口用于历史数据迁移或修复数据不一致问题。
 // @Tags Admin,Clusters

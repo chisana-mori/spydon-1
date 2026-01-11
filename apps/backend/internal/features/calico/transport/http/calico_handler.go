@@ -36,7 +36,7 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	}
 }
 
-// ============ Label Translation Utilities ============
+// GetOverview 获取多集群 Calico 概览
 
 var subfunctionTranslations = map[string]string{
 	"K8SAPPGENERAL": "K8SAPP通用",
@@ -80,8 +80,14 @@ func getSubfunction(labels map[string]string) string {
 	return "-"
 }
 
-// ============ Overview Handlers ============
-
+// GetOverview 获取多集群 Calico 概览
+// @Summary 获取多集群 Calico 概览
+// @Description 汇总并显示所有已纳管 Calico 集群的核心统计数据，包含 IPPool 总数、BGP Peer 状态、以及各集群的基础健康评分。
+// @Tags Calico
+// @Produce json
+// @Success 200 {object} OverviewResponse
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /calico/overview [get]
 func (h *Handler) GetOverview(c *gin.Context) {
 	clusterNames := h.filterCalicoClusters(h.nodeManager.GetManagedClusters())
 
@@ -117,7 +123,7 @@ func (h *Handler) fetchClusterOverviews(clusterNames []string) []ClusterOverview
 	wg.Wait()
 	close(resultChan)
 
-	var items []ClusterOverviewItem
+	items := make([]ClusterOverviewItem, 0, len(clusterNames))
 	for item := range resultChan {
 		items = append(items, item)
 	}
@@ -243,8 +249,15 @@ func (h *Handler) updateOverviewHealth(item *ClusterOverviewItem, err error, con
 	}
 }
 
-// ============ Cluster Detail Handlers ============
-
+// GetClusterDetail 获取特定集群的 Calico 详情
+// @Summary 获取特定集群的 Calico 详情
+// @Description 提供特定集群的深度 Calico 配置视图，包括具体的 IPPool 列表、BGP 配置、网络策略分布、HostEndpoints 以及 Felix 配置详情。
+// @Tags Calico
+// @Produce json
+// @Param cluster path string true "集群名称"
+// @Success 200 {object} ClusterDetailResponse
+// @Failure 404 {object} httpx.ErrorResponse
+// @Router /calico/clusters/{cluster} [get]
 func (h *Handler) GetClusterDetail(c *gin.Context) {
 	clusterName := c.Param("cluster")
 
@@ -418,10 +431,17 @@ func (h *Handler) populateResourceCounts(clusterName string, detail *ClusterDeta
 }
 
 // SyncIPPoolsToWayne 同步指定集群的 IPPool 到 Wayne
+// @Summary 同步 IPPool 到 Wayne
+// @Description 将当前集群中符合条件的 IPPool（标有 kfeature.io/subfunction 且不为 K8SBASE）同步到外部资产管理系统 Wayne。需提供操作者用户名以便追踪变更。
+// @Tags Calico
+// @Produce json
+// @Param cluster path string true "集群名称"
+// @Success 200 {object} httpx.Response
+// @Failure 500 {object} httpx.ErrorResponse
+// @Router /calico/clusters/{cluster}/sync-wayne [post]
 func (h *Handler) SyncIPPoolsToWayne(c *gin.Context) {
 	clusterName := c.Param("cluster")
 
-	// 从 JWT token 中获取用户信息
 	username := c.GetString("username")
 	if username == "" {
 		username = "system"

@@ -60,10 +60,6 @@ func (h *EmailHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	}
 }
 
-// ========================================
-// Template Handlers
-// ========================================
-
 // ListTemplates 获取模板列表
 // @Summary 获取邮件模板列表
 // @Description 分页查询系统中已定义的邮件通知模板。返回结果包含模板名称、标题预览、关联的业务场景以及启用状态。该接口支撑了邮件通知页面的模板管理模块，允许运维人员快速查找并复用现有的通知文案。
@@ -199,10 +195,6 @@ func (h *EmailHandler) DeleteTemplate(c *gin.Context) {
 	httpx.Success(c, gin.H{"message": "删除成功"})
 }
 
-// ========================================
-// Contact Handlers
-// ========================================
-
 // ListContacts 获取联系人列表
 // @Summary 获取邮件联系人名录
 // @Description 分页检索已保存的邮件通知接收人信息。返回数据包含联系人姓名、电子邮箱地址、所属团队以及订阅的告警级别。此接口支撑了发送邮件时的联想输入功能，方便运维人员快速选择对应的负责人员。
@@ -337,10 +329,6 @@ func (h *EmailHandler) DeleteContact(c *gin.Context) {
 
 	httpx.Success(c, gin.H{"message": "删除成功"})
 }
-
-// ========================================
-// Email Sending Handlers
-// ========================================
 
 // PreviewEmail 预览邮件
 // @Summary 实时预览邮件正文

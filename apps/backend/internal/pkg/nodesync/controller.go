@@ -11,6 +11,7 @@ import (
 	"robusta-web/backend/pkg/logger"
 
 	calicov3 "github.com/projectcalico/api/pkg/apis/projectcalico/v3"
+	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,7 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"go.uber.org/zap/zapcore"
 )
 
 // Scheme 包含 core 和 Calico CRD 类型

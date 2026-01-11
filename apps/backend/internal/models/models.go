@@ -144,10 +144,10 @@ const (
 type ClusterStatus string
 
 const (
-	ClusterStatusInit     ClusterStatus = "Init"     // 集群初始化
-	ClusterStatusPending  ClusterStatus = "Pending"  // 集群维护中
-	ClusterStatusRunning  ClusterStatus = "Running"  // 运行中
-	ClusterStatusOffline  ClusterStatus = "Offline"  // 已下线
+	ClusterStatusInit    ClusterStatus = "Init"    // 集群初始化
+	ClusterStatusPending ClusterStatus = "Pending" // 集群维护中
+	ClusterStatusRunning ClusterStatus = "Running" // 运行中
+	ClusterStatusOffline ClusterStatus = "Offline" // 已下线
 )
 
 // TableName 方法用于指定表名

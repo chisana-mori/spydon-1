@@ -126,7 +126,7 @@ func (h *Handler) ResumeExecution(c *gin.Context) {
 	}
 
 	var req ApprovalRequest
-	_ = c.ShouldBindJSON(&req) // notes是可选的
+	_ = c.ShouldBindJSON(&req)
 
 	userID := getUserIDFromContext(c)
 
@@ -257,7 +257,6 @@ func (h *Handler) GetExecutionHistory(c *gin.Context) {
 
 	clusterIDStr := c.Query("cluster_id")
 
-	// 如果有 cluster_id，获取指定集群的历史
 	if clusterIDStr != "" {
 		clusterID, err := strconv.ParseUint(clusterIDStr, 10, 64)
 		if err != nil {
@@ -273,7 +272,6 @@ func (h *Handler) GetExecutionHistory(c *gin.Context) {
 		return
 	}
 
-	// 否则获取全部执行历史
 	executions, err := h.engine.GetAllExecutions(limit)
 	if err != nil {
 		httpx.InternalError(c, "", "获取历史失败: "+err.Error())

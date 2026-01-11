@@ -35,7 +35,6 @@ func (h *Handler) RegisterRoutes(v1, admin *gin.RouterGroup) {
 		knowledgeGroup.GET("/:id", h.GetByID)
 	}
 
-	// Admin routes for knowledge management
 	adminKnowledgeGroup := admin.Group("/knowledge")
 	adminKnowledgeGroup.Use(middleware.AuditLogMiddleware())
 	{
@@ -118,7 +117,6 @@ func (h *Handler) List(c *gin.Context) {
 	params := query.PaginationQuery.ToParams()
 	rule := strings.TrimSpace(query.AlertRuleName)
 
-	// 如果有规则名，使用规则名查询
 	if rule != "" {
 		items, err := h.svc.GetByRule(rule, params.PageSize)
 		if err != nil {
@@ -131,7 +129,6 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	// 否则获取全部列表（分页）
 	items, total, err := h.svc.List(params.Page, params.PageSize)
 	if err != nil {
 		httpx.InternalError(c, "LIST_FAILED", err.Error())

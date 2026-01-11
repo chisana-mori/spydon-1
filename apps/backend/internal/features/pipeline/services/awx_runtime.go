@@ -13,13 +13,11 @@ import (
 )
 
 // AWXRuntime AWX 任务运行时实现
-// 实现 JobRuntime 接口，封装 AWX API 调用
 type AWXRuntime struct {
 	client *awx.Client
 	logger *zap.Logger
 }
 
-// NewAWXRuntime 创建 AWX 运行时
 func NewAWXRuntime(client *awx.Client, logger *zap.Logger) *AWXRuntime {
 	return &AWXRuntime{
 		client: client,
@@ -27,14 +25,10 @@ func NewAWXRuntime(client *awx.Client, logger *zap.Logger) *AWXRuntime {
 	}
 }
 
-// Name 返回运行时名称
 func (r *AWXRuntime) Name() string {
 	return "awx"
 }
 
-// LaunchJob 启动 AWX Job
-// 注意：如果需要克隆模板，应先调用 PrepareClonedTemplate 获取克隆模板 ID，
-// 然后将克隆模板 ID 作为 config.TemplateID 传入
 func (r *AWXRuntime) LaunchJob(ctx context.Context, config JobConfig) (*JobHandle, error) {
 	req := awx.JobLaunchRequest{
 		ExtraVars: config.ExtraVars,
@@ -63,19 +57,11 @@ func (r *AWXRuntime) LaunchJob(ctx context.Context, config JobConfig) (*JobHandl
 	}, nil
 }
 
-// PrepareClonedTemplate 准备克隆模板（在提交任务时调用）
-// 流程：
-// 1. 查找/创建对应集群的 Inventory
-// 2. 克隆原模板（使用时间戳+随机数命名）
-// 3. 更新克隆模板的配置（Inventory、Limit、ExtraVars）
-// 返回克隆模板 ID
 func (r *AWXRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemplateConfig) (int, error) {
-	// === Step 1: 查找或创建集群对应的 Inventory ===
 	inventoryID := 0
 	if config.ClusterName != "" {
 		inventory, err := r.client.GetInventoryByName(ctx, config.ClusterName)
 		if err != nil {
-			// Inventory 不存在，尝试创建
 			r.logger.Info("Inventory 不存在, 正在创建",
 				zap.String("cluster_name", config.ClusterName))
 
@@ -96,7 +82,6 @@ func (r *AWXRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemp
 		}
 	}
 
-	// === Step 2: 克隆模板 ===
 	clonedName := r.generateClonedTemplateName(config.TemplateName)
 	clonedTemplate, err := r.client.CopyJobTemplate(ctx, config.TemplateID, clonedName)
 	if err != nil {
@@ -109,7 +94,6 @@ func (r *AWXRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemp
 		zap.Int("cloned_id", clonedTemplateID),
 		zap.String("cloned_name", clonedName))
 
-	// === Step 3: 更新克隆模板的配置（Inventory、Limit、ExtraVars）===
 	updateReq := awx.JobTemplateUpdateRequest{}
 	needUpdate := false
 
@@ -124,7 +108,6 @@ func (r *AWXRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemp
 	}
 
 	if len(config.ExtraVars) > 0 {
-		// 将 ExtraVars 转换为 YAML 格式
 		extraVarsBytes, _ := json.Marshal(config.ExtraVars)
 		updateReq.ExtraVars = string(extraVarsBytes)
 		needUpdate = true
@@ -132,7 +115,6 @@ func (r *AWXRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemp
 
 	if needUpdate {
 		if err := r.client.UpdateJobTemplate(ctx, clonedTemplateID, updateReq); err != nil {
-			// 更新失败，清理克隆模板
 			_ = r.client.DeleteJobTemplate(ctx, clonedTemplateID)
 			return 0, fmt.Errorf("更新克隆模板配置失败: %w", err)
 		}
@@ -145,7 +127,6 @@ func (r *AWXRuntime) PrepareClonedTemplate(ctx context.Context, config CloneTemp
 	return clonedTemplateID, nil
 }
 
-// CleanupClonedTemplate 清理克隆模板（在任务完成后调用）
 func (r *AWXRuntime) CleanupClonedTemplate(ctx context.Context, clonedTemplateID int) error {
 	if clonedTemplateID <= 0 {
 		return nil
@@ -162,15 +143,12 @@ func (r *AWXRuntime) CleanupClonedTemplate(ctx context.Context, clonedTemplateID
 	return nil
 }
 
-// generateClonedTemplateName 生成克隆模板的名称
-// 格式: {原模板名}_clone_{日期时间}_{随机数}
 func (r *AWXRuntime) generateClonedTemplateName(originalName string) string {
 	timestamp := time.Now().Format("20060102_150405")
 	randomNum := rand.Intn(900000) + 100000 // 6位随机数 100000-999999
 	return fmt.Sprintf("%s_clone_%s_%d", originalName, timestamp, randomNum)
 }
 
-// WaitForJob 等待 AWX Job 完成
 func (r *AWXRuntime) WaitForJob(ctx context.Context, handle *JobHandle, pollInterval time.Duration) (*JobResult, error) {
 	job, err := r.client.WaitForJob(ctx, handle.JobID, pollInterval)
 	if err != nil {
@@ -183,7 +161,6 @@ func (r *AWXRuntime) WaitForJob(ctx context.Context, handle *JobHandle, pollInte
 	}, nil
 }
 
-// GetJobStatus 获取 AWX Job 状态
 func (r *AWXRuntime) GetJobStatus(ctx context.Context, handle *JobHandle) (string, error) {
 	job, err := r.client.GetJob(ctx, handle.JobID)
 	if err != nil {
@@ -192,12 +169,10 @@ func (r *AWXRuntime) GetJobStatus(ctx context.Context, handle *JobHandle) (strin
 	return job.Status, nil
 }
 
-// CancelJob 取消 AWX Job
 func (r *AWXRuntime) CancelJob(ctx context.Context, handle *JobHandle) error {
 	return r.client.CancelJob(ctx, handle.JobID)
 }
 
-// ListTemplates 列出 AWX Job Templates
 func (r *AWXRuntime) ListTemplates(ctx context.Context) ([]JobTemplateInfo, error) {
 	templates, err := r.client.ListJobTemplates(ctx)
 	if err != nil {
@@ -215,7 +190,6 @@ func (r *AWXRuntime) ListTemplates(ctx context.Context) ([]JobTemplateInfo, erro
 	return result, nil
 }
 
-// GetTemplate 获取单个 AWX Job Template
 func (r *AWXRuntime) GetTemplate(ctx context.Context, id int) (*JobTemplateInfo, error) {
 	t, err := r.client.GetJobTemplate(ctx, id)
 	if err != nil {
@@ -231,15 +205,12 @@ func (r *AWXRuntime) GetTemplate(ctx context.Context, id int) (*JobTemplateInfo,
 	}, nil
 }
 
-// GetInventoryVariables 获取集群对应的Inventory变量
 func (r *AWXRuntime) GetInventoryVariables(ctx context.Context, clusterName string) (string, error) {
-	// 根据集群名称查找对应的 Inventory
 	inventory, err := r.client.GetInventoryByName(ctx, clusterName)
 	if err != nil {
 		return "", err
 	}
 
-	// 获取 Inventory 详情（包含变量）
 	fullInventory, err := r.client.GetInventory(ctx, inventory.ID)
 	if err != nil {
 		return "", err
@@ -252,13 +223,9 @@ func (r *AWXRuntime) GetInventoryVariables(ctx context.Context, clusterName stri
 	return fullInventory.Variables, nil
 }
 
-// UpdateInventoryVariables 更新集群对应的Inventory变量
-// 如果Inventory不存在，则自动创建
 func (r *AWXRuntime) UpdateInventoryVariables(ctx context.Context, clusterName string, variables string) error {
-	// 根据集群名称查找对应的 Inventory
 	inventory, err := r.client.GetInventoryByName(ctx, clusterName)
 	if err != nil {
-		// Inventory 不存在，尝试创建
 		r.logger.Info("Inventory 不存在, 正在创建",
 			zap.String("cluster_name", clusterName))
 
@@ -280,7 +247,6 @@ func (r *AWXRuntime) UpdateInventoryVariables(ctx context.Context, clusterName s
 		return nil
 	}
 
-	// 更新 Inventory 变量
 	if err := r.client.UpdateInventoryVariables(ctx, inventory.ID, variables); err != nil {
 		return err
 	}
@@ -292,7 +258,6 @@ func (r *AWXRuntime) UpdateInventoryVariables(ctx context.Context, clusterName s
 	return nil
 }
 
-// GetClient 返回底层 AWX Client（用于需要直接访问的场景）
 func (r *AWXRuntime) GetClient() *awx.Client {
 	return r.client
 }

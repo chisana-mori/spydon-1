@@ -20,12 +20,10 @@ type Handler struct {
 	rcaService AutoRCARefresher
 }
 
-// New creates a new Handler.
 func New(service *services.SystemSettingService, rcaService AutoRCARefresher) *Handler {
 	return &Handler{service: service, rcaService: rcaService}
 }
 
-// RegisterRoutes registers routes under the admin group.
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	g := r.Group(RouteGroup)
 	g.GET("", h.ListSettings)

@@ -244,14 +244,14 @@ func (s *EmailNotificationService) mapNodes(k8sNodes []corev1.Node, filterNodes 
 		nodeSet[n] = true
 	}
 
-	var nodeInfos []NodeInfo
+	nodeInfos := make([]NodeInfo, 0, len(k8sNodes))
 	for _, n := range k8sNodes {
 		if len(filterNodes) > 0 && !nodeSet[n.Name] {
 			continue
 		}
 
 		nodeInfo := NodeInfo{Name: n.Name}
-		
+
 		// Status
 		for _, cond := range n.Status.Conditions {
 			if cond.Type == "Ready" {
@@ -262,7 +262,7 @@ func (s *EmailNotificationService) mapNodes(k8sNodes []corev1.Node, filterNodes 
 				break
 			}
 		}
-		
+
 		// IP
 		for _, addr := range n.Status.Addresses {
 			if addr.Type == "InternalIP" {
@@ -276,7 +276,7 @@ func (s *EmailNotificationService) mapNodes(k8sNodes []corev1.Node, filterNodes 
 }
 
 func (s *EmailNotificationService) mapPods(pods []corev1.Pod) []PodInfo {
-	var podInfos []PodInfo
+	podInfos := make([]PodInfo, 0, len(pods))
 	for _, pod := range pods {
 		podInfos = append(podInfos, PodInfo{
 			Name:      pod.Name,
@@ -290,7 +290,7 @@ func (s *EmailNotificationService) mapPods(pods []corev1.Pod) []PodInfo {
 }
 
 func (s *EmailNotificationService) mapDeployments(deploys []appsv1.Deployment) []DeploymentInfo {
-	var deployInfos []DeploymentInfo
+	deployInfos := make([]DeploymentInfo, 0, len(deploys))
 	for _, d := range deploys {
 		deployInfos = append(deployInfos, DeploymentInfo{
 			Name:      d.Name,

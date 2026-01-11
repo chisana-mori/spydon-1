@@ -52,7 +52,7 @@ export function TaskLogViewer({ executionId, isOpen }: TaskLogViewerProps) {
             setIsConnected(false)
             setLogs(prev => [...prev, '\nSystem: Connection lost. Reconnecting...'])
             es.close()
-            // Optional: Retry logic is usually handled by EventSource automatically unless closed. 
+            // Optional: Retry logic is usually handled by EventSource automatically unless closed.
             // If closed here, we might need manual retry or let user trigger.
         }
 

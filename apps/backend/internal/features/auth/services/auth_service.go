@@ -103,36 +103,30 @@ func (s *AuthService) GetAuthURL(state string) (string, error) {
 
 // HandleCallback 处理OIDC回调
 func (s *AuthService) HandleCallback(code, state string) (*LoginResponse, error) {
-	// 验证state参数（防止CSRF攻击）
 	if !s.validateState(state) {
 		return nil, fmt.Errorf("无效的state参数")
 	}
 
-	// 交换授权码获取token
 	tokenResp, err := s.exchangeCodeForToken(code)
 	if err != nil {
 		return nil, fmt.Errorf("交换token失败: %w", err)
 	}
 
-	// 获取用户信息
 	userInfo, err := s.getUserInfo(tokenResp.AccessToken)
 	if err != nil {
 		return nil, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
-	// 创建或更新用户
 	user, err := s.createOrUpdateUser(userInfo)
 	if err != nil {
 		return nil, fmt.Errorf("创建用户失败: %w", err)
 	}
 
-	// 生成JWT token
 	accessToken, err := s.generateJWT(user)
 	if err != nil {
 		return nil, fmt.Errorf("生成JWT失败: %w", err)
 	}
 
-	// 生成refresh token
 	refreshToken, err := s.generateRefreshToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("生成refresh token失败: %w", err)
@@ -191,25 +185,21 @@ func (s *AuthService) LoginWithCAS(username string, attributes cas.UserAttribute
 
 // RefreshToken 刷新token
 func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) {
-	// 验证refresh token
 	userID, err := s.validateRefreshToken(refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("无效的refresh token: %w", err)
 	}
 
-	// 获取用户信息
 	var user models.User
 	if queryErr := s.db.DB.Where("id = ?", userID).First(&user).Error; queryErr != nil {
 		return nil, fmt.Errorf("用户不存在: %w", queryErr)
 	}
 
-	// 生成新的JWT token
 	accessToken, err := s.generateJWT(&user)
 	if err != nil {
 		return nil, fmt.Errorf("生成JWT失败: %w", err)
 	}
 
-	// 生成新的refresh token
 	newRefreshToken, err := s.generateRefreshToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("生成refresh token失败: %w", err)
@@ -232,7 +222,6 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 
 // Logout 登出
 func (s *AuthService) Logout(refreshToken string) error {
-	// 删除refresh token
 	return s.revokeRefreshToken(refreshToken)
 }
 
@@ -309,14 +298,12 @@ func (s *AuthService) getUserInfo(accessToken string) (*OIDCUserInfo, error) {
 func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, error) {
 	var user models.User
 
-	// 尝试根据email查找现有用户
 	err := s.db.DB.Where("email = ?", oidcUser.Email).First(&user).Error
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
 
-		// 用户不存在，创建新用户
 		isFirst, firstErr := s.isFirstUser()
 		if firstErr != nil {
 			return nil, firstErr
@@ -327,7 +314,7 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 			Email:         oidcUser.Email,
 			Name:          oidcUser.Name,
 			Picture:       oidcUser.Picture,
-			IsAdmin:       isFirst, // 第一个用户自动成为管理员
+			IsAdmin:       isFirst,
 			EmailVerified: oidcUser.EmailVerified,
 			Provider:      constants.AuthProviderOIDC,
 			ProviderID:    oidcUser.Sub,
@@ -337,7 +324,6 @@ func (s *AuthService) createOrUpdateUser(oidcUser *OIDCUserInfo) (*models.User, 
 			return nil, createErr
 		}
 	} else {
-		// 更新现有用户信息
 		user.Name = oidcUser.Name
 		user.Picture = oidcUser.Picture
 		user.EmailVerified = oidcUser.EmailVerified
@@ -368,7 +354,6 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 	var user models.User
 	queryErr := s.db.DB.Where("username = ? OR email = ?", username, email).First(&user).Error
 	if errors.Is(queryErr, gorm.ErrRecordNotFound) {
-		// 检查是否是第一个用户，如果是则设置为管理员
 		isFirst, firstErr := s.isFirstUser()
 		if firstErr != nil {
 			return nil, firstErr
@@ -379,7 +364,7 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 			Email:         email,
 			Name:          nameAttr,
 			Picture:       picture,
-			IsAdmin:       isFirst || isAdmin, // 第一个用户或CAS标识的管理员
+			IsAdmin:       isFirst || isAdmin,
 			EmailVerified: true,
 			Provider:      constants.AuthProviderCAS,
 			ProviderID:    username,
@@ -397,7 +382,6 @@ func (s *AuthService) createOrUpdateCASUser(username string, attributes cas.User
 		if picture != "" {
 			user.Picture = picture
 		}
-		// 如果CAS标识为管理员，则更新管理员状态
 		if isAdmin {
 			user.IsAdmin = true
 		}
@@ -544,7 +528,6 @@ func (s *AuthService) validateRefreshToken(refreshToken string) (uint64, error) 
 	err := s.db.DB.Where("token = ? AND expires_at > ?", hashed, now).First(&token).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 兼容旧数据：尝试使用明文查询并升级为哈希存储
 			legacyErr := s.db.DB.Where("token = ? AND expires_at > ?", refreshToken, now).First(&token).Error
 			if legacyErr != nil {
 				return 0, legacyErr

@@ -57,7 +57,6 @@ func NewRCAService(
 	// 从配置中获取速率限制参数
 	config, version, err := settingService.GetAutoRCAConfig()
 	if err != nil {
-		// 降级：使用默认配置（仅用于初始化速率限制器）
 		logger.L().Warn("初始化RCA服务时获取配置失败，使用降级配置（Auto-RCA将被禁用）", zap.Error(err))
 		config = fallbackAutoRCAConfig()
 		version = time.Now()
@@ -65,7 +64,6 @@ func NewRCAService(
 		config.AllowedSeverities = systemsettingservice.DefaultAllowedSeverities()
 	}
 
-	// 根据配置初始化令牌桶
 	ratePerSecond := float64(config.RateLimit) / float64(config.Period)
 	burst := config.RateLimit
 	if burst < 1 {
@@ -94,7 +92,6 @@ func NewRCAService(
 	}
 	s.analysisExecutor = s.executeRCAAnalysis
 
-	// 启动队列处理协程
 	go s.processQueue()
 	go s.watchAutoRCAConfig()
 
@@ -103,24 +100,20 @@ func NewRCAService(
 
 // ProcessRCA 处理RCA接收逻辑
 func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*uint64, error) {
-	// 验证RCA状态
 	if !isValidRCAStatus(req.Status) {
 		return nil, fmt.Errorf("无效的RCA状态: %s", req.Status)
 	}
 
-	// 保存原始payload（可选）
 	var payloadKey string
 	if s.payloadStorage != nil && len(req.RawBody) > 0 {
 		key, err := s.savePayload(ctx, fmt.Sprintf("rca/%d", req.AlertID), req.RawBody, "application/json")
 		if err != nil {
-			// 记录错误但不中断流程
 			logger.L().Warn("保存RCA原始数据失败", zap.Error(err), zap.Uint64("alert_id", req.AlertID))
 		} else {
 			payloadKey = key
 		}
 	}
 
-	// 创建RCA运行记录
 	rcaRun := &models.RCARun{
 		AlertID:         req.AlertID,
 		Status:          req.Status,
@@ -132,18 +125,15 @@ func (s *RCAService) ProcessRCA(ctx context.Context, req ProcessRCARequest) (*ui
 		RawPayloadKey:   payloadKey,
 	}
 
-	// 如果状态是completed或failed/timeout，设置完成时间
 	if req.Status == string(models.RCAStatusCompleted) || req.Status == string(models.RCAStatusFailed) || req.Status == string(models.RCAStatusTimeout) {
 		now := time.Now()
 		rcaRun.CompletedAt = &now
 	}
 
-	// 保存RCA记录
 	if err := s.CreateRCARun(rcaRun); err != nil {
 		return nil, fmt.Errorf("保存RCA记录失败: %w", err)
 	}
 
-	// 记录审计日志
 	if s.auditService != nil {
 		_ = s.auditService.LogAction(0, "rca_ingested", "rca_run", &rcaRun.ID, map[string]interface{}{
 			"alert_id": req.AlertID,
@@ -192,7 +182,6 @@ func (s *RCAService) UpdateRCARunStatus(id uint64, status string, errorMessage s
 		updates["error_message"] = errorMessage
 	}
 
-	// 如果状态是完成或失败，设置完成时间
 	if status == string(models.RCAStatusCompleted) || status == string(models.RCAStatusFailed) || status == string(models.RCAStatusTimeout) {
 		updates["completed_at"] = time.Now()
 	}

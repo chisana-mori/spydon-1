@@ -81,7 +81,11 @@ func (agent *WayneSyncer) Request(url, method string, body interface{}) (respons
 		logger.L().Error("请求Wayne失败", zap.Error(err))
 		return
 	}
-	defer resp.Response().Body.Close()
+	defer func() {
+		if closeErr := resp.Response().Body.Close(); closeErr != nil {
+			logger.L().Error("关闭响应体失败", zap.Error(closeErr))
+		}
+	}()
 	response = resp.Bytes()
 	return
 }

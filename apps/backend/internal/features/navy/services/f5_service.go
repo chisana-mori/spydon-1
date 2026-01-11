@@ -93,7 +93,6 @@ func (s *F5InfoService) ListF5Infos(ctx context.Context, query *F5InfoQuery) (*F
 	}, nil
 }
 
-// applyFilters applies field-specific filters to the query.
 func (s *F5InfoService) applyFilters(db *gorm.DB, query *F5InfoQuery) *gorm.DB {
 	if query.Name != "" {
 		db = db.Where("name LIKE ?", "%"+query.Name+"%")
@@ -123,7 +122,6 @@ func (s *F5InfoService) applyFilters(db *gorm.DB, query *F5InfoQuery) *gorm.DB {
 	return db
 }
 
-// applyKeywordSearch applies multi-token keyword search across multiple fields.
 func (s *F5InfoService) applyKeywordSearch(db *gorm.DB, keyword string) *gorm.DB {
 	if keyword == "" {
 		return db
@@ -161,7 +159,6 @@ func (s *F5InfoService) applyKeywordSearch(db *gorm.DB, keyword string) *gorm.DB
 	return db
 }
 
-// tokenizeKeyword splits keyword into tokens by delimiters.
 func (s *F5InfoService) tokenizeKeyword(keyword string) []string {
 	tokens := strings.FieldsFunc(keyword, func(r rune) bool {
 		return r == '\n' || r == ',' || r == ';' || r == ' '
@@ -201,7 +198,6 @@ func (s *F5InfoService) parseSortParams(sortBy, sortOrder string) (string, strin
 	return defaultSortBy, defaultSortOrder, needsClusterSort
 }
 
-// normalizePagination ensures pagination parameters are within valid ranges.
 func (s *F5InfoService) normalizePagination(query *F5InfoQuery) *F5InfoQuery {
 	if query.Page <= 0 {
 		query.Page = defaultPage
@@ -212,7 +208,6 @@ func (s *F5InfoService) normalizePagination(query *F5InfoQuery) *F5InfoQuery {
 	return query
 }
 
-// loadMissingClusters batch loads clusters that weren't preloaded.
 func (s *F5InfoService) loadMissingClusters(ctx context.Context, f5Infos []navy.F5Info) {
 	var clusterIDs []uint
 	for i := range f5Infos {
@@ -249,7 +244,6 @@ func (s *F5InfoService) loadMissingClusters(ctx context.Context, f5Infos []navy.
 	}
 }
 
-// convertToResponseList converts models to response DTOs.
 func (s *F5InfoService) convertToResponseList(f5Infos []navy.F5Info) []*F5InfoResponse {
 	list := make([]*F5InfoResponse, 0, len(f5Infos))
 	for i := range f5Infos {
@@ -328,7 +322,6 @@ func (s *F5InfoService) DeleteF5Info(ctx context.Context, id int) error {
 	return nil
 }
 
-// toF5InfoResponse converts navy.F5Info model to response DTO.
 func toF5InfoResponse(m *navy.F5Info) *F5InfoResponse {
 	if m == nil {
 		return nil

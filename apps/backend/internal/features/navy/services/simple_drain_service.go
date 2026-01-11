@@ -104,7 +104,6 @@ func (sds *SimpleDrainService) checkNodeUnschedulable(ctx context.Context, clust
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
 
-	// 检查节点是否为不可调度状态
 	if !node.Spec.Unschedulable {
 		return fmt.Errorf("节点 %s 尚未被标记为不可调度状态，请先cordon节点 %s 后再进行drain操作", nodeName, nodeName)
 	}
@@ -197,7 +196,6 @@ func (sds *SimpleDrainService) subscribeControlChannel(ctx context.Context, drai
 				} else if cancel != nil {
 					cancel()
 				}
-				// 更新状态
 				if err := sds.stateManager.UpdateDrainStatus(drainID, DrainStatusCanceled); err != nil {
 					sds.eventManager.SendError(drainID, "failed to update drain status to canceled", err)
 				}
@@ -232,7 +230,6 @@ func (sds *SimpleDrainService) executeDrain(ctx context.Context, drainID string,
 // createPDBsForAppGroups 为应用分组创建 PDB
 func (sds *SimpleDrainService) createPDBsForAppGroups(ctx context.Context, drainID string, req *SimpleDrainRequest, appGroups map[string][]DrainPodInfo) {
 	for groupKey, pods := range appGroups {
-		// 过滤掉被标记为 Ignored 的 Pod（如 DaemonSet / StatefulSet）
 		eligible := make([]DrainPodInfo, 0, len(pods))
 		for _, p := range pods {
 			migrationID := fmt.Sprintf("%s-%s-%s", drainID, p.Namespace, p.Name)
@@ -287,7 +284,6 @@ func (sds *SimpleDrainService) evictPodsInGroups(ctx context.Context, drainID st
 					"category": "pod",
 					"level":    "INFO",
 				})
-				// 发送ignored状态事件，确保前端能正确显示
 				sds.eventManager.SendPodMigrationIgnored(drainID, mi)
 				processedPods++
 				sds.operationManager.UpdateProgress(drainID, processedPods, failedPods, fmt.Sprintf("Processed %d/%d pods", processedPods, totalPods))
@@ -493,7 +489,6 @@ func (sds *SimpleDrainService) finalizeDrain(drainID string) {
 		defer cancel()
 
 		for _, m := range migrations {
-			// 跳过已经是终态的migration
 			if m.Status == DrainMigrationCompleted || m.Status == DrainMigrationIgnored ||
 				m.Status == DrainMigrationFailed || m.Status == DrainMigrationTimeout {
 				continue

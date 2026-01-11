@@ -60,7 +60,6 @@ type HolmesAnalysisResponse struct {
 	ErrorMessage    string                 `json:"error_message,omitempty"`
 }
 
-// NewHolmesService 创建HolmesService实例
 func NewHolmesService(database *db.Database, cfg *config.Config, storage sharedservices.PayloadStorage, knowledge *knowledgeservice.KnowledgeService) *HolmesService {
 	client := resty.New()
 	client.SetTimeout(time.Duration(cfg.HolmesGPT.TimeoutSeconds) * time.Second)
@@ -90,15 +89,12 @@ func NewHolmesService(database *db.Database, cfg *config.Config, storage shareds
 	}
 }
 
-// TriggerAnalysis 触发HolmesGPT分析
 func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID uint64) (*models.RCARun, error) {
-	// 获取告警信息
 	alert, err := s.getAlertByID(alertID)
 	if err != nil {
 		return nil, fmt.Errorf("获取告警失败: %w", err)
 	}
 
-	// 检查是否已有进行中的分析
 	existingRun, err := s.getRunningAnalysis(alertID)
 	if err != nil {
 		return nil, fmt.Errorf("检查现有分析失败: %w", err)
@@ -107,7 +103,6 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID uint64) (*m
 		return existingRun, nil
 	}
 
-	// 创建RCA运行记录
 	rcaRun := &models.RCARun{
 		AlertID:         alert.ID,
 		Status:          string(models.RCAStatusPending),
@@ -121,19 +116,15 @@ func (s *HolmesService) TriggerAnalysis(ctx context.Context, alertID uint64) (*m
 		return nil, fmt.Errorf("创建RCA运行记录失败: %w", err)
 	}
 
-	// 异步执行分析
 	go s.executeAnalysis(context.Background(), rcaRun, alert)
 
 	return rcaRun, nil
 }
 
-// executeAnalysis 执行HolmesGPT分析
 func (s *HolmesService) executeAnalysis(ctx context.Context, rcaRun *models.RCARun, alert *models.Alert) {
-	// 更新状态为运行中
 	rcaRun.Status = string(models.RCAStatusRunning)
 	s.db.Save(rcaRun)
 
-	// 准备分析请求
 	request := HolmesAnalysisRequest{
 		AlertFingerprint: alert.Fingerprint,
 		ClusterName:      alert.ClusterName,
@@ -148,18 +139,15 @@ func (s *HolmesService) executeAnalysis(ctx context.Context, rcaRun *models.RCAR
 		TimeoutSeconds: s.config.HolmesGPT.TimeoutSeconds,
 	}
 
-	// 发送分析请求
 	response, err := s.sendAnalysisRequest(ctx, request)
 	if err != nil {
 		s.handleAnalysisError(rcaRun, err)
 		return
 	}
 
-	// 更新分析结果
 	s.updateAnalysisResult(ctx, rcaRun, response)
 }
 
-// sendAnalysisRequest 发送分析请求到HolmesGPT
 func (s *HolmesService) sendAnalysisRequest(ctx context.Context, request HolmesAnalysisRequest) (*HolmesAnalysisResponse, error) {
 	url := "/api/v1/analyze"
 	resp, err := s.client.R().
@@ -182,7 +170,6 @@ func (s *HolmesService) sendAnalysisRequest(ctx context.Context, request HolmesA
 	return &response, nil
 }
 
-// handleAnalysisError 处理分析错误
 func (s *HolmesService) handleAnalysisError(rcaRun *models.RCARun, err error) {
 	now := time.Now()
 	errorMsg := err.Error()

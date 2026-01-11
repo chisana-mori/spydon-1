@@ -150,30 +150,25 @@ func (h *Handler) GetAlertRawPayload(c *gin.Context) {
 		return
 	}
 
-	// 获取告警信息
 	alert, err := h.alertService.GetAlertByID(path.ID)
 	if err != nil {
 		httpx.NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
 	}
 
-	// 检查是否有原始数据
 	if alert.RawPayloadKey == "" {
 		httpx.NotFound(c, "NO_RAW_PAYLOAD", "该告警没有原始数据")
 		return
 	}
 
-	// 从存储服务获取原始数据
 	rawData, err := h.storageService.Get(c.Request.Context(), alert.RawPayloadKey)
 	if err != nil {
 		httpx.ErrorWithDetails(c, http.StatusInternalServerError, "GET_RAW_PAYLOAD_ERROR", "获取原始数据失败", err.Error())
 		return
 	}
 
-	// 设置响应头
 	c.Header("Content-Type", "application/json")
 	c.Header("X-Raw-Payload-Key", alert.RawPayloadKey)
 
-	// 返回原始数据
 	c.Data(http.StatusOK, "application/json", rawData)
 }

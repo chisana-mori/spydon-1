@@ -10,10 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// =============================================================================
-// DeviceOpsHandler - 设备操作处理器
-// =============================================================================
-
 // DeviceOpsHandler 处理设备批量操作相关的 HTTP 请求
 type DeviceOpsHandler struct {
 	svc           *services.DeviceOperationsService
@@ -134,7 +130,6 @@ func (h *DeviceOpsHandler) handleBatchJobOp(c *gin.Context, opType services.Chan
 		return
 	}
 
-	// Attach AWX job ID for async tracking
 	if handle != nil && ticketID != "" {
 		_ = h.changeManager.AttachAWXJob(ticketID, handle.JobID)
 	}
@@ -227,7 +222,6 @@ func (h *DeviceOpsHandler) DrainNodes(c *gin.Context) {
 		return
 	}
 
-	// Attach drain IDs to the change ticket for async tracking
 	if result != nil && ticketID != "" {
 		var drainIDs []string
 		for _, r := range result.Results {

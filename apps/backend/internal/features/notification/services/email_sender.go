@@ -70,17 +70,17 @@ func (fm *NoticeEmailFe) PostEmail(req SendEmailReq) errs.Error {
 func (fm *NoticeEmailFe) BuildEmail(p MailGenReq) (rst SendEmailReq, err errs.Error) {
 	clusterObj, err := fetchCluster(fm.db, p.Additional)
 	if err != nil {
-		return
+		return SendEmailReq{}, err
 	}
 
 	templateObj, err := fetchTemplate(fm.db, uint64(p.TemplateId))
 	if err != nil {
-		return
+		return SendEmailReq{}, err
 	}
 
 	addressObj, err := fetchAddress(fm.db, uint64(p.AddressId))
 	if err != nil {
-		return
+		return SendEmailReq{}, err
 	}
 
 	nodes := extractNodes(p.Additional)
@@ -91,12 +91,12 @@ func (fm *NoticeEmailFe) BuildEmail(p MailGenReq) (rst SendEmailReq, err errs.Er
 
 	files, err := processTableParams(fm, p, templateObj, clusterObj, nodes, &mailProperty)
 	if err != nil {
-		return
+		return SendEmailReq{}, err
 	}
 
 	addresses, err := buildEmailAddresses(p, addressObj)
 	if err != nil {
-		return
+		return SendEmailReq{}, err
 	}
 
 	rst.Addresses = addresses
@@ -104,10 +104,8 @@ func (fm *NoticeEmailFe) BuildEmail(p MailGenReq) (rst SendEmailReq, err errs.Er
 	rst.AttachFiles = files
 	rst.TemplateId = p.TemplateId
 
-	return
+	return rst, nil
 }
-
-// Helper functions for parameter extraction
 
 func getRequiredValue(key string, store map[string]interface{}) (interface{}, errs.Error) {
 	if val, ok := store[key]; ok {
@@ -136,7 +134,6 @@ func fetchCluster(db *gorm.DB, additional map[string]interface{}) (models.Cluste
 
 	clusterId, ok := clusterIdVal.(float64)
 	if !ok {
-		// Try int just in case, though json standard is float for numbers
 		if id, ok := clusterIdVal.(int); ok {
 			clusterId = float64(id)
 		} else {
@@ -196,11 +193,8 @@ func buildAttachments(files []AttachFile) []mailer.Attachment {
 	return attachments
 }
 
-// Processing logic
-
 func processTableParams(fm *NoticeEmailFe, p MailGenReq, templateObj models.EmailTemplate, clusterObj models.Cluster, nodes []string, mailProperty *MailContentProperty) ([]AttachFile, errs.Error) {
 	var files []AttachFile
-	// params is a JSON string, gjson is used to extract 'tables' array
 	for _, param := range gjson.Get(templateObj.Params, "tables").Array() {
 		file, err := handleTableParam(fm, param.String(), p, clusterObj, nodes, mailProperty)
 		if err != nil {
@@ -281,13 +275,6 @@ func handleOfflineDeployValues(p MailGenReq, clusterObj models.Cluster, mailProp
 	if err != nil {
 		return nil, err
 	}
-
-	// For offline: present in history but not in instant?
-	// Note: Original logic was `buildAppBoards(instantApps)` for the excel file.
-	// This seems contrary to "Offline Deploys" which implies valid deployments are those that are gone.
-	// However, respecting original behavior:
-	// "Offline": Original code used "DiffAppsBoard" with `Apps: apps` (from instantApps).
-	// This seems odd if we want to show what is offline.
 
 	apps, _ := buildAppBoards(instantApps)
 	mailProperty.Apps = apps
@@ -464,7 +451,7 @@ var excelColumns = []struct {
 	{"B", "重要等级", 20},
 	{"C", "namespace", 40},
 	{"D", "子系统名", 40},
-	{"E", "", 70}, // Resource type set dynamically
+	{"E", "", 70},
 	{"F", "运营虚拟组", 40},
 	{"G", "应用负责人", 40},
 	{"H", "应用运维", 40},
@@ -479,7 +466,9 @@ func appExcel(boards AppSlice, resourceType string) []byte {
 	})
 
 	sheet := "应用列表"
-	f.NewSheet(sheet)
+	if _, err := f.NewSheet(sheet); err != nil {
+		logger.L().Error(fmt.Sprintf("创建工作表失败: %v", err))
+	}
 
 	// Set Headers
 	for i, col := range excelColumns {
@@ -488,14 +477,18 @@ func appExcel(boards AppSlice, resourceType string) []byte {
 		if i == 4 && resourceType != "" {
 			header = resourceType
 		}
-		
+
 		if header != "" {
 			cellRef := fmt.Sprintf("%s1", col.letter)
-			f.SetCellStr(sheet, cellRef, header)
+			if err := f.SetCellStr(sheet, cellRef, header); err != nil {
+				logger.L().Error(fmt.Sprintf("设置表头失败: %v", err))
+			}
 		}
 
 		// Set width
-		f.SetColWidth(sheet, col.letter, col.letter, col.width)
+		if err := f.SetColWidth(sheet, col.letter, col.letter, col.width); err != nil {
+			logger.L().Error(fmt.Sprintf("设置列宽失败: %v", err))
+		}
 	}
 
 	// Set Data
@@ -513,12 +506,15 @@ func appExcel(boards AppSlice, resourceType string) []byte {
 		}
 		for col, val := range vals {
 			cellRef := fmt.Sprintf("%s%d", col, row)
-			f.SetCellStr(sheet, cellRef, val)
-			f.SetCellStyle(sheet, cellRef, cellRef, style)
+			if err := f.SetCellStr(sheet, cellRef, val); err != nil {
+				logger.L().Error(fmt.Sprintf("设置单元格值失败: %v", err))
+			}
+			if err := f.SetCellStyle(sheet, cellRef, cellRef, style); err != nil {
+				logger.L().Error(fmt.Sprintf("设置单元格样式失败: %v", err))
+			}
 		}
 	}
 
 	buffer, _ := f.WriteToBuffer()
 	return buffer.Bytes()
 }
-

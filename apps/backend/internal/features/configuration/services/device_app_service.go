@@ -34,7 +34,6 @@ func (s *DeviceAppService) ListDeviceApps(ctx context.Context, query DeviceAppLi
 		tx = tx.Where("app_id LIKE ? OR name LIKE ? OR owner LIKE ?", keyword, keyword, keyword)
 	}
 
-	// 类型筛选
 	if query.Type != nil {
 		tx = tx.Where("type = ?", *query.Type)
 	}
@@ -44,12 +43,10 @@ func (s *DeviceAppService) ListDeviceApps(ctx context.Context, query DeviceAppLi
 		tx = tx.Where("status = ?", *query.Status)
 	}
 
-	// 计数
 	if err := tx.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("统计设备应用数量失败: %w", err)
 	}
 
-	// 分页
 	page := query.Page
 	if page <= 0 {
 		page = 1
@@ -64,7 +61,6 @@ func (s *DeviceAppService) ListDeviceApps(ctx context.Context, query DeviceAppLi
 		return nil, fmt.Errorf("查询设备应用列表失败: %w", err)
 	}
 
-	// 转换为DTO
 	dtos := make([]DeviceAppDTO, len(apps))
 	for i, app := range apps {
 		dtos[i] = DeviceAppDTO{
@@ -111,7 +107,6 @@ func (s *DeviceAppService) GetDeviceApp(ctx context.Context, id int) (*DeviceApp
 
 // CreateDeviceApp 创建设备应用
 func (s *DeviceAppService) CreateDeviceApp(ctx context.Context, req CreateDeviceAppRequest) (*DeviceAppDTO, error) {
-	// 检查 app_id 是否已存在
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&navy.DeviceApp{}).Where("app_id = ?", req.AppId).Count(&count).Error; err != nil {
 		return nil, fmt.Errorf("检查AppId失败: %w", err)

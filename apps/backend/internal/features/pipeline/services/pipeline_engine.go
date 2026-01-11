@@ -41,7 +41,6 @@ func WithJobRuntime(runtime JobRuntime) PipelineEngineOption {
 	}
 }
 
-// WithMetricsRuntime 设置指标运行时
 func WithMetricsRuntime(runtime MetricsRuntime) PipelineEngineOption {
 	return func(e *PipelineEngine) {
 		e.metricsRuntime = runtime
@@ -100,7 +99,6 @@ func (e *PipelineEngine) ensureDB() error {
 	return nil
 }
 
-// validateParameters 验证执行参数
 func (e *PipelineEngine) validateParameters(stages []models.StageDefinition, params map[string]interface{}) error {
 	for _, stage := range stages {
 		if stage.Type != models.StageTypeAWXJob {
@@ -142,7 +140,6 @@ func (e *PipelineEngine) validateParameters(stages []models.StageDefinition, par
 			}
 
 			if param.InputType == "multi_select" && len(param.Options) > 0 {
-				// 多选值可能是字符串数组
 				var values []string
 				switch v := value.(type) {
 				case []string:
@@ -173,38 +170,31 @@ func (e *PipelineEngine) validateParameters(stages []models.StageDefinition, par
 	return nil
 }
 
-// StartExecution 启动流水线执行
 func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, clusterID uint64, params map[string]interface{}, triggeredBy uint64, targetNodes []string, batchSize int, explicitBatches [][]string, pauseBetweenBatches bool, autoStart bool) (*models.PipelineExecution, error) {
 	if err := e.ensureDB(); err != nil {
 		return nil, err
 	}
-	// 获取模板
 	var template models.PipelineTemplate
 	if err := e.db.First(&template, templateID).Error; err != nil {
 		return nil, fmt.Errorf("获取流水线模板失败: %w", err)
 	}
 
-	// 获取集群信息
 	var cluster models.Cluster
 	if err := e.db.First(&cluster, clusterID).Error; err != nil {
 		return nil, fmt.Errorf("获取集群信息失败: %w", err)
 	}
 
-	// 解析stages用于验证参数
 	var stages []models.StageDefinition
 	if err := json.Unmarshal(template.Stages, &stages); err != nil {
 		return nil, fmt.Errorf("解析模板阶段失败: %w", err)
 	}
 
-	// 验证参数绑定
 	if err := e.validateParameters(stages, params); err != nil {
 		return nil, err
 	}
 
-	// 处理批次生成 EffectiveStages
 	var effectiveStages []models.StageDefinition
 
-	// 优先使用显式批次配置
 	if len(explicitBatches) > 0 {
 		for _, stage := range stages {
 			if stage.Type == models.StageTypeAWXJob {
@@ -214,7 +204,6 @@ func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, 
 					}
 					isLastBatch := i == len(explicitBatches)-1
 
-					// 创建新的 StageDefinition
 					newStage := stage
 					newStage.ID = fmt.Sprintf("%s_batch_%d", stage.ID, i+1)
 					newStage.Name = fmt.Sprintf("%s (Batch %d)", stage.Name, i+1)
@@ -247,9 +236,7 @@ func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, 
 		}
 	} else if batchSize > 0 && len(targetNodes) > 0 {
 		for _, stage := range stages {
-			// 只对 AWX Job 进行批次拆分
 			if stage.Type == models.StageTypeAWXJob {
-				// 分批
 				for i := 0; i < len(targetNodes); i += batchSize {
 					end := i + batchSize
 					if end > len(targetNodes) {
@@ -318,7 +305,6 @@ func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, 
 		return nil, fmt.Errorf("创建执行记录失败: %w", err)
 	}
 
-	// 创建各阶段运行记录
 	for _, stage := range stages {
 		stageRun := &models.StageRun{
 			ExecutionID: execution.ID,
@@ -337,7 +323,6 @@ func (e *PipelineEngine) StartExecution(ctx context.Context, templateID uint64, 
 				ClusterName:  cluster.Name,
 			}
 
-			// 处理 extra_vars，添加 cluster_name
 			if len(stage.Config.ExtraVars) > 0 {
 				cloneConfig.ExtraVars = make(map[string]interface{})
 				for k, v := range stage.Config.ExtraVars {
@@ -400,7 +385,6 @@ func (e *PipelineEngine) CloneExecution(ctx context.Context, executionID uint64,
 		return nil, fmt.Errorf("获取原执行记录失败: %w", err)
 	}
 
-	// 2. 创建新执行记录 (Pending 状态)
 	now := time.Now()
 	execution := &models.PipelineExecution{
 		PipelineTemplateID: original.PipelineTemplateID,
@@ -436,6 +420,7 @@ func (e *PipelineEngine) CloneExecution(ctx context.Context, executionID uint64,
 	}
 
 	// 4. 创建 StageRun 记录
+
 	for _, stage := range stages {
 		stageRun := &models.StageRun{
 			ExecutionID: execution.ID,
@@ -451,10 +436,9 @@ func (e *PipelineEngine) CloneExecution(ctx context.Context, executionID uint64,
 			cloneConfig := CloneTemplateConfig{
 				TemplateID:   stage.Config.AWXTemplateID,
 				TemplateName: stage.Config.AWXTemplateName,
-				ClusterName:  original.ClusterName,
+				ClusterName:  execution.ClusterName,
 			}
 
-			// 处理 extra_vars
 			if len(stage.Config.ExtraVars) > 0 {
 				cloneConfig.ExtraVars = make(map[string]interface{})
 				for k, v := range stage.Config.ExtraVars {
@@ -500,6 +484,7 @@ func (e *PipelineEngine) RunPendingExecution(ctx context.Context, executionID ui
 	}
 
 	// 启动流水线
+
 	execCtx, cancel := context.WithCancel(context.Background())
 	e.mu.Lock()
 	e.running[execution.ID] = cancel
@@ -515,10 +500,8 @@ func (e *PipelineEngine) RunPendingExecution(ctx context.Context, executionID ui
 func (e *PipelineEngine) runPipeline(ctx context.Context, executionID uint64) {
 	defer e.cleanupExecution(executionID)
 
-	// 更新状态为运行中
 	e.updateExecutionStatus(executionID, models.ExecutionStatusRunning, "")
 
-	// 获取执行记录和模板
 	var execution models.PipelineExecution
 	if err := e.db.Preload("Template").First(&execution, executionID).Error; err != nil {
 		e.failExecution(executionID, fmt.Sprintf("获取执行记录失败: %v", err))
@@ -526,26 +509,23 @@ func (e *PipelineEngine) runPipeline(ctx context.Context, executionID uint64) {
 	}
 
 	// 解析stages
+
 	var stages []models.StageDefinition
-	// 优先使用 EffectiveStages
 	if len(execution.EffectiveStages) > 0 {
 		if err := json.Unmarshal(execution.EffectiveStages, &stages); err != nil {
 			e.failExecution(executionID, fmt.Sprintf("解析EffectiveStages失败: %v", err))
 			return
 		}
 	} else {
-		// 回退到 Template Stages
 		if err := json.Unmarshal(execution.Template.Stages, &stages); err != nil {
 			e.failExecution(executionID, fmt.Sprintf("解析阶段失败: %v", err))
 			return
 		}
 	}
 
-	// 解析运行时参数
 	var params map[string]interface{}
 	_ = json.Unmarshal(execution.Parameters, &params)
 
-	// 按顺序执行各阶段
 	var lastResult *StageResult
 	for _, stage := range stages {
 		select {
@@ -559,7 +539,6 @@ func (e *PipelineEngine) runPipeline(ctx context.Context, executionID uint64) {
 		e.db.Model(&models.PipelineExecution{}).Where("id = ?", executionID).
 			Update("current_stage_id", stage.ID)
 
-		// 执行 Pre-Hooks
 		hookCtx := PipelineHookContext{
 			ExecutionID:    executionID,
 			Stage:          stage,
@@ -599,7 +578,6 @@ func (e *PipelineEngine) runPipeline(ctx context.Context, executionID uint64) {
 				result.Success = false
 				result.Error = fmt.Sprintf("Hook [%s] post-check failed: %v", hook.Name(), err)
 
-				// 更新阶段状态为失败
 				now := time.Now()
 				e.db.Model(&models.StageRun{}).Where("execution_id = ? AND stage_id = ?", executionID, stage.ID).
 					Updates(map[string]interface{}{
@@ -620,6 +598,7 @@ func (e *PipelineEngine) runPipeline(ctx context.Context, executionID uint64) {
 			}
 
 			// 根据失败策略处理
+
 			switch stage.OnFailure {
 			case models.FailureStrategyAbort:
 				e.failExecution(executionID, result.Error)
@@ -631,10 +610,8 @@ func (e *PipelineEngine) runPipeline(ctx context.Context, executionID uint64) {
 				e.pauseExecution(executionID, result.Error)
 				return
 			case models.FailureStrategyContinue:
-				// 继续下一阶段
 				continue
 			default:
-				// 默认为终止
 				e.failExecution(executionID, result.Error)
 				return
 			}
@@ -664,7 +641,6 @@ type StageResult struct {
 
 // executeStage 执行单个阶段
 func (e *PipelineEngine) executeStage(ctx context.Context, executionID uint64, stage models.StageDefinition, params map[string]interface{}, clusterName string) StageResult {
-	// 获取对应的StageRun记录
 	var stageRun models.StageRun
 	e.db.Where("execution_id = ? AND stage_id = ?", executionID, stage.ID).First(&stageRun)
 

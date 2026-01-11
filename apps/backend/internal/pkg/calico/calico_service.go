@@ -102,8 +102,6 @@ func (s *Service) detectAPIVersion(clusterName string) APIVersion {
 const (
 	// defaultTimeout is the default timeout for API calls
 	defaultTimeout = 30 * time.Second
-	// versionDetectTimeout is the timeout for API version detection
-	versionDetectTimeout = 10 * time.Second
 	// defaultClusterInfoName is the default name for ClusterInformation resource
 	defaultClusterInfoName = "default"
 )

@@ -32,7 +32,6 @@ func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Ale
 		zap.Uint64("run_id", rcaRun.ID),
 	)
 
-	// 更新状态为运行中
 	_ = s.UpdateRCARunStatus(rcaRun.ID, string(models.RCAStatusRunning), "")
 	s.broadcastStatus(models.FormatID(alert.ID), models.RCAStatusRunning, models.FormatID(rcaRun.ID))
 
@@ -48,7 +47,6 @@ func (s *RCAService) executeRCAAnalysis(rcaRun *models.RCARun, alert *models.Ale
 		Source:           "auto-rca",
 	}
 
-	// 尝试获取关联的知识库文章
 	if s.knowledgeService != nil {
 		if kb, err := s.knowledgeService.BuildKnowledgeBaseForRule(context.Background(), alert.Title); err == nil && kb != "" {
 			opts.KnowledgeBase = kb

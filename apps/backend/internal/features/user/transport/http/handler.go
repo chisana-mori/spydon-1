@@ -17,14 +17,12 @@ type Handler struct {
 	userService *services.UserService
 }
 
-// New 创建用户管理处理器
 func New(userService *services.UserService) *Handler {
 	return &Handler{
 		userService: userService,
 	}
 }
 
-// RegisterRoutes 注册用户管理相关路由（管理员功能）
 func (h *Handler) RegisterRoutes(admin *gin.RouterGroup) {
 	group := admin.Group("/users")
 	{
@@ -35,7 +33,7 @@ func (h *Handler) RegisterRoutes(admin *gin.RouterGroup) {
 	}
 }
 
-// GetUsers 获取用户列表（管理员功能）
+// GetUsers 获取用户列表
 // @Summary 分页查询系统用户
 // @Description 管理员权限接口，用于分页检索平台所有已注册的用户信息。支持通过关键字对用户名、姓名或电子邮件进行模糊匹配过滤。该功能为用户管理界面提供了核心数据支撑，方便管理员掌握平台用户规模及详情。
 // @Tags Admin,User
@@ -66,7 +64,7 @@ func (h *Handler) GetUsers(c *gin.Context) {
 	httpx.SuccessPaginated(c, users, pagination)
 }
 
-// GetUser 获取单个用户详情（管理员功能）
+// GetUser 获取单个用户详情
 // @Summary 获取特定用户详细资料
 // @Description 根据唯一ID获取特定用户的完整档案信息。为了保护隐私，返回的数据会经过掩码处理（如隐藏部分邮箱和手机号内容）。接口涵盖了用户的登录历史、所属权限制、注册时间以及最后一次活跃的时间戳。
 // @Tags Admin,User
@@ -90,7 +88,6 @@ func (h *Handler) GetUser(c *gin.Context) {
 		return
 	}
 
-	// 对敏感信息进行掩码处理
 	maskedUsername, maskedEmail, maskedName := utils.MaskUserInfo(user.Username, user.Email, user.Name)
 
 	httpx.Success(c, gin.H{
@@ -108,7 +105,7 @@ func (h *Handler) GetUser(c *gin.Context) {
 	})
 }
 
-// SetUserAdmin 设置用户管理员权限（管理员功能）
+// SetUserAdmin 设置用户管理员权限
 // @Summary 调整用户管理员角色
 // @Description 授予或撤销指定用户的超级管理员权限。系统强制要求至少保留一个活跃的管理员，以防权限配置错误导致平台陷入不可管理状态。该操作会直接影响对应用户登录后的菜单展示内容和接口访问权限范围。
 // @Tags Admin,User
@@ -143,7 +140,6 @@ func (h *Handler) SetUserAdmin(c *gin.Context) {
 		return
 	}
 
-	// 检查是否至少保留一个管理员
 	if !*req.IsAdmin {
 		adminCount, err := h.userService.GetAdminCount()
 		if err != nil {
@@ -168,7 +164,7 @@ func (h *Handler) SetUserAdmin(c *gin.Context) {
 	})
 }
 
-// DeleteUser 删除用户（管理员功能）
+// DeleteUser 删除用户
 // @Summary 物理删除用户账号
 // @Description 从系统中彻底移除指定的用户记录。接口内置了安全保护机制，禁止删除当前正在操作的登录账号，且禁止删除系统最后一个管理员。删除操作不可逆，执行后该用户关联的所有私有配置和API Key将一并失效。
 // @Tags Admin,User
@@ -186,7 +182,6 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户ID，防止删除自己
 	currentUserID, exists := c.Get("user_id")
 	if exists {
 		if uid, err := toUint64(currentUserID); err == nil && uid == path.ID {
@@ -195,14 +190,12 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 		}
 	}
 
-	// 检查要删除的用户是否是管理员
 	user, err := h.userService.GetUserByID(path.ID)
 	if err != nil {
 		httpx.ErrorWithDetails(c, http.StatusNotFound, "USER_NOT_FOUND", "用户不存在", err.Error())
 		return
 	}
 
-	// 如果是管理员，检查是否至少保留一个管理员
 	if user.IsAdmin {
 		adminCount, err := h.userService.GetAdminCount()
 		if err != nil {
@@ -224,7 +217,6 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	httpx.SuccessWithMessage(c, "用户删除成功", nil)
 }
 
-// toUint64 将多种类型转换为 uint64
 func toUint64(value interface{}) (uint64, error) {
 	switch v := value.(type) {
 	case uint64:

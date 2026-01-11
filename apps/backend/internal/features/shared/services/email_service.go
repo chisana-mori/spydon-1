@@ -44,7 +44,6 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	}
 
 	subject := fmt.Sprintf("[RCA完成] %s | 集群: %s | 严重级别: %s", alert.Title, alert.ClusterName, alert.Severity)
-	// 组装简要文本内容（避免外部模板依赖）
 	var summary string
 	if rca.Summary != nil {
 		summary = *rca.Summary
@@ -76,7 +75,6 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	}
 	body.WriteString("— 本邮件由系统自动发送 —\n")
 
-	// SMTP 发送
 	msg := strings.Builder{}
 	msg.WriteString(fmt.Sprintf("From: %s\r\n", s.cfg.Email.From))
 	msg.WriteString(fmt.Sprintf("To: %s\r\n", to))
@@ -88,8 +86,6 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	addr := net.JoinHostPort(s.cfg.Email.SMTPHost, strconv.Itoa(s.cfg.Email.SMTPPort))
 	auth := smtp.PlainAuth("", s.cfg.Email.SMTPUser, s.cfg.Email.SMTPPass, s.cfg.Email.SMTPHost)
 
-	// 支持 STARTTLS/直连TLS 场景：先尝试 TLS，失败则退回非TLS
-	// 1) 直连TLS
 	tlsConfig := &tls.Config{
 		ServerName:         s.cfg.Email.SMTPHost,
 		InsecureSkipVerify: false,            // 明确设置为false以确保安全
@@ -106,7 +102,6 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 		if cerr == nil {
 			defer func() {
 				if quitErr := c.Quit(); quitErr != nil {
-					// 记录退出错误但不影响邮件发送
 					logger.S().Warnw("SMTP客户端退出时发生错误", "module", "email", "error", quitErr)
 				}
 			}()
@@ -127,10 +122,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 		}
 	}
 
-	// 2) 普通SMTP（可能由服务器升级到STARTTLS）
-	// 直接使用 smtp.SendMail 简化
 	if err := smtp.SendMail(addr, auth, s.cfg.Email.From, []string{to}, []byte(msg.String())); err != nil {
-		// 再做一次兜底：非认证直连（某些内网MTA）
 		logger.S().Errorw("SendMail失败，尝试非认证兜底", "module", "email", "error", err)
 		dialer := &net.Dialer{}
 		c, dErr := dialer.DialContext(ctx, "tcp", addr)
@@ -138,7 +130,6 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 			return fmt.Errorf("连接SMTP失败: %w", err)
 		}
 		_ = c.Close()
-		// 返回原始错误以便定位
 		return fmt.Errorf("发送邮件失败: %w", err)
 	}
 	return nil

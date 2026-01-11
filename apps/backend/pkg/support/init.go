@@ -65,8 +65,6 @@ type NarwhalConfig struct {
 	Token string `mapstructure:"token" yaml:"token"`
 }
 
-
-
 // DragonflyConfig Dragonfly 变更管理配置
 type DragonflyConfig struct {
 	Host     string `mapstructure:"host" yaml:"host"`

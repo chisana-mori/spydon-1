@@ -200,13 +200,6 @@ func (s *ClusterService) backfillKubeConfig(cluster *models.Cluster) {
 	}
 }
 
-func (s *ClusterService) dbWithContext(ctx context.Context) *gorm.DB {
-	if ctx == nil {
-		return s.db.DB
-	}
-	return s.db.WithContext(ctx)
-}
-
 func (s *ClusterService) GetClusterByID(clusterName string) (*models.Cluster, error) {
 	var cluster models.Cluster
 	if err := s.db.Where("clustername = ?", clusterName).First(&cluster).Error; err != nil {

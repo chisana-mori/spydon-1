@@ -34,7 +34,6 @@ func (s *TaintManagementService) ListTaints(ctx context.Context, query TaintList
 		tx = tx.Where("`key` LIKE ? OR value LIKE ? OR description LIKE ?", keyword, keyword, keyword)
 	}
 
-	// Effect筛选
 	if query.Effect != "" {
 		tx = tx.Where("effect = ?", query.Effect)
 	}
@@ -44,12 +43,10 @@ func (s *TaintManagementService) ListTaints(ctx context.Context, query TaintList
 		tx = tx.Where("status = ?", *query.Status)
 	}
 
-	// 计数
 	if err := tx.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("统计污点数量失败: %w", err)
 	}
 
-	// 分页
 	page := query.Page
 	if page <= 0 {
 		page = 1
@@ -64,7 +61,6 @@ func (s *TaintManagementService) ListTaints(ctx context.Context, query TaintList
 		return nil, fmt.Errorf("查询污点列表失败: %w", err)
 	}
 
-	// 转换为DTO
 	dtos := make([]TaintManagementDTO, len(taints))
 	for i, taint := range taints {
 		dtos[i] = TaintManagementDTO{

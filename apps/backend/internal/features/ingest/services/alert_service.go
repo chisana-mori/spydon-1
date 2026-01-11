@@ -64,17 +64,14 @@ type ProcessAlertRequest struct {
 
 // ProcessAlert 处理告警接收逻辑
 func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest) (*uint64, error) {
-	// 验证严重级别
 	if !isValidSeverity(req.Severity) {
 		return nil, fmt.Errorf("无效的严重级别: %s", req.Severity)
 	}
 
-	// 保存原始payload（可选）
 	var payloadKey string
 	if s.payloadStorage != nil && len(req.RawBody) > 0 {
 		key, err := s.savePayload(ctx, fmt.Sprintf("alerts/%s", req.ClusterName), req.RawBody, "application/json")
 		if err != nil {
-			// 记录错误但不中断流程
 			logger.L().Warn("保存原始告警数据失败", zap.Error(err), zap.String("cluster_name", req.ClusterName))
 		} else {
 			payloadKey = key
@@ -95,7 +92,6 @@ func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest
 		RawPayloadKey: payloadKey,
 	}
 
-	// 使用 IngestConvertedAlert 处理后续逻辑
 	if err := s.IngestConvertedAlert(ctx, alert, req.ClientIP, req.UserAgent); err != nil {
 		return nil, err
 	}
@@ -105,13 +101,10 @@ func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest
 
 // IngestConvertedAlert 处理已转换的告警（保存、审计）
 func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.Alert, clientIP, userAgent string) error {
-
-	// 保存告警
 	if err := s.CreateOrUpdateAlert(ctx, alert); err != nil {
 		return fmt.Errorf("保存告警失败: %w", err)
 	}
 
-	// 记录审计日志
 	if s.auditService != nil {
 		_ = s.auditService.LogAction(0, "alert_ingested", "alert", &alert.ID, map[string]interface{}{
 			"cluster_name": alert.ClusterName,
@@ -121,7 +114,6 @@ func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.A
 		}, clientIP, userAgent)
 	}
 
-	// 触发Auto-RCA（仅在开启时）
 	if s.rcaService != nil && alert.Status == string(models.AlertStatusFiring) {
 		go func() {
 			rcaRun, err := s.rcaService.TriggerRCAAnalysis(alert)
@@ -149,7 +141,6 @@ func (s *AlertService) savePayload(ctx context.Context, keyPrefix string, data [
 		return "", nil
 	}
 
-	// 使用 Save 方法，它会自动生成 ID
 	key, err := s.payloadStorage.Save(ctx, keyPrefix, data, contentType)
 	if err != nil {
 		return "", err
@@ -237,30 +228,24 @@ type AlertTrendPoint struct {
 func (s *AlertService) CreateOrUpdateAlert(ctx context.Context, alert *models.Alert) error {
 	db := s.dbWithContext(ctx)
 
-	// 确保 cluster_name 不为空
 	if alert.ClusterName == "" {
 		alert.ClusterName = s.extractClusterNameFromLabels(alert.Labels)
 	}
 
-	// 提取 cluster_id（如果为空）
 	if alert.ClusterID == "" {
 		alert.ClusterID = s.extractClusterIDFromLabels(alert.Labels)
 	}
 
-	// 使用fingerprint和cluster_name作为唯一标识
 	var existingAlert models.Alert
 	result := db.Where("fingerprint = ? AND cluster_name = ?", alert.Fingerprint, alert.ClusterName).First(&existingAlert)
 
 	if result.Error == nil {
-		// 告警已存在，更新
 		alert.ID = existingAlert.ID
 		alert.CreatedAt = existingAlert.CreatedAt
 		return db.Save(alert).Error
 	} else if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-		// 告警不存在，创建新的
 		return db.Create(alert).Error
 	} else {
-		// 其他错误
 		return result.Error
 	}
 }
@@ -270,10 +255,8 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 	var alerts []models.Alert
 	var total int64
 
-	// 构建查询
 	query := s.db.Model(&models.Alert{})
 
-	// 应用过滤条件
 	if filters.ClusterName != "" {
 		query = query.Where("cluster_name = ?", filters.ClusterName)
 	}
@@ -290,12 +273,10 @@ func (s *AlertService) GetAlerts(page, limit int, filters AlertFilters) ([]model
 		query = query.Where("created_at >= ?", filters.Since)
 	}
 
-	// 获取总数
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取告警总数失败: %w", err)
 	}
 
-	// 分页查询
 	offset := (page - 1) * limit
 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&alerts).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取告警列表失败: %w", err)
@@ -344,7 +325,6 @@ func (s *AlertService) UpdateAlertStatus(id uint64, status string) error {
 func (s *AlertService) GetAlertStats(clusterName string) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
-	// 按严重级别统计
 	var severityStats []struct {
 		Severity string `json:"severity"`
 		Count    int64  `json:"count"`
@@ -360,7 +340,6 @@ func (s *AlertService) GetAlertStats(clusterName string) (map[string]interface{}
 	}
 	stats["by_severity"] = severityStats
 
-	// 按状态统计
 	var statusStats []struct {
 		Status string `json:"status"`
 		Count  int64  `json:"count"`
@@ -376,7 +355,8 @@ func (s *AlertService) GetAlertStats(clusterName string) (map[string]interface{}
 	}
 	stats["by_status"] = statusStats
 
-	// 总数统计
+	stats["by_status"] = statusStats
+
 	var totalCount int64
 	query = s.db.Model(&models.Alert{})
 	if clusterName != "" {
@@ -388,7 +368,8 @@ func (s *AlertService) GetAlertStats(clusterName string) (map[string]interface{}
 	}
 	stats["total"] = totalCount
 
-	// 最近24小时新增告警数
+	stats["total"] = totalCount
+
 	var recentCount int64
 	since := time.Now().Add(-24 * time.Hour)
 	query = s.db.Model(&models.Alert{}).Where("created_at >= ?", since)

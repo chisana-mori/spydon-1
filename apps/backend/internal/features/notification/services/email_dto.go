@@ -39,11 +39,11 @@ func ParseParams(paramsJSON string) (TemplateConfig, error) {
 	if paramsJSON == "" {
 		return config, nil
 	}
-	
+
 	if err := json.Unmarshal([]byte(paramsJSON), &config); err != nil {
 		return config, err
 	}
-	
+
 	return config, nil
 }
 

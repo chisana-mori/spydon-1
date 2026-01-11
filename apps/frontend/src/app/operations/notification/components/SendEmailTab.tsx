@@ -342,7 +342,7 @@ export function SendEmailTab() {
             // We'll store it in state if we want to show it, for now we show Subject/Body
             // Convert attachFiles to simpler structure if needed for display
 
-            // NOTE: The previous 'affectedResources' logic was separate. 
+            // NOTE: The previous 'affectedResources' logic was separate.
             // The BuildEmail method returns the FINAL constructed email including attachments.
             // It does NOT explicitly return affectedResources list unless parsing content or using attachments.
             // We'll reset affectedResources for now as this method is content-centric.

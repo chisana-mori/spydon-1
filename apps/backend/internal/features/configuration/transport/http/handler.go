@@ -26,10 +26,6 @@ func NewConfigurationHandler(navyDB *db.Database) *ConfigurationHandler {
 	}
 }
 
-// =====================================================
-// Label Management Endpoints
-// =====================================================
-
 // ListLabels 获取标签列表
 // @Summary 分页获取标签列表
 // @Description 从系统中分页检索预定义的K8s标签及其对应的值列表。支持通过关键字过滤标签名称，返回结果包含标签的ID、Key、Value以及描述信息，主要用于前端在配置设备或资源时提供可选的标签选项。
@@ -167,10 +163,6 @@ func (h *ConfigurationHandler) DeleteLabel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "标签删除成功"})
 }
 
-// =====================================================
-// Taint Management Endpoints
-// =====================================================
-
 // ListTaints 获取污点列表
 // @Summary 分页获取污点列表
 // @Description 检索系统中定义的所有K8s污点（Taint）模板库。污点包含Key、Value以及Effect（如NoSchedule）。用户可以通过返回的列表选择合适的污点应用到特定的工作节点上，以控制Pod在集群内的调度行为。
@@ -307,10 +299,6 @@ func (h *ConfigurationHandler) DeleteTaint(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "污点删除成功"})
 }
-
-// =====================================================
-// Device App Management Endpoints
-// =====================================================
 
 // ListDeviceApps 获取设备应用列表
 // @Summary 获取设备应用白名单

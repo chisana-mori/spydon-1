@@ -20,40 +20,31 @@ func NewDictionaryService(database *db.Database) *DictionaryService {
 	return &DictionaryService{db: database}
 }
 
-// =====================================================
-// 字典 CRUD
-// =====================================================
-
 // ListDictionaries 获取字典列表
 func (s *DictionaryService) ListDictionaries(query DictionaryListQuery) ([]DictionaryResponse, error) {
 	var dictionaries []models.Dictionary
 
 	tx := s.db.Model(&models.Dictionary{})
 
-	// 模块筛选
 	if query.Module != "" {
 		tx = tx.Where("module = ?", query.Module)
 	}
 
-	// 启用状态筛选
 	if query.IsEnabled != nil {
 		tx = tx.Where("is_enabled = ?", *query.IsEnabled)
 	}
 
-	// 关键字搜索
 	if query.Keyword != "" {
 		keyword := "%" + query.Keyword + "%"
 		tx = tx.Where("name LIKE ? OR code LIKE ? OR description LIKE ?", keyword, keyword, keyword)
 	}
 
-	// 排序
 	tx = tx.Order("sort_order ASC, id ASC")
 
 	if err := tx.Find(&dictionaries).Error; err != nil {
 		return nil, fmt.Errorf("查询字典列表失败: %w", err)
 	}
 
-	// 转换为响应并统计字典项数量
 	result := make([]DictionaryResponse, 0, len(dictionaries))
 	for _, dict := range dictionaries {
 		var itemCount int64
@@ -85,13 +76,11 @@ func (s *DictionaryService) GetDictionary(id uint64) (*DictionaryDetailResponse,
 		return nil, fmt.Errorf("查询字典失败: %w", err)
 	}
 
-	// 获取字典项
 	var items []models.DictionaryItem
 	if err := s.db.Where("dictionary_id = ?", id).Order("sort_order ASC, id ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("查询字典项失败: %w", err)
 	}
 
-	// 转换响应
 	itemResponses := make([]DictionaryItemResponse, 0, len(items))
 	for _, item := range items {
 		itemResponses = append(itemResponses, DictionaryItemResponse{
@@ -127,18 +116,14 @@ func (s *DictionaryService) CreateDictionary(req CreateDictionaryRequest) (*mode
 	var dict *models.Dictionary
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		// 1. 检查 code 是否已存在 (包括软删除的)
 		var existingDict models.Dictionary
 		err := tx.Unscoped().Where("code = ?", req.Code).First(&existingDict).Error
 		if err == nil {
-			// 是正常的记录，报错
 			return fmt.Errorf("字典编码 '%s' 已存在", req.Code)
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			// 查询出错
 			return fmt.Errorf("检查字典编码失败: %w", err)
 		}
 
-		// 2. 准备字典对象
 		keySameAsValue := true
 		if req.KeySameAsValue != nil {
 			keySameAsValue = *req.KeySameAsValue
@@ -154,15 +139,12 @@ func (s *DictionaryService) CreateDictionary(req CreateDictionaryRequest) (*mode
 			SortOrder:      req.SortOrder,
 		}
 
-		// 3. 创建字典
 		if err := tx.Select("Code", "Name", "Module", "Description", "IsEnabled", "KeySameAsValue", "SortOrder").Create(dict).Error; err != nil {
 			return fmt.Errorf("创建字典失败: %w", err)
 		}
 
-		// 4. 创建初始字典项
 		if len(req.Items) > 0 {
 			for _, itemReq := range req.Items {
-				// 跳过无效项
 				if itemReq.Key == "" && itemReq.Value == "" {
 					continue
 				}
@@ -203,7 +185,6 @@ func (s *DictionaryService) UpdateDictionary(id uint64, req UpdateDictionaryRequ
 		return nil, fmt.Errorf("查询字典失败: %w", err)
 	}
 
-	// 更新字段
 	updates := make(map[string]interface{})
 	if req.Name != "" {
 		updates["name"] = req.Name
@@ -230,7 +211,6 @@ func (s *DictionaryService) UpdateDictionary(id uint64, req UpdateDictionaryRequ
 		}
 	}
 
-	// 重新加载
 	if err := s.db.First(&dict, id).Error; err != nil {
 		return nil, fmt.Errorf("重新加载字典失败: %w", err)
 	}
@@ -240,7 +220,6 @@ func (s *DictionaryService) UpdateDictionary(id uint64, req UpdateDictionaryRequ
 
 // DeleteDictionary 删除字典（级联删除字典项）
 func (s *DictionaryService) DeleteDictionary(id uint64) error {
-	// 使用 Unscoped 进行物理删除
 	result := s.db.Unscoped().Delete(&models.Dictionary{}, id)
 	if result.Error != nil {
 		return fmt.Errorf("删除字典失败: %w", result.Error)
@@ -251,13 +230,8 @@ func (s *DictionaryService) DeleteDictionary(id uint64) error {
 	return nil
 }
 
-// =====================================================
-// 字典项 CRUD
-// =====================================================
-
 // CreateDictionaryItem 创建字典项
 func (s *DictionaryService) CreateDictionaryItem(dictID uint64, req CreateDictionaryItemRequest) (*models.DictionaryItem, error) {
-	// 检查字典是否存在
 	var dict models.Dictionary
 	if err := s.db.First(&dict, dictID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -266,13 +240,10 @@ func (s *DictionaryService) CreateDictionaryItem(dictID uint64, req CreateDictio
 		return nil, fmt.Errorf("查询字典失败: %w", err)
 	}
 
-	// 检查 key 是否已存在 (包括软删除)
 	var existingItem models.DictionaryItem
 	err := s.db.Unscoped().Where("dictionary_id = ? AND `key` = ?", dictID, req.Key).First(&existingItem).Error
 	if err == nil {
-
 		return nil, fmt.Errorf("字典项 Key '%s' 已存在", req.Key)
-
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("检查字典项Key失败: %w", err)
 	}
@@ -334,7 +305,6 @@ func (s *DictionaryService) UpdateDictionaryItem(itemID uint64, req UpdateDictio
 		}
 	}
 
-	// 重新加载
 	if err := s.db.First(&item, itemID).Error; err != nil {
 		return nil, fmt.Errorf("重新加载字典项失败: %w", err)
 	}
@@ -344,7 +314,6 @@ func (s *DictionaryService) UpdateDictionaryItem(itemID uint64, req UpdateDictio
 
 // DeleteDictionaryItem 删除字典项
 func (s *DictionaryService) DeleteDictionaryItem(itemID uint64) error {
-	// 使用 Unscoped 进行物理删除
 	result := s.db.Unscoped().Delete(&models.DictionaryItem{}, itemID)
 	if result.Error != nil {
 		return fmt.Errorf("删除字典项失败: %w", result.Error)
@@ -357,7 +326,6 @@ func (s *DictionaryService) DeleteDictionaryItem(itemID uint64) error {
 
 // BatchUpdateItems 批量更新字典项
 func (s *DictionaryService) BatchUpdateItems(dictID uint64, req BatchUpdateDictionaryItemsRequest) error {
-	// 检查字典是否存在
 	var dict models.Dictionary
 	if err := s.db.First(&dict, dictID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -369,7 +337,6 @@ func (s *DictionaryService) BatchUpdateItems(dictID uint64, req BatchUpdateDicti
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		for _, item := range req.Items {
 			if item.Delete && item.ID != nil {
-				// 删除 (物理删除)
 				if err := tx.Unscoped().Delete(&models.DictionaryItem{}, *item.ID).Error; err != nil {
 					return fmt.Errorf("删除字典项失败: %w", err)
 				}
@@ -377,7 +344,6 @@ func (s *DictionaryService) BatchUpdateItems(dictID uint64, req BatchUpdateDicti
 			}
 
 			if item.ID != nil {
-				// 更新
 				if err := tx.Model(&models.DictionaryItem{}).Where("id = ?", *item.ID).Updates(map[string]interface{}{
 					"key":         item.Key,
 					"value":       item.Value,
@@ -390,7 +356,6 @@ func (s *DictionaryService) BatchUpdateItems(dictID uint64, req BatchUpdateDicti
 					return fmt.Errorf("更新字典项失败: %w", err)
 				}
 			} else {
-				// 创建
 				newItem := models.DictionaryItem{
 					DictionaryID: dictID,
 					Key:          item.Key,
@@ -410,14 +375,9 @@ func (s *DictionaryService) BatchUpdateItems(dictID uint64, req BatchUpdateDicti
 	})
 }
 
-// =====================================================
-// 通用接口 - 前端模版使用
-// =====================================================
-
 // GetItemsByCode 通过字典编码获取启用的字典项列表
 // 这是所有前端模版的通用接口
 func (s *DictionaryService) GetItemsByCode(code string) ([]DictionaryItemResponse, error) {
-	// 查找字典
 	var dict models.Dictionary
 	if err := s.db.Where("code = ? AND is_enabled = true", code).First(&dict).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -426,7 +386,6 @@ func (s *DictionaryService) GetItemsByCode(code string) ([]DictionaryItemRespons
 		return nil, fmt.Errorf("查询字典失败: %w", err)
 	}
 
-	// 查询启用的字典项
 	var items []models.DictionaryItem
 	if err := s.db.Where("dictionary_id = ? AND is_enabled = true", dict.ID).Order("sort_order ASC, id ASC").Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("查询字典项失败: %w", err)

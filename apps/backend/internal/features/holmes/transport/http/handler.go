@@ -69,7 +69,6 @@ func (h *Handler) StreamInvestigate(c *gin.Context) {
 		return
 	}
 
-	// Upgrade to WebSocket
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		logger.L().Error("WebSocket 升级失败", zap.Error(err))
@@ -81,7 +80,6 @@ func (h *Handler) StreamInvestigate(c *gin.Context) {
 		}
 	}()
 
-	// First message as params
 	_, msg, err := ws.ReadMessage()
 	if err != nil {
 		logger.L().Error("读取 WebSocket 初始化消息失败", zap.Error(err))
@@ -112,7 +110,6 @@ func (h *Handler) StreamInvestigate(c *gin.Context) {
 		Source:           "webui",
 	}
 
-	// Keepalive
 	ws.SetPingHandler(func(string) error {
 		if deadlineErr := ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); deadlineErr != nil {
 			logger.L().Warn("设置 WebSocket 写入超时失败", zap.Error(deadlineErr))
@@ -120,7 +117,6 @@ func (h *Handler) StreamInvestigate(c *gin.Context) {
 		return ws.WriteMessage(websocket.PongMessage, nil)
 	})
 
-	// Stream via service callback
 	err = h.holmesService.Investigate(c.Request.Context(), reqBody.AlertID, opts, func(chunk string) error {
 		if deadlineErr := ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); deadlineErr != nil {
 			logger.L().Warn("设置 WebSocket 写入超时失败", zap.Error(deadlineErr))

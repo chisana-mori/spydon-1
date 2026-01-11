@@ -69,20 +69,16 @@ func (s *K8sNodeManageService) GetNodeLabelsAndTaints(ctx context.Context, clust
 	if err != nil {
 		return nil, fmt.Errorf("获取节点失败: %w", err)
 	}
-
-	// 如果用 ciCode 找不到，可能 ciCode 是 IP，需要遍历查找
 	if node == nil {
 		nodes, listErr := s.nodesyncManager.ListNodes(clusterName)
 		if listErr != nil {
 			return nil, fmt.Errorf("列出节点失败: %w", listErr)
 		}
 		for _, n := range nodes {
-			// 检查 nodeName 或 hostIP 是否匹配
 			if strings.EqualFold(n.Name, ciCode) {
 				node = &n
 				break
 			}
-			// 检查所有 InternalIP
 			for _, addr := range n.Status.Addresses {
 				if addr.Type == corev1.NodeInternalIP && strings.EqualFold(addr.Address, ciCode) {
 					node = &n
@@ -99,7 +95,6 @@ func (s *K8sNodeManageService) GetNodeLabelsAndTaints(ctx context.Context, clust
 		return nil, fmt.Errorf("节点 %s 不存在于集群 %s", ciCode, clusterName)
 	}
 
-	// 查询 clusterID 用于响应
 	clusterID, err := s.getClusterIDByName(ctx, clusterName)
 	if err != nil {
 		return nil, err
@@ -109,13 +104,11 @@ func (s *K8sNodeManageService) GetNodeLabelsAndTaints(ctx context.Context, clust
 
 // nodeToResponse 将 K8s Node 转换为响应结构
 func (s *K8sNodeManageService) nodeToResponse(node *corev1.Node, clusterName string, clusterID uint) *NodeLabelTaintResponse {
-	// 转换标签
 	labels := make([]NodeLabelInfo, 0, len(node.Labels))
 	for k, v := range node.Labels {
 		labels = append(labels, NodeLabelInfo{Key: k, Value: v})
 	}
 
-	// 转换污点
 	taints := make([]NodeTaintInfo, 0, len(node.Spec.Taints))
 	for _, t := range node.Spec.Taints {
 		var timeAdded *time.Time
@@ -131,7 +124,6 @@ func (s *K8sNodeManageService) nodeToResponse(node *corev1.Node, clusterName str
 		})
 	}
 
-	// 获取节点状态条件
 	conditions := make([]string, 0)
 	for _, c := range node.Status.Conditions {
 		if c.Status == corev1.ConditionTrue {

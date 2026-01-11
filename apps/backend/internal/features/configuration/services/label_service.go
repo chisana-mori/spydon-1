@@ -28,13 +28,11 @@ func (s *LabelManagementService) ListLabels(ctx context.Context, query LabelList
 
 	tx := s.db.WithContext(ctx).Model(&navy.LabelManagement{})
 
-	// 关键字搜索
 	if query.Keyword != "" {
 		keyword := "%" + query.Keyword + "%"
 		tx = tx.Where("name LIKE ? OR `key` LIKE ?", keyword, keyword)
 	}
 
-	// 来源筛选
 	if query.Source != nil {
 		tx = tx.Where("source = ?", *query.Source)
 	}
@@ -44,12 +42,10 @@ func (s *LabelManagementService) ListLabels(ctx context.Context, query LabelList
 		tx = tx.Where("status = ?", *query.Status)
 	}
 
-	// 计数
 	if err := tx.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("统计标签数量失败: %w", err)
 	}
 
-	// 分页
 	page := query.Page
 	if page <= 0 {
 		page = 1
@@ -60,12 +56,10 @@ func (s *LabelManagementService) ListLabels(ctx context.Context, query LabelList
 	}
 	offset := (page - 1) * size
 
-	// Preload LabelValues
 	if err := tx.Preload("LabelValues").Offset(offset).Limit(size).Find(&labels).Error; err != nil {
 		return nil, fmt.Errorf("查询标签列表失败: %w", err)
 	}
 
-	// 转换为DTO
 	dtos := make([]LabelManagementDTO, len(labels))
 	for i, label := range labels {
 		values := make([]string, len(label.LabelValues))
@@ -121,7 +115,6 @@ func (s *LabelManagementService) CreateLabel(ctx context.Context, req CreateLabe
 }
 
 func (s *LabelManagementService) DoCreateLabel(ctx context.Context, req CreateLabelRequest) (*LabelManagementDTO, error) {
-	// 检查 key 是否已存在
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&navy.LabelManagement{}).Where("`key` = ?", req.Key).Count(&count).Error; err != nil {
 		return nil, fmt.Errorf("检查标签Key失败: %w", err)
@@ -137,7 +130,6 @@ func (s *LabelManagementService) DoCreateLabel(ctx context.Context, req CreateLa
 		Status: req.Status,
 	}
 
-	// 开启事务
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(label).Error; err != nil {
 			return err
@@ -196,20 +188,17 @@ func (s *LabelManagementService) UpdateLabel(ctx context.Context, id int, req Up
 		updates["status"] = *req.Status
 	}
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(updates) > 0 {
 			if err := tx.Model(&label).Updates(updates).Error; err != nil {
 				return err
 			}
 		}
 
-		// 如果提供了Values，则全量替换
 		if req.Values != nil {
-			// 删除旧值
 			if err := tx.Where("label_id = ?", label.ID).Delete(&navy.LabelValue{}).Error; err != nil {
 				return err
 			}
-			// 插入新值
 			if len(*req.Values) > 0 {
 				newValues := make([]navy.LabelValue, len(*req.Values))
 				for i, v := range *req.Values {
@@ -224,19 +213,14 @@ func (s *LabelManagementService) UpdateLabel(ctx context.Context, id int, req Up
 			}
 		}
 		return nil
-	})
-
-	if err != nil {
+	}); err != nil {
 		return nil, fmt.Errorf("更新标签失败: %w", err)
 	}
 
-	// 重新获取包含最新Values的Label
-	// 或者直接构造返回
 	finalValues := []string{}
 	if req.Values != nil {
 		finalValues = *req.Values
 	} else {
-		// 如果没更新values，返回旧的
 		for _, v := range label.LabelValues {
 			finalValues = append(finalValues, v.Value)
 		}

@@ -67,10 +67,8 @@ func (s *AuditService) GetAuditLogs(page, limit int, filters AuditFilters) ([]mo
 	var auditLogs []models.AuditLog
 	var total int64
 
-	// 构建查询
 	query := s.db.Model(&models.AuditLog{})
 
-	// 应用过滤条件
 	if filters.UserID != nil {
 		query = query.Where("user_id = ?", *filters.UserID)
 	}
@@ -90,12 +88,10 @@ func (s *AuditService) GetAuditLogs(page, limit int, filters AuditFilters) ([]mo
 		query = query.Where("created_at <= ?", filters.Until)
 	}
 
-	// 获取总数
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取审计日志总数失败: %w", err)
 	}
 
-	// 分页查询
 	offset := (page - 1) * limit
 	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&auditLogs).Error; err != nil {
 		return nil, 0, fmt.Errorf("获取审计日志列表失败: %w", err)
@@ -117,10 +113,8 @@ func (s *AuditService) GetAuditLogByID(id uint64) (*models.AuditLog, error) {
 func (s *AuditService) GetAuditStats(days int) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
-	// 时间范围
 	since := time.Now().AddDate(0, 0, -days)
 
-	// 按操作类型统计
 	var actionStats []struct {
 		Action string `json:"action"`
 		Count  int64  `json:"count"`
@@ -136,7 +130,6 @@ func (s *AuditService) GetAuditStats(days int) (map[string]interface{}, error) {
 	}
 	stats["by_action"] = actionStats
 
-	// 按用户统计
 	var userStats []struct {
 		UserID *uint64 `json:"user_id"`
 		Count  int64   `json:"count"`
@@ -153,7 +146,6 @@ func (s *AuditService) GetAuditStats(days int) (map[string]interface{}, error) {
 	}
 	stats["by_user"] = userStats
 
-	// 按资源类型统计
 	var resourceStats []struct {
 		ResourceType string `json:"resource_type"`
 		Count        int64  `json:"count"`
@@ -169,7 +161,6 @@ func (s *AuditService) GetAuditStats(days int) (map[string]interface{}, error) {
 	}
 	stats["by_resource_type"] = resourceStats
 
-	// 每日活动统计
 	var dailyStats []struct {
 		Date  string `json:"date"`
 		Count int64  `json:"count"`
@@ -185,7 +176,6 @@ func (s *AuditService) GetAuditStats(days int) (map[string]interface{}, error) {
 	}
 	stats["daily_activity"] = dailyStats
 
-	// 总数统计
 	var totalCount int64
 	if err := s.db.Model(&models.AuditLog{}).
 		Where("created_at >= ?", since).

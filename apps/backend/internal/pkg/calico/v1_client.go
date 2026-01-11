@@ -47,11 +47,6 @@ func (s *Service) getDynamicClient(clusterName string) (dynamic.Interface, error
 	return dc, nil
 }
 
-// listV1 使用 dynamic client 查询 v1 API (cluster-scoped resources)
-func listV1[T any](s *Service, clusterName string, gvr schema.GroupVersionResource, converter func(*unstructured.Unstructured) (T, error)) ([]T, error) {
-	return listV1WithNamespace(s, clusterName, "", gvr, converter)
-}
-
 // listV1WithNamespace 使用 dynamic client 查询 v1 API (支持 namespace)
 func listV1WithNamespace[T any](s *Service, clusterName, namespace string, gvr schema.GroupVersionResource, converter func(*unstructured.Unstructured) (T, error)) ([]T, error) {
 	dc, err := s.getDynamicClient(clusterName)
@@ -73,7 +68,7 @@ func listV1WithNamespace[T any](s *Service, clusterName, namespace string, gvr s
 		return nil, fmt.Errorf("获取资源列表失败 (v1 API): %w", err)
 	}
 
-	var results []T
+	results := make([]T, 0, len(list.Items))
 	for _, item := range list.Items {
 		converted, err := converter(&item)
 		if err != nil {
@@ -84,45 +79,6 @@ func listV1WithNamespace[T any](s *Service, clusterName, namespace string, gvr s
 	}
 
 	return results, nil
-}
-
-// listV1Namespaced 使用 dynamic client 查询 v1 API (namespaced resources)
-func listV1Namespaced[T any](s *Service, clusterName, namespace string, gvr schema.GroupVersionResource, converter func(*unstructured.Unstructured) (T, error)) ([]T, error) {
-	dc, err := s.getDynamicClient(clusterName)
-	if err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := defaultContext()
-	defer cancel()
-
-	var list *unstructured.UnstructuredList
-	if namespace != "" {
-		list, err = dc.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	} else {
-		list, err = dc.Resource(gvr).List(ctx, metav1.ListOptions{})
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("获取资源列表失败 (v1 API): %w", err)
-	}
-
-	var results []T
-	for _, item := range list.Items {
-		converted, err := converter(&item)
-		if err != nil {
-			logger.S().Warnw("转换资源失败", "name", item.GetName(), "error", err)
-			continue
-		}
-		results = append(results, converted)
-	}
-
-	return results, nil
-}
-
-// getV1 使用 dynamic client 获取单个资源 (cluster-scoped)
-func getV1[T any](s *Service, clusterName, name string, gvr schema.GroupVersionResource, converter func(*unstructured.Unstructured) (T, error)) (T, error) {
-	return getV1WithNamespace(s, clusterName, "", name, gvr, converter)
 }
 
 // getV1WithNamespace 使用 dynamic client 获取单个资源 (支持 namespace)
@@ -143,25 +99,6 @@ func getV1WithNamespace[T any](s *Service, clusterName, namespace, name string, 
 		u, err = dc.Resource(gvr).Get(ctx, name, metav1.GetOptions{})
 	}
 
-	if err != nil {
-		return zero, fmt.Errorf("获取资源失败 (v1 API): %w", err)
-	}
-
-	return converter(u)
-}
-
-// getV1Namespaced 使用 dynamic client 获取单个资源 (namespaced)
-func getV1Namespaced[T any](s *Service, clusterName, namespace, name string, gvr schema.GroupVersionResource, converter func(*unstructured.Unstructured) (T, error)) (T, error) {
-	var zero T
-	dc, err := s.getDynamicClient(clusterName)
-	if err != nil {
-		return zero, err
-	}
-
-	ctx, cancel := defaultContext()
-	defer cancel()
-
-	u, err := dc.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return zero, fmt.Errorf("获取资源失败 (v1 API): %w", err)
 	}

@@ -34,24 +34,16 @@ const ManagedLabelExists = "EXISTS (SELECT 1 FROM k8s_node_label knl JOIN label_
 // ManagedTaintExists checks for managed taints
 const ManagedTaintExists = "EXISTS (SELECT 1 FROM k8s_node_taint knt JOIN taint_feature tf ON knt.`key` = tf.`key` WHERE knt.node_id = kn.id)"
 
-// SpecialDeviceCondition 特殊设备判断条件 (移植自 auto-navy)
-// 满足以下任一条件即为特殊设备:
-// 1. device.group != ”
-// 2. 拥有受管理的 label 或 taint
-// (不再仅仅因为关联了 k8s_node 就视为特殊设备)
+// SpecialDeviceCondition 特殊设备判断条件
 const SpecialDeviceCondition = "device.`group` != '' OR " + ManagedLabelExists + " OR " + ManagedTaintExists
 
-// buildDeviceBaseQuery 构建基础查询 (不含计数字段)
 func (s *NavyDeviceService) buildDeviceBaseQuery(ctx context.Context) *gorm.DB {
-	// 关联 k8s_node 以获取更多信息
 	return s.db.WithContext(ctx).Table("device").
 		Select("device.*, kn.role as k8s_role, kn.nodename as k8s_nodename").
 		Joins("LEFT JOIN k8s_node kn ON LOWER(device.ip) = LOWER(kn.hostip)")
 }
 
-// buildDeviceQueryWithFeatures 构建带特性计数的查询
 func (s *NavyDeviceService) buildDeviceQueryWithFeatures(ctx context.Context) *gorm.DB {
-	// 计算特性数量: 关联的 label 和 taint 数量
 	subqueryLabel := "(SELECT COUNT(*) FROM k8s_node_label knl2 JOIN k8s_node kn2 ON knl2.node_id = kn2.id WHERE LOWER(kn2.hostip) = LOWER(device.ip))"
 	subqueryTaint := "(SELECT COUNT(*) FROM k8s_node_taint knt2 JOIN k8s_node kn3 ON knt2.node_id = kn3.id WHERE LOWER(kn3.hostip) = LOWER(device.ip))"
 

@@ -26,7 +26,6 @@ type AutoRCAConfig struct {
 	AllowedSeverities []models.AlertSeverity `json:"allowed_severities"`
 }
 
-// DefaultAllowedSeverities 返回默认允许的告警级别
 func DefaultAllowedSeverities() []models.AlertSeverity {
 	return []models.AlertSeverity{
 		models.AlertSeverityCritical,
@@ -35,7 +34,6 @@ func DefaultAllowedSeverities() []models.AlertSeverity {
 	}
 }
 
-// GetDefaultAutoRCAConfig 获取默认配置（用于初始化）
 func GetDefaultAutoRCAConfig() *AutoRCAConfig {
 	return &AutoRCAConfig{
 		Enabled:           false, // 默认关闭，需要手动开启
@@ -50,14 +48,12 @@ type SystemSettingService struct {
 	db *db.Database
 }
 
-// NewSystemSettingService 创建新的系统设置服务
 func NewSystemSettingService(database *db.Database) *SystemSettingService {
 	return &SystemSettingService{
 		db: database,
 	}
 }
 
-// GetSetting 获取指定Key的设置
 func (s *SystemSettingService) GetSetting(key string) (*models.SystemSetting, error) {
 	var setting models.SystemSetting
 	if err := s.db.Where("setting_key = ?", key).First(&setting).Error; err != nil {
@@ -69,7 +65,6 @@ func (s *SystemSettingService) GetSetting(key string) (*models.SystemSetting, er
 	return &setting, nil
 }
 
-// SetSetting 设置指定Key的值
 func (s *SystemSettingService) SetSetting(key string, value interface{}, description string) (*models.SystemSetting, error) {
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
@@ -92,7 +87,6 @@ func (s *SystemSettingService) SetSetting(key string, value interface{}, descrip
 	return &setting, nil
 }
 
-// GetAutoRCAConfig 获取Auto-RCA配置
 func (s *SystemSettingService) GetAutoRCAConfig() (*AutoRCAConfig, time.Time, error) {
 	setting, err := s.GetSetting(SettingKeyAutoRCA)
 	if err != nil {
@@ -100,9 +94,7 @@ func (s *SystemSettingService) GetAutoRCAConfig() (*AutoRCAConfig, time.Time, er
 	}
 
 	if setting == nil {
-		// 数据库中尚未初始化时返回默认配置
 		defaultConfig := GetDefaultAutoRCAConfig()
-		// 初始化到数据库，避免后续重复报错
 		_, _ = s.SetSetting(SettingKeyAutoRCA, defaultConfig, "System Default Auto-RCA Configuration")
 		return defaultConfig, time.Time{}, nil
 	}
@@ -119,7 +111,6 @@ func (s *SystemSettingService) GetAutoRCAConfig() (*AutoRCAConfig, time.Time, er
 	return &config, setting.UpdatedAt, nil
 }
 
-// ListSettings 列出所有设置
 func (s *SystemSettingService) ListSettings() ([]models.SystemSetting, error) {
 	var settings []models.SystemSetting
 	if err := s.db.Find(&settings).Error; err != nil {

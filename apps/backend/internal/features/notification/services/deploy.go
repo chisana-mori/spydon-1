@@ -106,10 +106,22 @@ func (s *DeployService) HistoryDeploys(clusterId uint, begin string) ([]App, err
 	}
 
 	for _, record := range dbRst {
+		appId, ok := record["appid"].(string)
+		if !ok {
+			continue
+		}
+		resourceName, ok := record["resourceName"].(string)
+		if !ok {
+			continue
+		}
+		namespace, ok := record["namespace"].(string)
+		if !ok {
+			continue
+		}
 		ele := App{
-			AppId:     record["appid"].(string),
-			Name:      record["resourceName"].(string),
-			Namespace: record["namespace"].(string),
+			AppId:     appId,
+			Name:      resourceName,
+			Namespace: namespace,
 		}
 		rst = append(rst, ele)
 	}

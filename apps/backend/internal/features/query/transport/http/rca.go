@@ -56,14 +56,12 @@ func (h *Handler) TriggerRCA(c *gin.Context) {
 		return
 	}
 
-	// 检查告警是否存在
 	alert, err := h.alertService.GetAlertByID(path.AlertID)
 	if err != nil {
 		httpx.NotFound(c, "ALERT_NOT_FOUND", "告警不存在")
 		return
 	}
 
-	// 触发RCA分析
 	rcaRun, err := h.rcaService.TriggerRCAManual(alert)
 	if err != nil {
 		httpx.InternalError(c, "TRIGGER_RCA_ERROR", "触发RCA分析失败")
@@ -83,23 +81,18 @@ func (h *Handler) TriggerRCA(c *gin.Context) {
 // @Success 200 {string} string "Event: message"
 // @Router /events [get]
 func (h *Handler) EventStream(c *gin.Context) {
-	// 设置SSE头
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 
-	// 获取客户端断开连接的通道
 	clientGone := c.Request.Context().Done()
 
-	// 创建事件通道
 	eventChan := make(chan interface{}, 10)
 
-	// 启动事件监听器
 	go func() {
 		defer close(eventChan)
 
-		// 模拟事件推送
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
@@ -108,7 +101,6 @@ func (h *Handler) EventStream(c *gin.Context) {
 			case <-clientGone:
 				return
 			case <-ticker.C:
-				// 发送心跳事件
 				eventChan <- map[string]interface{}{
 					"type":      "heartbeat",
 					"timestamp": time.Now().Format(time.RFC3339),
@@ -117,7 +109,6 @@ func (h *Handler) EventStream(c *gin.Context) {
 		}
 	}()
 
-	// 发送事件到客户端
 	for {
 		select {
 		case <-clientGone:

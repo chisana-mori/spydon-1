@@ -133,7 +133,6 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	// 设置refresh token到httpOnly cookie
 	secure := isSecureRequest(c.Request)
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true) // 30天
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
@@ -156,24 +155,20 @@ func (h *Handler) HandleCallback(c *gin.Context) {
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /auth/refresh [post]
 func (h *Handler) RefreshToken(c *gin.Context) {
-	// 从cookie获取refresh token
 	refreshToken, err := c.Cookie("refresh_token")
 	if err != nil {
 		httpx.Unauthorized(c, "MISSING_REFRESH_TOKEN", "缺少refresh token")
 		return
 	}
 
-	// 刷新token
 	loginResp, err := h.authService.RefreshToken(refreshToken)
 	if err != nil {
-		// 清除无效的refresh token cookie
 		secure := isSecureRequest(c.Request)
 		c.SetCookie("refresh_token", "", -1, "/", "", secure, true)
 		httpx.ErrorWithDetails(c, http.StatusUnauthorized, "REFRESH_TOKEN_FAILED", "刷新token失败", err.Error())
 		return
 	}
 
-	// 更新refresh token cookie
 	secure := isSecureRequest(c.Request)
 	c.SetCookie("refresh_token", loginResp.RefreshToken, 30*24*3600, "/", "", secure, true)
 	setAccessTokenCookie(c, loginResp.AccessToken, loginResp.ExpiresAt)
@@ -210,7 +205,6 @@ func (h *Handler) Logout(c *gin.Context) {
 // @Failure 500 {object} httpx.ErrorResponse
 // @Router /profile [get]
 func (h *Handler) GetProfile(c *gin.Context) {
-	// 从上下文获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
 		httpx.Unauthorized(c, "UNAUTHORIZED", "用户未认证")
@@ -223,7 +217,6 @@ func (h *Handler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	// 从数据库获取最新的用户信息
 	user, err := h.authService.GetUserByID(uid)
 	if err != nil {
 		httpx.InternalError(c, "GET_USER_FAILED", "获取用户信息失败")
