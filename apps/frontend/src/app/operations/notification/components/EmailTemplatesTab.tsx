@@ -91,25 +91,31 @@ export function EmailTemplatesTab() {
     const total = data?.pagination?.total || 0;
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                {/* Header removed as it will be in the main page */}
-            </div>
-
-            {/* Filter Bar */}
-            <div className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl border bg-card/50 backdrop-blur-sm shadow-sm justify-between">
-                <div className="relative flex-1 max-w-sm">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="搜索模板名称或标题..."
-                        className="pl-9 bg-background/50 border-transparent focus:border-input transition-all"
-                        value={keyword}
-                        onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
-                    />
+        <div className="p-6 space-y-6">
+            {/* Header & Actions */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="space-y-1">
+                    <h3 className="text-lg font-semibold">邮件模板管理</h3>
+                    <p className="text-sm text-muted-foreground">
+                        配置邮件模板、定义参数变量并管理启用状态
+                    </p>
                 </div>
                 <Button onClick={handleCreate} className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
                     <Plus className="w-4 h-4 mr-2" /> 新建模板
                 </Button>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="flex items-center gap-4">
+                <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="搜索模板名称或标题..."
+                        className="pl-10 h-10 bg-background/50 border-transparent focus:border-input transition-all"
+                        value={keyword}
+                        onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+                    />
+                </div>
             </div>
 
             {/* Data Table */}
@@ -153,13 +159,15 @@ export function EmailTemplatesTab() {
                                     <TableCell className="font-medium text-foreground">{template.name}</TableCell>
                                     <TableCell className="text-muted-foreground">{template.title}</TableCell>
                                     <TableCell>
-                                        <Badge variant="secondary" className="font-mono">
-                                            {template.params?.length || 0}
+                                        <Badge variant="secondary" className="font-mono bg-violet-500/10 text-violet-600 border-violet-500/20">
+                                            {Array.isArray(template.params)
+                                                ? (template.params as any).length
+                                                : (template.params?.tables?.length || 0) + (template.params?.definitions?.length || 0)}
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
                                         <Badge
-                                            variant={template.is_enabled ? "default" : "destructive"}
+                                            variant={template.is_enabled ? "default" : "secondary"}
                                             className={!template.is_enabled
                                                 ? "bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/20 shadow-none"
                                                 : "bg-green-500/10 text-green-600 hover:bg-green-500/20 border-green-500/20 shadow-none"}
@@ -223,6 +231,6 @@ export function EmailTemplatesTab() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+        </div >
     );
 }

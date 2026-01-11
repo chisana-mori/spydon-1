@@ -501,6 +501,7 @@ func (s *AuthService) generateJWT(user *models.User) (string, error) {
 		"sub":      models.FormatID(user.ID),
 		"email":    user.Email,
 		"name":     user.Name,
+		"username": user.Username,
 		"is_admin": user.IsAdmin,
 		"iat":      time.Now().Unix(),
 		"exp":      time.Now().Add(24 * time.Hour).Unix(),

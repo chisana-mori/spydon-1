@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS `spydon_users` (
     `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '用户ID (主键)',
     `created_at`     DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`     DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`     DATETIME(3) NULL COMMENT '软删除时间',
     `username`       VARCHAR(191) NOT NULL COMMENT '用户名',
     `email`          VARCHAR(191) NOT NULL COMMENT '邮箱',
     `name`           VARCHAR(255) COMMENT '显示名称',
@@ -46,8 +45,7 @@ CREATE TABLE IF NOT EXISTS `spydon_users` (
     `provider_id`    VARCHAR(191) COMMENT '第三方认证提供商的用户ID',
     `last_login_at`  DATETIME(3) NULL COMMENT '最后登录时间',
     UNIQUE INDEX `idx_spydon_users_username` (`username`),
-    UNIQUE INDEX `idx_spydon_users_email` (`email`),
-    INDEX `idx_spydon_users_deleted_at` (`deleted_at`)
+    UNIQUE INDEX `idx_spydon_users_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户信息表';
 
 
@@ -59,13 +57,11 @@ CREATE TABLE IF NOT EXISTS `spydon_refresh_tokens` (
     `id`         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at` DATETIME(3) NULL COMMENT '创建时间',
     `updated_at` DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at` DATETIME(3) NULL COMMENT '软删除时间',
     `user_id`    BIGINT UNSIGNED NOT NULL COMMENT '关联的用户ID',
     `token`      VARCHAR(255) NOT NULL COMMENT 'Refresh Token 哈希值',
     `expires_at` DATETIME(3) NOT NULL COMMENT '过期时间',
     UNIQUE INDEX `idx_spydon_refresh_tokens_token` (`token`),
     INDEX `idx_spydon_refresh_tokens_user_id` (`user_id`),
-    INDEX `idx_spydon_refresh_tokens_deleted_at` (`deleted_at`),
     INDEX `idx_refresh_tokens_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户刷新令牌表';
 
@@ -78,7 +74,6 @@ CREATE TABLE IF NOT EXISTS `spydon_api_keys` (
     `id`           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`   DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`   DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`   DATETIME(3) NULL COMMENT '软删除时间',
     `user_id`      BIGINT UNSIGNED NOT NULL COMMENT '关联的用户ID',
     `name`         VARCHAR(255) NOT NULL COMMENT '密钥名称/描述',
     `key`          VARCHAR(255) NOT NULL COMMENT '密钥值 (加密存储)',
@@ -89,7 +84,6 @@ CREATE TABLE IF NOT EXISTS `spydon_api_keys` (
     `permissions`  VARCHAR(32) DEFAULT 'read' COMMENT '权限范围 (read/write/admin)',
     UNIQUE INDEX `idx_spydon_api_keys_key` (`key`),
     INDEX `idx_spydon_api_keys_user_id` (`user_id`),
-    INDEX `idx_spydon_api_keys_deleted_at` (`deleted_at`),
     INDEX `idx_api_keys_key_prefix` (`key_prefix`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='API密钥表';
 
@@ -102,7 +96,6 @@ CREATE TABLE IF NOT EXISTS `spydon_alerts` (
     `id`              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`      DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`      DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`      DATETIME(3) NULL COMMENT '软删除时间',
     `fingerprint`     VARCHAR(191) NOT NULL COMMENT '告警指纹 (唯一标识)',
     `cluster_name`    VARCHAR(255) NOT NULL COMMENT '集群名称',
     `cluster_id`      VARCHAR(255) COMMENT '集群ID',
@@ -118,8 +111,7 @@ CREATE TABLE IF NOT EXISTS `spydon_alerts` (
     INDEX `idx_spydon_alerts_fingerprint` (`fingerprint`),
     INDEX `idx_spydon_alerts_cluster_name` (`cluster_name`),
     INDEX `idx_spydon_alerts_severity` (`severity`),
-    INDEX `idx_spydon_alerts_status` (`status`),
-    INDEX `idx_spydon_alerts_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_alerts_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='告警信息表';
 
 
@@ -131,7 +123,6 @@ CREATE TABLE IF NOT EXISTS `spydon_rca_runs` (
     `id`              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`      DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`      DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`      DATETIME(3) NULL COMMENT '软删除时间',
     `alert_id`        BIGINT UNSIGNED NOT NULL COMMENT '关联的告警ID',
     `status`          VARCHAR(32) NOT NULL COMMENT '运行状态 (pending/running/completed/failed)',
     `summary`         TEXT COMMENT '分析总结',
@@ -143,8 +134,7 @@ CREATE TABLE IF NOT EXISTS `spydon_rca_runs` (
     `error_message`   TEXT COMMENT '错误信息',
     `raw_payload_key` TEXT COMMENT 'MinIO中存储相关Payload的Key',
     INDEX `idx_spydon_rca_runs_alert_id` (`alert_id`),
-    INDEX `idx_spydon_rca_runs_status` (`status`),
-    INDEX `idx_spydon_rca_runs_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_rca_runs_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RCA根因分析运行记录表';
 
 
@@ -156,7 +146,6 @@ CREATE TABLE IF NOT EXISTS `spydon_audit_logs` (
     `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`    DATETIME(3) NULL COMMENT '操作时间',
     `updated_at`    DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`    DATETIME(3) NULL COMMENT '软删除时间',
     `user_id`       BIGINT UNSIGNED COMMENT '操作用户ID (系统操作为空)',
     `action`        VARCHAR(64) NOT NULL COMMENT '操作动作 (如 create_cluster)',
     `resource_type` VARCHAR(64) COMMENT '资源类型 (如 cluster, alert)',
@@ -166,8 +155,7 @@ CREATE TABLE IF NOT EXISTS `spydon_audit_logs` (
     `user_agent`    TEXT COMMENT '客户端User Agent',
     INDEX `idx_spydon_audit_logs_user_id` (`user_id`),
     INDEX `idx_spydon_audit_logs_action` (`action`),
-    INDEX `idx_spydon_audit_logs_resource` (`resource_type`, `resource_id`),
-    INDEX `idx_spydon_audit_logs_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_audit_logs_resource` (`resource_type`, `resource_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统审计日志表';
 
 
@@ -179,7 +167,6 @@ CREATE TABLE IF NOT EXISTS `spydon_knowledge_articles` (
     `id`                         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`                 DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`                 DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`                 DATETIME(3) NULL COMMENT '软删除时间',
     `alert_rule_name`            VARCHAR(255) NOT NULL COMMENT '关联的告警规则名称',
     `alert_rule_name_normalized` VARCHAR(255) NOT NULL COMMENT '归一化的规则名称 (索引)',
     `tags`                       JSON COMMENT '标签',
@@ -188,8 +175,7 @@ CREATE TABLE IF NOT EXISTS `spydon_knowledge_articles` (
     `version`                    INT NOT NULL DEFAULT 1 COMMENT '当前版本号',
     `created_by`                 VARCHAR(128) COMMENT '创建者',
     `updated_by`                 VARCHAR(128) COMMENT '更新者',
-    INDEX `idx_spydon_ka_normalized_name` (`alert_rule_name_normalized`),
-    INDEX `idx_spydon_ka_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_ka_normalized_name` (`alert_rule_name_normalized`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库文章表';
 
 
@@ -201,14 +187,12 @@ CREATE TABLE IF NOT EXISTS `spydon_knowledge_article_versions` (
     `id`             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`     DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`     DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`     DATETIME(3) NULL COMMENT '软删除时间',
     `article_id`     BIGINT UNSIGNED NOT NULL COMMENT '关联的文章ID',
     `version`        INT NOT NULL COMMENT '版本号',
     `object_key`     VARCHAR(512) NOT NULL COMMENT 'MinIO对象Key',
     `change_summary` TEXT COMMENT '变更摘要',
     `created_by`     VARCHAR(128) COMMENT '版本创建者',
-    INDEX `idx_spydon_kav_article_id` (`article_id`),
-    INDEX `idx_spydon_kav_deleted_at` (`deleted_at`)
+    INDEX `idx_spydon_kav_article_id` (`article_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库文章历史版本表';
 
 
@@ -220,12 +204,10 @@ CREATE TABLE IF NOT EXISTS `spydon_system_settings` (
     `id`          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`  DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`  DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`  DATETIME(3) NULL COMMENT '软删除时间',
     `setting_key` VARCHAR(191) NOT NULL COMMENT '配置键 (唯一索引)',
     `value`       JSON COMMENT '配置值 (JSON格式)',
     `description` TEXT COMMENT '配置描述',
-    UNIQUE INDEX `idx_spydon_system_settings_key` (`setting_key`),
-    INDEX `idx_spydon_system_settings_deleted_at` (`deleted_at`)
+    UNIQUE INDEX `idx_spydon_system_settings_key` (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统全局设置表';
 
 
@@ -237,13 +219,11 @@ CREATE TABLE IF NOT EXISTS `spydon_pipeline_templates` (
     `id`          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID (主键)',
     `created_at`  DATETIME(3) NULL COMMENT '创建时间',
     `updated_at`  DATETIME(3) NULL COMMENT '更新时间',
-    `deleted_at`  DATETIME(3) NULL COMMENT '软删除时间',
     `name`        VARCHAR(255) NOT NULL COMMENT '模板名称 (唯一)',
     `description` TEXT COMMENT '模板描述',
     `stages`      JSON NOT NULL COMMENT '阶段定义 (JSON)',
     `created_by`  BIGINT UNSIGNED COMMENT '创建者ID',
-    UNIQUE INDEX `idx_spydon_pipeline_templates_name` (`name`),
-    INDEX `idx_spydon_pipeline_templates_deleted_at` (`deleted_at`)
+    UNIQUE INDEX `idx_spydon_pipeline_templates_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='流水线模板表';
 
 
@@ -304,7 +284,6 @@ CREATE TABLE IF NOT EXISTS `spydon_dictionaries` (
     `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID，唯一标识一个数据字典',
     `created_at`      DATETIME(3) DEFAULT NULL COMMENT '创建时间，精确到毫秒',
     `updated_at`      DATETIME(3) DEFAULT NULL COMMENT '最后更新时间，精确到毫秒',
-    `deleted_at`      DATETIME(3) DEFAULT NULL COMMENT '软删除时间，精确到毫秒',
     `code`            VARCHAR(100) NOT NULL COMMENT '字典编码，唯一标识字典，如alarm_status',
     `name`            VARCHAR(255) NOT NULL COMMENT '字典名称，如告警状态',
     `module`          VARCHAR(100) DEFAULT NULL COMMENT '所属模块，如alarm、system等',
@@ -313,8 +292,7 @@ CREATE TABLE IF NOT EXISTS `spydon_dictionaries` (
     `key_same_as_value` TINYINT(1) DEFAULT NULL COMMENT '键值是否相同，1表示相同，0表示不同',
     `sort_order`      BIGINT DEFAULT '0' COMMENT '排序序号，用于字典列表排序',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_spydon_dictionaries_code` (`code`) COMMENT '字典编码唯一索引',
-    KEY `idx_spydon_dictionaries_deleted_at` (`deleted_at`) COMMENT '软删除索引'
+    UNIQUE KEY `idx_spydon_dictionaries_code` (`code`) COMMENT '字典编码唯一索引'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据字典表';
 
 -- -----------------------------------------------------------------------------
@@ -325,7 +303,6 @@ CREATE TABLE IF NOT EXISTS `spydon_dictionary_items` (
     `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID，唯一标识一个字典项',
     `created_at`     DATETIME(3) DEFAULT NULL COMMENT '创建时间，精确到毫秒',
     `updated_at`     DATETIME(3) DEFAULT NULL COMMENT '最后更新时间，精确到毫秒',
-    `deleted_at`     DATETIME(3) DEFAULT NULL COMMENT '软删除时间，精确到毫秒',
     `dictionary_id`  BIGINT UNSIGNED NOT NULL COMMENT '所属字典ID，关联spydon_dictionaries表',
     `key`            VARCHAR(255) NOT NULL COMMENT '字典项键，字典项的标识符',
     `value`          VARCHAR(255) NOT NULL COMMENT '字典项值，字典项的显示文本',
@@ -335,6 +312,10 @@ CREATE TABLE IF NOT EXISTS `spydon_dictionary_items` (
     `sort_order`     BIGINT DEFAULT '0' COMMENT '排序序号，用于字典项列表排序',
     `extra`          TEXT COMMENT '扩展字段，存储额外的配置信息',
     PRIMARY KEY (`id`),
-    KEY `idx_spydon_dictionary_items_deleted_at` (`deleted_at`) COMMENT '软删除索引',
     KEY `idx_spydon_dictionary_items_dictionary_id` (`dictionary_id`) COMMENT '字典ID索引，用于查询某个字典的所有项'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据字典项表';
+
+
+##
+#email_address created_at updated_at
+## email_template is_enabled

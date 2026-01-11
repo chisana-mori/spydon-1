@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
@@ -155,7 +156,7 @@ func (s *EmailContactService) toResponse(c models.EmailContact) EmailContactResp
 		ID:        c.ID,
 		Name:      c.Name,
 		Address:   c.Address,
-		CreatedAt: c.CreatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedAt: c.UpdatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: c.CreatedAt.Format(time.DateTime),
+		UpdatedAt: c.UpdatedAt.Format(time.DateTime),
 	}
 }

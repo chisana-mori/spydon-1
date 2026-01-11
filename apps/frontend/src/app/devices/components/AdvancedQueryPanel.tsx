@@ -39,14 +39,6 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command"
-import {
     Plus,
     Trash2,
     Play,
@@ -495,6 +487,7 @@ function FilterBlockRow({
     const [fieldValues, setFieldValues] = useState<string[]>([])
     const [loadingValues, setLoadingValues] = useState(false)
     const [open, setOpen] = useState(false)
+    const [searchQuery, setSearchQuery] = useState('')
 
     // 获取可用的条件类型
     const availableConditions = getConditionTypesForFilterType(block.type)
@@ -514,6 +507,18 @@ function FilterBlockRow({
                 return []
         }
     }
+
+    // 过滤后的选项
+    const filteredKeyOptions = getKeyOptions().filter(opt =>
+        opt.label.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+
+    // 当 Popover 关闭时清空搜索
+    useEffect(() => {
+        if (!open) {
+            setSearchQuery('')
+        }
+    }, [open])
 
     // 当键变更时，加载字段值
     useEffect(() => {
@@ -575,7 +580,7 @@ function FilterBlockRow({
                 className="scale-75"
             />
 
-            {/* 键选择 - 合并类型图标和字段选择为一个彩色 Tag Trigger */}
+            {/* 键选择 - 使用 Popover + 简单列表替代 Command */}
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                     <Button
@@ -600,33 +605,49 @@ function FilterBlockRow({
                         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                        <CommandInput placeholder="搜索字段..." />
-                        <CommandList>
-                            <CommandEmpty>未找到字段</CommandEmpty>
-                            <CommandGroup>
-                                {getKeyOptions().map((opt) => (
-                                    <CommandItem
-                                        key={opt.value}
-                                        value={opt.label}
-                                        onSelect={() => {
-                                            onUpdate({ key: opt.value, value: '' })
-                                            setOpen(false)
-                                        }}
-                                    >
-                                        <Check
-                                            className={cn(
-                                                "mr-2 h-4 w-4",
-                                                block.key === opt.value ? "opacity-100" : "opacity-0"
-                                            )}
-                                        />
-                                        {opt.label}
-                                    </CommandItem>
-                                ))}
-                            </CommandGroup>
-                        </CommandList>
-                    </Command>
+                <PopoverContent className="w-[300px] p-0" align="start" container={null}>
+                    <div className="flex flex-col max-h-[300px]">
+                        {/* 搜索输入框 */}
+                        <div className="p-2 border-b">
+                            <Input
+                                placeholder="搜索字段..."
+                                className="h-8"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        {/* 选项列表 */}
+                        <ScrollArea className="flex-1 max-h-[250px]">
+                            <div className="p-1">
+                                {filteredKeyOptions.length > 0 ? (
+                                    filteredKeyOptions.map((opt) => (
+                                        <div
+                                            key={opt.value}
+                                            className="flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground data-[selected=true]:bg-accent"
+                                            data-selected={block.key === opt.value}
+                                            onClick={() => {
+                                                onUpdate({ key: opt.value, value: '' })
+                                                setOpen(false)
+                                            }}
+                                        >
+                                            <Check
+                                                className={cn(
+                                                    "h-4 w-4 shrink-0",
+                                                    block.key === opt.value ? "opacity-100" : "opacity-0"
+                                                )}
+                                            />
+                                            <span className="flex-1 truncate">{opt.label}</span>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="px-2 py-4 text-sm text-center text-muted-foreground">
+                                        未找到匹配的字段
+                                    </div>
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
                 </PopoverContent>
             </Popover>
 
@@ -697,14 +718,12 @@ function FilterBlockRow({
                                 <SelectTrigger className="h-8 rounded-full border-input/60 bg-background/50 focus:bg-background transition-colors hover:border-input">
                                     <SelectValue placeholder="选择值..." />
                                 </SelectTrigger>
-                                <SelectContent>
-                                    <ScrollArea className="h-[200px]">
-                                        {fieldValues.map(val => (
-                                            <SelectItem key={val} value={val}>
-                                                {val}
-                                            </SelectItem>
-                                        ))}
-                                    </ScrollArea>
+                                <SelectContent className="max-h-[200px]">
+                                    {fieldValues.map(val => (
+                                        <SelectItem key={val} value={val}>
+                                            {val}
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
                         ) : (

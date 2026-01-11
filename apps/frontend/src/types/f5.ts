@@ -29,6 +29,9 @@ export interface F5InfoQuery {
   status?: string;
   pool_name?: string;
   cluster_name?: string;
+  keyword?: string;
+  sort_by?: string;
+  sort_order?: string;
 }
 
 export interface F5InfoListResponse {

@@ -92,13 +92,12 @@ func (s *EmailTemplateService) CreateTemplate(req CreateEmailTemplateRequest) (*
 
 	// 序列化参数
 	paramsJSON := ""
-	if len(req.Params) > 0 {
-		data, err := json.Marshal(req.Params)
-		if err != nil {
-			return nil, fmt.Errorf("序列化参数失败: %w", err)
-		}
-		paramsJSON = string(data)
+	// 序列化参数
+	data, err := json.Marshal(req.Params)
+	if err != nil {
+		return nil, fmt.Errorf("序列化参数失败: %w", err)
 	}
+	paramsJSON = string(data)
 
 	isEnabled := true
 	if req.IsEnabled != nil {

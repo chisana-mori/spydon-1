@@ -14,13 +14,15 @@ import {
     Globe,
     Layers,
     Monitor,
-    Share2
+    Share2,
+    Network,
+    Shield
 } from "lucide-react"
 import { IPPoolTable } from "../components/IPPoolTable"
 import { BGPPeerList } from "../components/BGPPeerList"
 import { BGPConfigCard, FelixConfigCard, NetworkPolicySummary } from "../components/InfoCards"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 
 export default function ClusterCalicoDetailPage() {
     const params = useParams()
@@ -29,9 +31,12 @@ export default function ClusterCalicoDetailPage() {
 
     const [data, setData] = useState<ClusterDetailResponse | null>(null)
     const [isLoading, setIsLoading] = useState(true)
+    const [isRefreshing, setIsRefreshing] = useState(false)
+    const [isSyncing, setIsSyncing] = useState(false)
+    const [syncResult, setSyncResult] = useState<{ created: number; updated: number; deleted: number } | null>(null)
 
     const fetchData = async () => {
-        setIsLoading(true)
+        setIsRefreshing(true)
         try {
             const res = await RobustaAPI.getCalicoClusterDetail(clusterName)
             setData(res)
@@ -39,6 +44,20 @@ export default function ClusterCalicoDetailPage() {
             console.error("Failed to fetch cluster detail", error)
         } finally {
             setIsLoading(false)
+            setIsRefreshing(false)
+        }
+    }
+
+    const handleSyncWayne = async () => {
+        setIsSyncing(true)
+        setSyncResult(null)
+        try {
+            const result = await RobustaAPI.syncIPPoolsToWayne(clusterName)
+            setSyncResult(result)
+        } catch (error) {
+            console.error("Failed to sync to Wayne", error)
+        } finally {
+            setIsSyncing(false)
         }
     }
 
@@ -50,132 +69,231 @@ export default function ClusterCalicoDetailPage() {
 
     if (isLoading) {
         return (
-            <div className="space-y-6 animate-pulse">
-                <div className="h-8 w-1/3 bg-muted rounded" />
-                <div className="h-24 w-full bg-muted rounded" />
-                <div className="grid gap-6 md:grid-cols-4">
-                    {[1, 2, 3, 4].map(i => <div key={i} className="h-32 bg-muted rounded" />)}
+            <div className="space-y-6">
+                <div className="rounded-xl border border-border/50 bg-card p-6">
+                    <div className="flex items-center justify-between">
+                        <div className="space-y-2">
+                            <div className="h-8 w-64 bg-muted animate-pulse rounded" />
+                            <div className="h-4 w-96 bg-muted/60 animate-pulse rounded" />
+                        </div>
+                        <div className="h-10 w-24 bg-muted animate-pulse rounded-lg" />
+                    </div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    {[1, 2, 3, 4].map(i => (
+                        <Card key={i} className="border-border/50">
+                            <CardContent className="p-6">
+                                <div className="h-4 w-24 bg-muted animate-pulse rounded mb-4" />
+                                <div className="h-8 w-16 bg-muted animate-pulse rounded" />
+                            </CardContent>
+                        </Card>
+                    ))}
                 </div>
             </div>
         )
     }
 
     if (!data) {
-        return <div className="py-10">Cluster not found or failed to load.</div>
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+                <div className="p-4 rounded-2xl bg-muted/10 ring-1 ring-border/50">
+                    <AlertTriangle className="h-12 w-12 text-muted-foreground/50" />
+                </div>
+                <div className="text-center space-y-2">
+                    <h3 className="text-lg font-semibold">集群加载失败</h3>
+                    <p className="text-sm text-muted-foreground">无法找到集群或加载出错</p>
+                </div>
+                <Button variant="outline" onClick={() => router.push('/calico')}>
+                    返回概览
+                </Button>
+            </div>
+        )
     }
+
+    const isHealthy = data.health_status === 'healthy'
 
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" onClick={() => router.push('/calico')}>
-                        <ArrowLeft className="h-5 w-5" />
-                    </Button>
-                    <div>
-                        <div className="text-sm text-muted-foreground mb-1">Calico 网络 / {clusterName}</div>
-                        <h1 className="text-2xl font-bold tracking-tight">集群网络概览</h1>
+            <Card className="border-border/50">
+                <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => router.push('/calico')}
+                            >
+                                <ArrowLeft className="h-5 w-5" />
+                            </Button>
+                            <div className="inline-flex items-center justify-center rounded-xl bg-primary/10 p-2.5">
+                                <Network className="h-6 w-6 text-primary" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-2xl font-bold">{clusterName}</h1>
+                                    <span className={cn(
+                                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border",
+                                        isHealthy
+                                            ? "bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400"
+                                            : "bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400"
+                                    )}>
+                                        <div className={cn(
+                                            "h-2 w-2 rounded-full",
+                                            isHealthy ? "bg-green-500" : "bg-red-500"
+                                        )} />
+                                        {isHealthy ? '运行正常' : '存在异常'}
+                                    </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-0.5">
+                                    Calico 网络详情与配置管理
+                                </p>
+                            </div>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={fetchData}
+                            disabled={isRefreshing}
+                        >
+                            <RotateCw className={cn("mr-2 h-4 w-4", isRefreshing && 'animate-spin')} />
+                            刷新
+                        </Button>
                     </div>
-                </div>
-                <Button variant="outline" size="sm" onClick={fetchData}>
-                    <RotateCw className="mr-2 h-4 w-4" /> 刷新
-                </Button>
-            </div>
+                </CardContent>
+            </Card>
 
             {/* Health Banner */}
-            {data.health_status === 'healthy' ? (
-                <div className="rounded-lg border bg-green-500/10 border-green-500/20 p-6 flex items-start gap-4">
-                    <CheckCircle2 className="h-8 w-8 text-green-500 mt-1" />
-                    <div>
-                        <h3 className="text-lg font-semibold text-green-600">网络状态正常</h3>
-                        <p className="text-muted-foreground text-sm mt-1">
-                            所有 Calico 组件运行正常。BGP 对等体连接已建立，IP 地址池容量充足，网络策略已生效。
+            <div className={cn(
+                "rounded-xl border-l-4 p-4",
+                isHealthy
+                    ? "border-l-green-500 bg-green-500/5 border border-green-500/20"
+                    : "border-l-red-500 bg-red-500/5 border border-red-500/20"
+            )}>
+                <div className="flex items-start gap-3">
+                    {isHealthy ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5" />
+                    ) : (
+                        <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                        <p className={cn(
+                            "font-medium text-sm mb-1",
+                            isHealthy ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                        )}>
+                            {isHealthy ? '网络状态正常' : '检测到网络异常'}
                         </p>
+                        {isHealthy ? (
+                            <p className="text-sm text-muted-foreground">
+                                所有 Calico 组件运行正常，BGP 对等体连接已建立，IP 地址池容量充足。
+                            </p>
+                        ) : (
+                            <ul className="space-y-1">
+                                {(data.issues ?? []).map((issue, i) => (
+                                    <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                                        <span className="h-1 w-1 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
+                                        {issue}
+                                    </li>
+                                ))}
+                                {(data.issues?.length ?? 0) === 0 && (
+                                    <li className="text-sm text-muted-foreground">检测到未知异常，请检查日志。</li>
+                                )}
+                            </ul>
+                        )}
                     </div>
                 </div>
-            ) : (
-                <Alert variant="destructive" className="bg-red-500/10 border-red-500/20">
-                    <AlertTriangle className="h-5 w-5" />
-                    <AlertTitle className="ml-2 text-lg font-semibold">检测到网络异常</AlertTitle>
-                    <AlertDescription className="mt-2 ml-7">
-                        <ul className="list-disc space-y-1">
-                            {data.issues.map((issue, i) => (
-                                <li key={i}>{issue}</li>
-                            ))}
-                            {data.issues.length === 0 && <li>检测到未知异常，请检查日志。</li>}
-                        </ul>
-                    </AlertDescription>
-                </Alert>
-            )}
+            </div>
 
-            {/* Quick Stats Row with Icons */}
+            {/* Quick Stats - with colored left borders */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card className="bg-card/50 hover:bg-card/80 transition-colors">
-                    <CardContent className="p-6 flex items-center gap-4">
-                        <div className="p-3 bg-blue-500/10 rounded-full">
-                            <Globe className="h-6 w-6 text-blue-500" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">全局策略</p>
-                            <h3 className="text-2xl font-bold">{data.global_network_policies.length}</h3>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-card/50 hover:bg-card/80 transition-colors">
-                    <CardContent className="p-6 flex items-center gap-4">
-                        <div className="p-3 bg-purple-500/10 rounded-full">
-                            <Layers className="h-6 w-6 text-purple-500" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">网络集合</p>
-                            <h3 className="text-2xl font-bold">{data.network_set_count + data.global_network_set_count}</h3>
+                <Card className="border-l-4 border-l-blue-500 border-border/50">
+                    <CardContent className="p-5">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-2xl font-bold tabular-nums">{data.global_network_policies?.length ?? 0}</p>
+                                <p className="text-xs text-muted-foreground mt-1">全局策略</p>
+                            </div>
+                            <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                                <Globe className="h-5 w-5 text-blue-500" />
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
-                <Card className="bg-card/50 hover:bg-card/80 transition-colors">
-                    <CardContent className="p-6 flex items-center gap-4">
-                        <div className="p-3 bg-orange-500/10 rounded-full">
-                            <Monitor className="h-6 w-6 text-orange-500" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">主机端点</p>
-                            <h3 className="text-2xl font-bold">{data.host_endpoint_count}</h3>
+
+                <Card className="border-l-4 border-l-purple-500 border-border/50">
+                    <CardContent className="p-5">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-2xl font-bold tabular-nums">{data.network_set_count + data.global_network_set_count}</p>
+                                <p className="text-xs text-muted-foreground mt-1">网络集合</p>
+                            </div>
+                            <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                                <Layers className="h-5 w-5 text-purple-500" />
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
-                <Card className="bg-card/50 hover:bg-card/80 transition-colors">
-                    <CardContent className="p-6 flex items-center gap-4">
-                        <div className="p-3 bg-teal-500/10 rounded-full">
-                            <Share2 className="h-6 w-6 text-teal-500" />
+
+                <Card className="border-l-4 border-l-orange-500 border-border/50">
+                    <CardContent className="p-5">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-2xl font-bold tabular-nums">{data.host_endpoint_count}</p>
+                                <p className="text-xs text-muted-foreground mt-1">主机端点</p>
+                            </div>
+                            <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                                <Monitor className="h-5 w-5 text-orange-500" />
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">BGP 对等体</p>
-                            <h3 className="text-2xl font-bold">{data.bgp_peers.length}</h3>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-l-4 border-l-teal-500 border-border/50">
+                    <CardContent className="p-5">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-2xl font-bold tabular-nums">{data.bgp_peers?.length ?? 0}</p>
+                                <p className="text-xs text-muted-foreground mt-1">BGP 对等体</p>
+                            </div>
+                            <div className="h-10 w-10 rounded-lg bg-teal-500/10 flex items-center justify-center">
+                                <Share2 className="h-5 w-5 text-teal-500" />
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
             </div>
 
-            {/* IP Pool Section */}
-            <IPPoolTable ipv4Pools={data.ip_pools_v4} ipv6Pools={data.ip_pools_v6} />
+            {/* Content Sections */}
+            <div className="space-y-6">
+                {/* Section Header */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Shield className="h-4 w-4" />
+                    <span>网络配置详情</span>
+                </div>
 
-            {/* Grid Layout for Configs */}
-            <div className="grid gap-6 md:grid-cols-2">
-                {/* BGP Config */}
-                <BGPConfigCard config={data.bgp_configuration} />
+                {/* IP Pool Section */}
+                <IPPoolTable
+                    ipv4Pools={data.ip_pools_v4 ?? []}
+                    ipv6Pools={data.ip_pools_v6 ?? []}
+                    clusterName={clusterName}
+                    onSyncWayne={handleSyncWayne}
+                    isSyncing={isSyncing}
+                    syncResult={syncResult}
+                />
 
-                {/* Felix Config */}
-                <FelixConfigCard config={data.felix_configuration} />
-            </div>
+                {/* Grid Layout for Configs */}
+                <div className="grid gap-6 md:grid-cols-2">
+                    <BGPConfigCard config={data.bgp_configuration} />
+                    <FelixConfigCard config={data.felix_configuration} />
+                </div>
 
-            {/* BGP Peers */}
-            <BGPPeerList peers={data.bgp_peers} />
+                {/* BGP Peers */}
+                <BGPPeerList peers={data.bgp_peers ?? []} />
 
-            {/* Policies */}
-            <div className="grid gap-6 md:grid-cols-1">
+                {/* Policies */}
                 <NetworkPolicySummary
-                    globalPolicies={data.global_network_policies}
-                    namespacedCounts={data.namespaced_policy_counts}
+                    globalPolicies={data.global_network_policies ?? []}
+                    namespacedCounts={data.namespaced_policy_counts ?? {}}
                 />
             </div>
         </div>

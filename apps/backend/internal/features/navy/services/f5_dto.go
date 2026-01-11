@@ -12,6 +12,9 @@ type F5InfoQuery struct {
 	Status        string `json:"status" form:"status"`
 	PoolName      string `json:"pool_name" form:"pool_name"`
 	ClusterName   string `json:"cluster_name" form:"cluster_name"`
+	Keyword       string `json:"keyword" form:"keyword"`
+	SortBy        string `json:"sort_by" form:"sort_by"`
+	SortOrder     string `json:"sort_order" form:"sort_order"`
 }
 
 // F5InfoUpdateDTO defines the data transfer object for updating F5Info.

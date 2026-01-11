@@ -1,14 +1,20 @@
 // Email Notification Types
 
 export interface ParamDefinition {
-    key: string
-    label: string
+    name: string
+    title: string
     type: 'input' | 'select' | 'datetime' | 'resource'
-    required: boolean
+    value?: string
+    required?: boolean
     dictCode?: string        // type=select 时关联的字典编码
     resourceType?: string    // type=resource 时的资源类型 (nodes/pods/deployments)
     placeholder?: string
-    defaultValue?: string
+    _id?: string
+}
+
+export interface TemplateConfig {
+    tables: string[]
+    definitions: ParamDefinition[]
 }
 
 export interface EmailTemplate {
@@ -16,7 +22,7 @@ export interface EmailTemplate {
     name: string
     title: string
     body: string
-    params: ParamDefinition[]
+    params: TemplateConfig
     is_enabled: boolean
     created_at: string
     updated_at: string
@@ -34,7 +40,7 @@ export interface CreateEmailTemplateRequest {
     name: string
     title: string
     body: string
-    params?: ParamDefinition[]
+    params: TemplateConfig
     is_enabled?: boolean
 }
 
@@ -42,7 +48,7 @@ export interface UpdateEmailTemplateRequest {
     name?: string
     title?: string
     body?: string
-    params?: ParamDefinition[]
+    params?: TemplateConfig
     is_enabled?: boolean
 }
 

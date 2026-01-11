@@ -95,25 +95,31 @@ export function EmailContactsTab() {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                {/* Header removed */}
-            </div>
-
-            {/* Filter Bar */}
-            <div className="flex flex-col sm:flex-row gap-4 p-4 rounded-xl border bg-card/50 backdrop-blur-sm shadow-sm justify-between">
-                <div className="relative flex-1 max-w-sm">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="搜索联系人名称或邮箱..."
-                        className="pl-9 bg-background/50 border-transparent focus:border-input transition-all"
-                        value={keyword}
-                        onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
-                    />
+        <div className="p-6 space-y-6">
+            {/* Header & Actions */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="space-y-1">
+                    <h3 className="text-lg font-semibold">联系人管理</h3>
+                    <p className="text-sm text-muted-foreground">
+                        管理邮件联系人组，支持多个邮箱地址
+                    </p>
                 </div>
                 <Button onClick={handleCreate} className="shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all">
                     <Plus className="w-4 h-4 mr-2" /> 新建联系人
                 </Button>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="flex items-center gap-4">
+                <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="搜索联系人名称或邮箱..."
+                        className="pl-10 h-10 bg-background/50 border-transparent focus:border-input transition-all"
+                        value={keyword}
+                        onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+                    />
+                </div>
             </div>
 
             {/* Data Table */}
@@ -155,12 +161,12 @@ export function EmailContactsTab() {
                                 <TableRow key={contact.id} className="group hover:bg-muted/30 transition-colors">
                                     <TableCell className="font-medium text-foreground">{contact.name}</TableCell>
                                     <TableCell className="text-muted-foreground">
-                                        <span className="max-w-[400px] truncate block" title={contact.address}>
+                                        <span className="max-w-[400px] truncate block font-mono text-xs" title={contact.address}>
                                             {contact.address}
                                         </span>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant="secondary" className="font-mono">
+                                        <Badge variant="secondary" className="font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
                                             {countEmails(contact.address)}
                                         </Badge>
                                     </TableCell>

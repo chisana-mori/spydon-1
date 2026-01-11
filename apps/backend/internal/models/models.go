@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
 // ParseID 将字符串解析为uint64 ID
@@ -20,10 +19,9 @@ func FormatID(id uint64) string {
 
 // BaseModel 基础模型，包含通用字段
 type BaseModel struct {
-	ID        uint64         `json:"id" gorm:"primaryKey;autoIncrement"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	ID        uint64    `json:"id" gorm:"primaryKey;autoIncrement"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Cluster 集群模型 (与 Kite 兼容的格式)
@@ -32,7 +30,7 @@ type Cluster struct {
 	CreatedAt     time.Time        `json:"created_at"`
 	UpdatedAt     time.Time        `json:"updated_at"`
 	Name          string           `json:"name" gorm:"type:varchar(100);uniqueIndex;not null;column:clustername"`
-	Description   string           `json:"description" gorm:"type:text"`
+	Description   string           `json:"description" gorm:"type:text;column:desc"`
 	Config        KiteSecretString `json:"config" gorm:"type:text;column:config"` // KubeConfig - 自动加密
 	PrometheusURL string           `json:"prometheus_url" gorm:"type:varchar(255)"`
 	InCluster     bool             `json:"in_cluster" gorm:"type:boolean;default:false"`
@@ -40,9 +38,8 @@ type Cluster struct {
 	Enable        bool             `json:"enable" gorm:"type:boolean;default:true"`
 
 	// Spydon 特有字段 (Kite 不使用，但不影响兼容性)
-	ClusterID     string     `json:"cluster_id" gorm:"column:cluster_id;type:varchar(255)"`
-	Status        string     `json:"status" gorm:"type:varchar(32);default:active"`
-	LastHeartbeat *time.Time `json:"last_heartbeat"`
+	ClusterID string `json:"cluster_id" gorm:"column:cluster_id;type:varchar(255)"`
+	Status    string `json:"status" gorm:"type:varchar(32);default:active"`
 
 	// navy字段
 	ClusterVersion string   `json:"cluster_version" gorm:"default:'';size:128;column:cluster_version"`
@@ -147,8 +144,10 @@ const (
 type ClusterStatus string
 
 const (
-	ClusterStatusActive   ClusterStatus = "active"
-	ClusterStatusInactive ClusterStatus = "inactive"
+	ClusterStatusInit     ClusterStatus = "Init"     // 集群初始化
+	ClusterStatusPending  ClusterStatus = "Pending"  // 集群维护中
+	ClusterStatusRunning  ClusterStatus = "Running"  // 运行中
+	ClusterStatusOffline  ClusterStatus = "Offline"  // 已下线
 )
 
 // TableName 方法用于指定表名

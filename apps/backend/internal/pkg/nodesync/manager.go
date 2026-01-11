@@ -16,8 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ClusterStatusMaintenance 集群维护中状态
-const ClusterStatusMaintenance = "maintenance"
+// isConnectableStatus 检查集群状态是否允许连接
+// 只允许 Init 和 Running 状态的集群进行连接
+func isConnectableStatus(status string) bool {
+	return status == string(models.ClusterStatusInit) || status == string(models.ClusterStatusRunning)
+}
 
 // Manager 节点同步管理器，管理所有集群的节点同步
 type Manager struct {
@@ -78,11 +81,11 @@ func (m *Manager) Stop() {
 	logger.S().Info("节点同步管理器已停止")
 }
 
-// loadClusters 加载所有启用且非维护中的集群并启动控制器
+// loadClusters 加载所有启用且状态为 Init 或 Running 的集群并启动控制器
 func (m *Manager) loadClusters(ctx context.Context) error {
 	var clusters []models.Cluster
-	// 只加载启用且非维护中的集群
-	if err := m.mainDB.Where("enable = ? AND status != ?", true, ClusterStatusMaintenance).Find(&clusters).Error; err != nil {
+	// 只加载启用且状态为 Init 或 Running 的集群
+	if err := m.mainDB.Where("enable = ? AND status IN ?", true, []string{string(models.ClusterStatusInit), string(models.ClusterStatusRunning)}).Find(&clusters).Error; err != nil {
 		return err
 	}
 
@@ -155,26 +158,26 @@ func (m *Manager) refreshLoop(ctx context.Context) {
 	}
 }
 
-// refreshClusters 刷新集群列表，处理新增、删除和维护中的集群
+// refreshClusters 刷新集群列表，处理新增、删除和非可连接状态的集群
 func (m *Manager) refreshClusters(ctx context.Context) error {
 	var clusters []models.Cluster
 	if err := m.mainDB.Where("enable = ?", true).Find(&clusters).Error; err != nil {
 		return err
 	}
 
-	// 构建当前活跃集群 名称 集合（排除维护中的）
-	activeNames := make(map[string]bool)
-	maintenanceNames := make(map[string]bool)
+	// 构建当前可连接集群名称集合（Init 或 Running 状态）
+	connectableNames := make(map[string]bool)
+	disconnectedNames := make(map[string]bool)
 
 	for _, cluster := range clusters {
-		// 维护中的集群不算活跃
-		if cluster.Status == ClusterStatusMaintenance {
-			maintenanceNames[cluster.Name] = true
-			logger.S().Debugw("集群处于维护状态，跳过", "cluster", cluster.Name)
+		// 非 Init 或 Running 状态的集群不可连接
+		if !isConnectableStatus(cluster.Status) {
+			disconnectedNames[cluster.Name] = true
+			logger.S().Debugw("集群状态不可连接，跳过", "cluster", cluster.Name, "status", cluster.Status)
 			continue
 		}
 
-		activeNames[cluster.Name] = true
+		connectableNames[cluster.Name] = true
 
 		m.mu.RLock()
 		_, exists := m.controllers[cluster.Name]
@@ -188,14 +191,14 @@ func (m *Manager) refreshClusters(ctx context.Context) error {
 		}
 	}
 
-	// 停止已删除、禁用或维护中的集群控制器
+	// 停止已删除、禁用或非可连接状态的集群控制器
 	m.mu.Lock()
 	for name, ctrl := range m.controllers {
-		if !activeNames[name] {
+		if !connectableNames[name] {
 			ctrl.Stop()
 			delete(m.controllers, name)
-			if maintenanceNames[name] {
-				logger.S().Infow("集群进入维护状态，控制器已停止", "cluster", name)
+			if disconnectedNames[name] {
+				logger.S().Infow("集群状态变更，断开连接", "cluster", name)
 			} else {
 				logger.S().Infow("集群控制器已停止", "cluster", name)
 			}
@@ -327,6 +330,32 @@ func (m *Manager) ListDeployments(clusterName string, namespace string) ([]appsv
 	return deployList.Items, nil
 }
 
+// ListDaemonSets 按需查询指定集群的所有 DaemonSets（集群级别，不使用缓存）
+func (m *Manager) ListDaemonSets(clusterName string, namespace string) ([]appsv1.DaemonSet, error) {
+	m.mu.RLock()
+	ctrl, ok := m.controllers[clusterName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("集群 %s 未被管理或不存在", clusterName)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var dsList appsv1.DaemonSetList
+	opts := []client.ListOption{}
+	if namespace != "" {
+		opts = append(opts, client.InNamespace(namespace))
+	}
+
+	if err := ctrl.GetClient().List(ctx, &dsList, opts...); err != nil {
+		return nil, fmt.Errorf("获取 DaemonSets 失败: %w", err)
+	}
+
+	return dsList.Items, nil
+}
+
 // GetManagedClusters 获取当前管理的所有活跃集群名称列表
 func (m *Manager) GetManagedClusters() []string {
 	m.mu.RLock()
@@ -337,4 +366,17 @@ func (m *Manager) GetManagedClusters() []string {
 		clusters = append(clusters, name)
 	}
 	return clusters
+}
+
+// GetRESTConfig 获取指定集群的 REST 配置（用于创建 dynamic client）
+func (m *Manager) GetRESTConfig(clusterName string) (interface{}, error) {
+	m.mu.RLock()
+	ctrl, ok := m.controllers[clusterName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("集群 %s 未被管理或不存在", clusterName)
+	}
+
+	return ctrl.GetRESTConfig(), nil
 }

@@ -52,7 +52,7 @@ const formSchema = z.object({
     name: z.string().min(1, '请输入集群名称').max(255, '名称不能超过255个字符'),
     cluster_id: z.string().optional(),
     description: z.string().optional(),
-    status: z.enum(['active', 'inactive', 'maintenance']).default('active'),
+    status: z.enum(['Init', 'Pending', 'Running', 'Offline']).default('Init'),
     kube_config: z.string().optional().refine((val) => {
         if (!val) return true
         try {
@@ -102,7 +102,7 @@ export function ClusterDrawer({
             name: '',
             cluster_id: '',
             description: '',
-            status: 'active' as const,
+            status: 'Init' as const,
             kube_config: '',
             prometheus_url: '',
             // Navy fields
@@ -125,7 +125,7 @@ export function ClusterDrawer({
                     name: cluster.name,
                     cluster_id: cluster.cluster_id || '',
                     description: cluster.description || '',
-                    status: cluster.status || 'active',
+                    status: cluster.status || 'Init',
                     kube_config: cluster.kube_config || '',
                     prometheus_url: cluster.prometheus_url || '',
                     cluster_version: cluster.cluster_version || '',
@@ -142,7 +142,7 @@ export function ClusterDrawer({
                     name: '',
                     cluster_id: '',
                     description: '',
-                    status: 'active',
+                    status: 'Init',
                     kube_config: '',
                     prometheus_url: '',
                     cluster_version: '',
@@ -254,16 +254,18 @@ export function ClusterDrawer({
                                 {isEdit ? '编辑集群' : '新建集群'}
                                 {isEdit ? (
                                     <Badge
-                                        variant={statusValue === 'active' ? 'default' : 'secondary'}
+                                        variant={statusValue === 'Running' ? 'default' : 'secondary'}
                                         className={
-                                            statusValue === 'active'
+                                            statusValue === 'Running'
                                                 ? "h-5 px-2 text-[10px] font-medium bg-green-500/10 text-green-600 border-green-500/20 shadow-none hover:bg-green-500/20"
-                                                : statusValue === 'maintenance'
+                                                : statusValue === 'Pending'
                                                     ? "h-5 px-2 text-[10px] font-medium bg-yellow-500/10 text-yellow-600 border-yellow-500/20 shadow-none hover:bg-yellow-500/20"
-                                                    : "h-5 px-2 text-[10px] font-medium bg-red-500/10 text-red-500 border-red-500/20 shadow-none hover:bg-red-500/20"
+                                                    : statusValue === 'Init'
+                                                        ? "h-5 px-2 text-[10px] font-medium bg-blue-500/10 text-blue-600 border-blue-500/20 shadow-none hover:bg-blue-500/20"
+                                                        : "h-5 px-2 text-[10px] font-medium bg-red-500/10 text-red-500 border-red-500/20 shadow-none hover:bg-red-500/20"
                                         }
                                     >
-                                        {statusValue === 'active' ? '活跃' : statusValue === 'maintenance' ? '维护中' : '离线'}
+                                        {statusValue === 'Running' ? '运行中' : statusValue === 'Pending' ? '维护中' : statusValue === 'Init' ? '初始化' : '已下线'}
                                     </Badge>
                                 ) : (
                                     <Badge className="h-5 px-2 text-[10px] font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-500/20 shadow-none">
@@ -363,9 +365,10 @@ export function ClusterDrawer({
                                                                 </SelectTrigger>
                                                             </FormControl>
                                                             <SelectContent>
-                                                                <SelectItem value="active">活跃</SelectItem>
-                                                                <SelectItem value="maintenance">维护中</SelectItem>
-                                                                <SelectItem value="inactive">离线</SelectItem>
+                                                                <SelectItem value="Init">初始化</SelectItem>
+                                                                <SelectItem value="Pending">维护中</SelectItem>
+                                                                <SelectItem value="Running">运行中</SelectItem>
+                                                                <SelectItem value="Offline">已下线</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                         <FormMessage />

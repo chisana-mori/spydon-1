@@ -41,6 +41,8 @@ export interface IPPoolDetail {
     ipip_mode: string
     vxlan_mode: string
     disabled: boolean
+    wayne_enabled: string
+    subfunction: string
 }
 
 export interface BGPPeerDetail {

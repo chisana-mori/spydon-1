@@ -22,6 +22,8 @@ type Client interface {
 	SAdd(key string, members ...string) error
 	SRem(key string, members ...string) error
 	SMembers(key string) ([]string, error)
+	HGetAll(key string) (map[string]string, error)
+	Keys(pattern string) ([]string, error)
 	Close() error
 }
 
@@ -147,6 +149,16 @@ func (h *Handler) SRem(key string, members ...string) error {
 		args[i] = m
 	}
 	return h.client.SRem(h.ctx, key, args...).Err()
+}
+
+// HGetAll retrieves all fields and values from a hash
+func (h *Handler) HGetAll(key string) (map[string]string, error) {
+	return h.client.HGetAll(h.ctx, key).Result()
+}
+
+// Keys retrieves all keys matching pattern
+func (h *Handler) Keys(pattern string) ([]string, error) {
+	return h.client.Keys(h.ctx, pattern).Result()
 }
 
 // Close closes the Redis connection

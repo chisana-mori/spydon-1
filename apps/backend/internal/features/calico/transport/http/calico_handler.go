@@ -32,182 +32,244 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		calicoGroup.GET("/overview", h.GetOverview)
 		calicoGroup.GET("/clusters/:cluster", h.GetClusterDetail)
+		calicoGroup.POST("/clusters/:cluster/sync-wayne", h.SyncIPPoolsToWayne)
 	}
 }
 
-// ========== DTOs ==========
+// ============ Label Translation Utilities ============
 
-type OverviewStats struct {
-	TotalIPPools    int `json:"total_ip_pools"`
-	ActiveBGPPeers  int `json:"active_bgp_peers"`
-	TotalBGPPeers   int `json:"total_bgp_peers"`
-	TotalPolicies   int `json:"total_policies"`
-	HealthyClusters int `json:"healthy_clusters"`
-	TotalClusters   int `json:"total_clusters"`
-	TotalIPv4Pools  int `json:"total_ipv4_pools"`
-	TotalIPv6Pools  int `json:"total_ipv6_pools"`
+var subfunctionTranslations = map[string]string{
+	"K8SAPPGENERAL": "K8SAPP通用",
+	"K8SDB":         "K8S数据库",
+	"K8SREDIS":      "K8SREDIS网段",
+	"K8SBASE":       "K8S组件",
+	"K8SRBAPP":      "K8S业务APP",
+	"K8SAPPCORE":    "K8SAPP核心",
+	"K8SAPPSPECIAL": "K8SAPP专用",
+	"K8SDPLUS":      "K8S新核心专用",
 }
 
-type ClusterOverviewItem struct {
-	ClusterName    string `json:"cluster_name"`
-	IPv4PoolCount  int    `json:"ipv4_pool_count"`
-	IPv6PoolCount  int    `json:"ipv6_pool_count"`
-	ActiveBGPPeers int    `json:"active_bgp_peers"`
-	TotalBGPPeers  int    `json:"total_bgp_peers"`
-	PolicyCount    int    `json:"policy_count"`
-	IsHealthy      bool   `json:"is_healthy"`
-	HealthScore    int    `json:"health_score"`
-	ErrMsg         string `json:"err_msg,omitempty"`
+func translateSubfunction(value string) string {
+	if value == "" {
+		return "-"
+	}
+	upperValue := strings.ToUpper(value)
+	if translated, ok := subfunctionTranslations[upperValue]; ok {
+		return translated
+	}
+	return value
 }
 
-type OverviewResponse struct {
-	Stats    OverviewStats         `json:"stats"`
-	Clusters []ClusterOverviewItem `json:"clusters"`
+func getWayneEnabled(labels map[string]string) string {
+	if labels == nil {
+		return "-"
+	}
+	if value, ok := labels["kfeature.io/enabled"]; ok {
+		return value
+	}
+	return "-"
 }
 
-type IPPoolDetail struct {
-	Name           string  `json:"name"`
-	CIDR           string  `json:"cidr"`
-	IPVersion      int     `json:"ip_version"`
-	BlockSize      int     `json:"block_size"`
-	Allocated      int64   `json:"allocated"`
-	Capacity       int64   `json:"capacity"`
-	AllocationRate float64 `json:"allocation_rate"`
-	NATOutgoing    bool    `json:"nat_outgoing"`
-	IPIPMode       string  `json:"ipip_mode"`
-	VXLANMode      string  `json:"vxlan_mode"`
-	Disabled       bool    `json:"disabled"`
+func getSubfunction(labels map[string]string) string {
+	if labels == nil {
+		return "-"
+	}
+	if value, ok := labels["kfeature.io/subfunction"]; ok {
+		return translateSubfunction(value)
+	}
+	return "-"
 }
 
-type BGPPeerDetail struct {
-	Name         string `json:"name"`
-	PeerIP       string `json:"peer_ip"`
-	ASNumber     string `json:"as_number"`
-	State        string `json:"state"`
-	NodeSelector string `json:"node_selector"`
-	Scope        string `json:"scope"`
-	Uptime       string `json:"uptime"`
-}
-
-type PolicySummary struct {
-	Name        string   `json:"name"`
-	Namespace   string   `json:"namespace"`
-	Types       []string `json:"types"`
-	IngressRule int      `json:"ingress_rule_count"`
-	EgressRule  int      `json:"egress_rule_count"`
-}
-
-type ClusterDetailResponse struct {
-	ClusterName            string                       `json:"cluster_name"`
-	HealthStatus           string                       `json:"health_status"`
-	Issues                 []string                     `json:"issues"`
-	IPPoolsV4              []IPPoolDetail               `json:"ip_pools_v4"`
-	IPPoolsV6              []IPPoolDetail               `json:"ip_pools_v6"`
-	BGPConfiguration       *calicov3.BGPConfiguration   `json:"bgp_configuration"`
-	BGPPeers               []BGPPeerDetail              `json:"bgp_peers"`
-	GlobalNetworkPolicies  []PolicySummary              `json:"global_network_policies"`
-	NamespacedPolicyCounts map[string]int               `json:"namespaced_policy_counts"`
-	FelixConfiguration     *calicov3.FelixConfiguration `json:"felix_configuration"`
-	HostEndpointCount      int                          `json:"host_endpoint_count"`
-	NetworkSetCount        int                          `json:"network_set_count"`
-	GlobalNetworkSetCount  int                          `json:"global_network_set_count"`
-}
-
-// ========== Handlers ==========
+// ============ Overview Handlers ============
 
 func (h *Handler) GetOverview(c *gin.Context) {
-	clusterNames := h.nodeManager.GetManagedClusters()
+	clusterNames := h.filterCalicoClusters(h.nodeManager.GetManagedClusters())
 
+	overviewItems := h.fetchClusterOverviews(clusterNames)
+	response := h.buildOverviewResponse(overviewItems)
+
+	httpx.Success(c, response)
+}
+
+func (h *Handler) filterCalicoClusters(clusters []string) []string {
+	var filtered []string
+	for _, name := range clusters {
+		if strings.Contains(strings.ToLower(name), "calico") {
+			filtered = append(filtered, name)
+		}
+	}
+	return filtered
+}
+
+func (h *Handler) fetchClusterOverviews(clusterNames []string) []ClusterOverviewItem {
 	var wg sync.WaitGroup
 	resultChan := make(chan ClusterOverviewItem, len(clusterNames))
 
 	for _, name := range clusterNames {
 		wg.Add(1)
-		go func(n string) {
+		go func(clusterName string) {
 			defer wg.Done()
-			item := h.collectClusterOverview(n)
-			resultChan <- item
+			defer h.recoverPanic(clusterName, resultChan)
+			resultChan <- h.collectClusterOverview(clusterName)
 		}(name)
 	}
 
 	wg.Wait()
 	close(resultChan)
 
-	var responseData OverviewResponse
-	var totalStats OverviewStats
-
-	// Collect results
+	var items []ClusterOverviewItem
 	for item := range resultChan {
-		responseData.Clusters = append(responseData.Clusters, item)
-
-		totalStats.TotalClusters++
-		if item.IsHealthy {
-			totalStats.HealthyClusters++
-		}
-		totalStats.TotalIPv4Pools += item.IPv4PoolCount
-		totalStats.TotalIPv6Pools += item.IPv6PoolCount
-		totalStats.TotalIPPools += (item.IPv4PoolCount + item.IPv6PoolCount)
-		totalStats.ActiveBGPPeers += item.ActiveBGPPeers
-		totalStats.TotalBGPPeers += item.TotalBGPPeers
-		totalStats.TotalPolicies += item.PolicyCount
+		items = append(items, item)
 	}
+	return items
+}
 
-	// Sort by health score
-	sort.Slice(responseData.Clusters, func(i, j int) bool {
-		if responseData.Clusters[i].HealthScore != responseData.Clusters[j].HealthScore {
-			return responseData.Clusters[i].HealthScore < responseData.Clusters[j].HealthScore
+func (h *Handler) recoverPanic(clusterName string, resultChan chan<- ClusterOverviewItem) {
+	if r := recover(); r != nil {
+		resultChan <- ClusterOverviewItem{
+			ClusterName: clusterName,
+			IsHealthy:   false,
+			HealthScore: 0,
+			ErrMsg:      fmt.Sprintf("Internal error: %v", r),
 		}
-		return responseData.Clusters[i].ClusterName < responseData.Clusters[j].ClusterName
+	}
+}
+
+func (h *Handler) buildOverviewResponse(items []ClusterOverviewItem) OverviewResponse {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].HealthScore != items[j].HealthScore {
+			return items[i].HealthScore < items[j].HealthScore
+		}
+		return items[i].ClusterName < items[j].ClusterName
 	})
 
-	responseData.Stats = totalStats
-	httpx.Success(c, responseData)
+	stats := h.calculateOverviewStats(items)
+	return OverviewResponse{
+		Stats:    stats,
+		Clusters: items,
+	}
+}
+
+func (h *Handler) calculateOverviewStats(items []ClusterOverviewItem) OverviewStats {
+	var stats OverviewStats
+	for _, item := range items {
+		stats.TotalClusters++
+		if item.IsHealthy {
+			stats.HealthyClusters++
+		}
+		stats.TotalIPv4Pools += item.IPv4PoolCount
+		stats.TotalIPv6Pools += item.IPv6PoolCount
+		stats.TotalIPPools += (item.IPv4PoolCount + item.IPv6PoolCount)
+		stats.ActiveBGPPeers += item.ActiveBGPPeers
+		stats.TotalBGPPeers += item.TotalBGPPeers
+		stats.TotalPolicies += item.PolicyCount
+	}
+	return stats
 }
 
 func (h *Handler) collectClusterOverview(clusterName string) ClusterOverviewItem {
-	item := ClusterOverviewItem{ClusterName: clusterName, HealthScore: 100, IsHealthy: true}
-
-	// Get IPPools
-	pools, err := h.calicoService.ListIPPools(clusterName)
-	if err == nil {
-		for _, p := range pools {
-			if strings.Contains(p.Spec.CIDR, ":") {
-				item.IPv6PoolCount++
-			} else {
-				item.IPv4PoolCount++
-			}
-		}
-	} else {
-		item.ErrMsg = err.Error()
-		item.IsHealthy = false
-		item.HealthScore -= 20
-		return item
+	item := ClusterOverviewItem{
+		ClusterName: clusterName,
+		HealthScore: 100,
+		IsHealthy:   true,
 	}
 
-	// Get Peers
-	peers, err := h.calicoService.ListBGPPeers(clusterName)
-	if err == nil {
-		item.TotalBGPPeers = len(peers)
-		item.ActiveBGPPeers = len(peers) // Simulated
+	if err := h.collectIPPoolsForOverview(clusterName, &item); err != nil {
+		h.updateOverviewHealth(&item, err, "IPPools")
 	}
 
-	// Policies
-	gp, _ := h.calicoService.ListGlobalNetworkPolicies(clusterName)
-	np, _ := h.calicoService.ListNetworkPolicies(clusterName, "")
-	item.PolicyCount = len(gp) + len(np)
+	if err := h.collectBGPPeersForOverview(clusterName, &item); err != nil {
+		h.updateOverviewHealth(&item, err, "BGPPeers")
+	}
+
+	if err := h.collectPoliciesForOverview(clusterName, &item); err != nil {
+		h.updateOverviewHealth(&item, err, "Policies")
+	}
 
 	return item
 }
 
+func (h *Handler) collectIPPoolsForOverview(clusterName string, item *ClusterOverviewItem) error {
+	pools, err := h.calicoService.ListIPPools(clusterName)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range pools {
+		if strings.Contains(p.Spec.CIDR, ":") {
+			item.IPv6PoolCount++
+		} else {
+			item.IPv4PoolCount++
+		}
+	}
+	return nil
+}
+
+func (h *Handler) collectBGPPeersForOverview(clusterName string, item *ClusterOverviewItem) error {
+	peers, err := h.calicoService.ListBGPPeers(clusterName)
+	if err != nil {
+		return err
+	}
+
+	item.TotalBGPPeers = len(peers)
+	item.ActiveBGPPeers = len(peers)
+	return nil
+}
+
+func (h *Handler) collectPoliciesForOverview(clusterName string, item *ClusterOverviewItem) error {
+	gp, err := h.calicoService.ListGlobalNetworkPolicies(clusterName)
+	if err != nil {
+		return err
+	}
+
+	np, err := h.calicoService.ListNetworkPolicies(clusterName, "")
+	if err != nil {
+		return err
+	}
+
+	item.PolicyCount = len(gp) + len(np)
+	return nil
+}
+
+func (h *Handler) updateOverviewHealth(item *ClusterOverviewItem, err error, context string) {
+	if item.ErrMsg != "" {
+		item.ErrMsg += "; "
+	}
+	item.ErrMsg += fmt.Sprintf("%s: %v", context, err)
+	item.IsHealthy = false
+	item.HealthScore -= 20
+	if item.HealthScore < 0 {
+		item.HealthScore = 0
+	}
+}
+
+// ============ Cluster Detail Handlers ============
+
 func (h *Handler) GetClusterDetail(c *gin.Context) {
 	clusterName := c.Param("cluster")
 
-	// Basic validation
-	if _, err := h.nodeManager.GetClient(clusterName); err != nil {
-		httpx.NotFound(c, "CLUSTER_NOT_FOUND", fmt.Sprintf("Cluster %s not found", clusterName))
+	if err := h.validateCalicoCluster(clusterName); err != nil {
+		httpx.NotFound(c, "CALICO_CLUSTER_NOT_FOUND", err.Error())
 		return
 	}
 
+	detail := h.buildClusterDetail(clusterName)
+	httpx.Success(c, detail)
+}
+
+func (h *Handler) validateCalicoCluster(clusterName string) error {
+	if !strings.Contains(strings.ToLower(clusterName), "calico") {
+		return fmt.Errorf("cluster %s is not a Calico cluster", clusterName)
+	}
+
+	if _, err := h.nodeManager.GetClient(clusterName); err != nil {
+		return fmt.Errorf("cluster %s not found", clusterName)
+	}
+
+	return nil
+}
+
+func (h *Handler) buildClusterDetail(clusterName string) ClusterDetailResponse {
 	detail := ClusterDetailResponse{
 		ClusterName:            clusterName,
 		HealthStatus:           "healthy",
@@ -215,104 +277,136 @@ func (h *Handler) GetClusterDetail(c *gin.Context) {
 		Issues:                 []string{},
 	}
 
-	// 1. IPPools
+	h.populateIPPools(clusterName, &detail)
+	h.populateBGPConfiguration(clusterName, &detail)
+	h.populateBGPPeers(clusterName, &detail)
+	h.populatePolicies(clusterName, &detail)
+	h.populateFelixConfiguration(clusterName, &detail)
+	h.populateResourceCounts(clusterName, &detail)
+
+	return detail
+}
+
+func (h *Handler) populateIPPools(clusterName string, detail *ClusterDetailResponse) {
 	pools, err := h.calicoService.ListIPPools(clusterName)
 	if err != nil {
 		detail.Issues = append(detail.Issues, fmt.Sprintf("Failed to list IPPools: %v", err))
 		detail.HealthStatus = "warning"
+		return
 	}
 
 	for _, p := range pools {
-		ipVersion := 4
-		if strings.Contains(p.Spec.CIDR, ":") {
-			ipVersion = 6
-		}
-
-		_, cidr, _ := net.ParseCIDR(p.Spec.CIDR)
-		ones, bits := cidr.Mask.Size()
-		capacity := int64(1) << uint(bits-ones)
-
-		allocated := int64(len(p.Name) * 100)
-		if allocated > capacity {
-			allocated = capacity / 2
-		}
-
-		poolDetail := IPPoolDetail{
-			Name:           p.Name,
-			CIDR:           p.Spec.CIDR,
-			IPVersion:      ipVersion,
-			BlockSize:      p.Spec.BlockSize,
-			Allocated:      allocated,
-			Capacity:       capacity,
-			AllocationRate: float64(allocated) / float64(capacity) * 100,
-			NATOutgoing:    p.Spec.NATOutgoing,
-			IPIPMode:       string(p.Spec.IPIPMode),
-			VXLANMode:      string(p.Spec.VXLANMode),
-			Disabled:       p.Spec.Disabled,
-		}
-
-		if ipVersion == 6 {
+		poolDetail := h.convertToIPPoolDetail(p)
+		if poolDetail.IPVersion == 6 {
 			detail.IPPoolsV6 = append(detail.IPPoolsV6, poolDetail)
 		} else {
 			detail.IPPoolsV4 = append(detail.IPPoolsV4, poolDetail)
 		}
 	}
+}
 
-	// 2. BGP Config
+func (h *Handler) convertToIPPoolDetail(pool calicov3.IPPool) IPPoolDetail {
+	ipVersion := 4
+	if strings.Contains(pool.Spec.CIDR, ":") {
+		ipVersion = 6
+	}
+
+	_, cidr, _ := net.ParseCIDR(pool.Spec.CIDR)
+	ones, bits := cidr.Mask.Size()
+	capacity := int64(1) << uint(bits-ones)
+
+	allocated := int64(len(pool.Name) * 100)
+	if allocated > capacity {
+		allocated = capacity / 2
+	}
+
+	return IPPoolDetail{
+		Name:           pool.Name,
+		CIDR:           pool.Spec.CIDR,
+		IPVersion:      ipVersion,
+		BlockSize:      pool.Spec.BlockSize,
+		Allocated:      allocated,
+		Capacity:       capacity,
+		AllocationRate: float64(allocated) / float64(capacity) * 100,
+		NATOutgoing:    pool.Spec.NATOutgoing,
+		IPIPMode:       string(pool.Spec.IPIPMode),
+		VXLANMode:      string(pool.Spec.VXLANMode),
+		Disabled:       pool.Spec.Disabled,
+		WayneEnabled:   getWayneEnabled(pool.ObjectMeta.Labels),
+		Subfunction:    getSubfunction(pool.ObjectMeta.Labels),
+	}
+}
+
+func (h *Handler) populateBGPConfiguration(clusterName string, detail *ClusterDetailResponse) {
 	bgpConfigs, _ := h.calicoService.ListBGPConfigurations(clusterName)
 	if len(bgpConfigs) > 0 {
 		detail.BGPConfiguration = &bgpConfigs[0]
 	}
+}
 
-	// 3. BGP Peers
+func (h *Handler) populateBGPPeers(clusterName string, detail *ClusterDetailResponse) {
 	peers, _ := h.calicoService.ListBGPPeers(clusterName)
 	for _, p := range peers {
-		scope := "global"
-		nodeSelector := p.Spec.NodeSelector
-		if nodeSelector != "" {
-			scope = "node-specific"
-		} else {
-			nodeSelector = "all()"
-		}
+		peerDetail := h.convertToBGPPeerDetail(p)
+		detail.BGPPeers = append(detail.BGPPeers, peerDetail)
+	}
+}
 
-		detail.BGPPeers = append(detail.BGPPeers, BGPPeerDetail{
-			Name:         p.Name,
-			PeerIP:       p.Spec.PeerIP,
-			ASNumber:     p.Spec.ASNumber.String(),
-			State:        "Established",
-			NodeSelector: nodeSelector,
-			Scope:        scope,
-			Uptime:       "12d 5h",
-		})
+func (h *Handler) convertToBGPPeerDetail(peer calicov3.BGPPeer) BGPPeerDetail {
+	scope := "global"
+	nodeSelector := peer.Spec.NodeSelector
+	if nodeSelector != "" {
+		scope = "node-specific"
+	} else {
+		nodeSelector = "all()"
 	}
 
-	// 4. Policies
+	return BGPPeerDetail{
+		Name:         peer.Name,
+		PeerIP:       peer.Spec.PeerIP,
+		ASNumber:     peer.Spec.ASNumber.String(),
+		State:        "Established",
+		NodeSelector: nodeSelector,
+		Scope:        scope,
+		Uptime:       "12d 5h",
+	}
+}
+
+func (h *Handler) populatePolicies(clusterName string, detail *ClusterDetailResponse) {
 	gnps, _ := h.calicoService.ListGlobalNetworkPolicies(clusterName)
 	for _, p := range gnps {
-		types := make([]string, len(p.Spec.Types))
-		for i, t := range p.Spec.Types {
-			types[i] = string(t)
-		}
-		detail.GlobalNetworkPolicies = append(detail.GlobalNetworkPolicies, PolicySummary{
-			Name:        p.Name,
-			Types:       types,
-			IngressRule: len(p.Spec.Ingress),
-			EgressRule:  len(p.Spec.Egress),
-		})
+		policySummary := h.convertToPolicySummary(p)
+		detail.GlobalNetworkPolicies = append(detail.GlobalNetworkPolicies, policySummary)
 	}
 
 	nps, _ := h.calicoService.ListNetworkPolicies(clusterName, "")
 	for _, p := range nps {
 		detail.NamespacedPolicyCounts[p.Namespace]++
 	}
+}
 
-	// 5. Felix
+func (h *Handler) convertToPolicySummary(policy calicov3.GlobalNetworkPolicy) PolicySummary {
+	types := make([]string, len(policy.Spec.Types))
+	for i, t := range policy.Spec.Types {
+		types[i] = string(t)
+	}
+
+	return PolicySummary{
+		Name:        policy.Name,
+		Types:       types,
+		IngressRule: len(policy.Spec.Ingress),
+		EgressRule:  len(policy.Spec.Egress),
+	}
+}
+
+func (h *Handler) populateFelixConfiguration(clusterName string, detail *ClusterDetailResponse) {
 	felix, _ := h.calicoService.ListFelixConfigurations(clusterName)
 	if len(felix) > 0 {
 		detail.FelixConfiguration = &felix[0]
 	}
+}
 
-	// 6. Counts
+func (h *Handler) populateResourceCounts(clusterName string, detail *ClusterDetailResponse) {
 	heps, _ := h.calicoService.ListHostEndpoints(clusterName)
 	detail.HostEndpointCount = len(heps)
 
@@ -321,6 +415,23 @@ func (h *Handler) GetClusterDetail(c *gin.Context) {
 
 	gnsets, _ := h.calicoService.ListGlobalNetworkSets(clusterName)
 	detail.GlobalNetworkSetCount = len(gnsets)
+}
 
-	httpx.Success(c, detail)
+// SyncIPPoolsToWayne 同步指定集群的 IPPool 到 Wayne
+func (h *Handler) SyncIPPoolsToWayne(c *gin.Context) {
+	clusterName := c.Param("cluster")
+
+	// 从 JWT token 中获取用户信息
+	username := c.GetString("username")
+	if username == "" {
+		username = "system"
+	}
+
+	result, err := h.calicoService.SyncIPPoolsToWayne(clusterName, username)
+	if err != nil {
+		httpx.InternalError(c, "", fmt.Sprintf("同步 IPPool 到 Wayne 失败: %v", err.Error()))
+		return
+	}
+
+	httpx.SuccessWithMessage(c, "同步成功", result)
 }

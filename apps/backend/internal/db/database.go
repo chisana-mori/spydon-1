@@ -93,7 +93,6 @@ func (d *Database) AutoMigrate() error {
 		&navy.Device{},
 		&navy.K8sNode{},
 		&navy.QueryTemplate{},
-		&navy.K8sCluster{},
 		&navy.TaintManagement{},
 		&navy.DeviceApp{},
 		&navy.F5Info{},

@@ -3,6 +3,9 @@ parts/
 sdist/
 wheels/
 *.egg-info/
+**.claude
+**.shared
+**.agent
 .installed.cfg
 *.egg
 MANIFEST
@@ -34,6 +37,7 @@ HolmesGPT-*.md
 **gocache**
 **var/gomod**
 **.log**
+apps/backend/server.log
 
 # Backend config
 apps/backend/config/config.yaml

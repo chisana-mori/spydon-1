@@ -1,10 +1,16 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, Trash2, X } from 'lucide-react';
+import {
+    Loader2, Plus, Trash2, Mail, FileText, Code, Settings, ChevronRight,
+    Server, Package, History, Layers, Rocket, Network,
+    ArrowDownCircle, ArrowUpCircle, ArrowRightCircle, CheckCircle2,
+    LayoutDashboard, List, Calendar, Box, AlertCircle
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { RobustaAPI } from '@/lib/api';
-import { CreateEmailTemplateRequest, UpdateEmailTemplateRequest, ParamDefinition } from '@/types/email';
+import { CreateEmailTemplateRequest, UpdateEmailTemplateRequest, ParamDefinition, TemplateConfig } from '@/types/email';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +22,7 @@ import {
     SheetDescription,
     SheetHeader,
     SheetTitle,
+    SheetFooter,
 } from '@/components/ui/sheet';
 import {
     Select,
@@ -24,7 +31,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface EmailTemplateDrawerProps {
     open: boolean;
@@ -33,23 +45,34 @@ interface EmailTemplateDrawerProps {
 }
 
 const defaultParam: ParamDefinition = {
-    key: '',
-    label: '',
+    name: '',
+    title: '',
     type: 'input',
     required: false,
 };
 
-export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplateDrawerProps) {
-    const queryClient = useQueryClient();
-    const isEdit = templateId !== null;
+const TABLE_OPTIONS = [
+    { label: '节点列表 ($nodes)', value: '$nodes', icon: Server, description: '集群节点状态及详情' },
+    { label: 'Pod 列表 ($pods)', value: '$pods', icon: Package, description: '运行中的 Pod 实例' },
+    { label: '历史 Pod 列表 ($historyPods)', value: '$historyPods', icon: History, description: '已删除或重启的 Pod' },
+    { label: '组件列表 ($components)', value: '$components', icon: Layers, description: '系统核心组件状态' },
+    { label: 'Deployment 列表 ($deploys)', value: '$deploys', icon: Rocket, description: '无状态应用部署信息' },
+    { label: 'Node CIDR ($nodeCidrs)', value: '$nodeCidrs', icon: Network, description: '节点网络网段分配' },
+    { label: '待下线 Deployment ($offlineDeploys)', value: '$offlineDeploys', icon: ArrowDownCircle, description: '计划下线的服务' },
+    { label: '待上线 Deployment ($onlineDeploys)', value: '$onlineDeploys', icon: ArrowUpCircle, description: '即将上线的服务' },
+    { label: '迁移 Deployment ($migrationDeploys)', value: '$migrationDeploys', icon: ArrowRightCircle, description: '正在迁移的服务' },
+];
 
-    const [formData, setFormData] = useState<CreateEmailTemplateRequest>({
-        name: '',
-        title: '',
-        body: '',
-        params: [],
-        is_enabled: true,
-    });
+/**
+ * Main Container Component
+ * Responsible for:
+ * 1. Managing Sheet visibility
+ * 2. Fetching Data when in Edit mode
+ * 3. Normalizing data (handling legacy params array)
+ * 4. Rendering the Form component with a specific KEY to force-reset state
+ */
+export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplateDrawerProps) {
+    const isEdit = templateId !== null;
 
     // Fetch existing template for edit mode
     const { data: template, isLoading: isLoadingTemplate } = useQuery({
@@ -58,28 +81,135 @@ export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplate
         enabled: isEdit && open,
     });
 
-    // Initialize form data when template loads
-    useEffect(() => {
-        if (template && isEdit) {
-            setFormData({
-                name: template.name,
-                title: template.title,
-                body: template.body,
-                params: template.params || [],
-                is_enabled: template.is_enabled,
-            });
-        } else if (!isEdit && open) {
-            setFormData({
+    // Normalize Data Logic
+    const getInitialData = (): CreateEmailTemplateRequest | null => {
+        // New Template
+        if (!isEdit) {
+            return {
                 name: '',
                 title: '',
                 body: '',
-                params: [],
+                params: { tables: [], definitions: [] },
                 is_enabled: true,
-            });
+            };
         }
-    }, [template, isEdit, open]);
 
-    // Create mutation
+        // Edit Template (Wait for data)
+        if (!template) return null;
+
+        // Data Normalization (Handle legacy array vs new object)
+        let normalizedParams: TemplateConfig = { tables: [], definitions: [] };
+        if (Array.isArray(template.params)) {
+            // Legacy: params was []ParamDefinition
+            // Map legacy key/label if they exist, otherwise fallback
+            normalizedParams.definitions = (template.params as any[]).map(p => ({
+                ...p,
+                name: p.key || p.name,
+                title: p.label || p.title,
+                _id: Math.random().toString(36).substr(2, 9)
+            })) as ParamDefinition[];
+        } else if (template.params) {
+            // New: params is TemplateConfig object
+            // Handle possibility of receiving 'inputs' from backend if it hasn't migrated data yet
+            const rawParams = template.params as any;
+            const definitions = rawParams.definitions || rawParams.inputs || [];
+
+            normalizedParams = {
+                tables: rawParams.tables || [],
+                definitions: definitions.map((p: any) => ({
+                    ...p,
+                    name: p.name || p.key,   // Support both for transition
+                    title: p.title || p.label,
+                    _id: Math.random().toString(36).substr(2, 9)
+                }))
+            };
+        }
+
+        return {
+            name: template.name,
+            title: template.title,
+            body: template.body,
+            params: normalizedParams,
+            is_enabled: template.is_enabled,
+        };
+    };
+
+    const initialData = getInitialData();
+
+    return (
+        <Sheet open={open} onOpenChange={(val) => !val && onClose()}>
+            <SheetContent className="sm:max-w-[900px] w-full flex flex-col h-full p-0 gap-0 border-l-0 shadow-2xl bg-background/95 backdrop-blur-xl">
+                <SheetHeader className="px-8 py-6 border-b bg-muted/10 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+                        <Mail className="w-64 h-64 text-primary" />
+                    </div>
+                    <div className="flex items-center gap-5 relative z-10">
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="p-3.5 bg-primary/10 rounded-2xl ring-1 ring-primary/20 shadow-sm"
+                        >
+                            <Mail className="w-6 h-6 text-primary" />
+                        </motion.div>
+                        <div className="space-y-1.5">
+                            <SheetTitle className="flex items-center gap-3 text-2xl font-bold tracking-tight">
+                                {isEdit ? '编辑邮件模板' : '新建邮件模板'}
+                                {initialData && (
+                                    <Badge variant={initialData.is_enabled ? 'default' : 'secondary'} className={cn(
+                                        "h-6 px-2.5 text-xs font-semibold uppercase tracking-wider shadow-none transition-colors",
+                                        initialData.is_enabled
+                                            ? "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/20 hover:bg-green-500/25"
+                                            : "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20 hover:bg-red-500/25"
+                                    )}>
+                                        {initialData.is_enabled ? '已启用' : '已禁用'}
+                                    </Badge>
+                                )}
+                            </SheetTitle>
+                            <SheetDescription className="text-sm text-muted-foreground/80 font-medium">
+                                配置邮件模板的基本信息、HTML 正文和动态参数。
+                            </SheetDescription>
+                        </div>
+                    </div>
+                </SheetHeader>
+
+                {isEdit && isLoadingTemplate ? (
+                    <div className="flex flex-col items-center justify-center flex-1 space-y-4">
+                        <Loader2 className="w-8 h-8 animate-spin text-primary/50" />
+                        <p className="text-sm text-muted-foreground animate-pulse">正在加载模板信息...</p>
+                    </div>
+                ) : (
+                    initialData && (
+                        <EmailTemplateForm
+                            key={`${templateId || 'new'}-${open ? 'open' : 'closed'}`}
+                            initialData={initialData}
+                            templateId={templateId}
+                            onClose={onClose}
+                        />
+                    )
+                )}
+            </SheetContent>
+        </Sheet>
+    );
+}
+
+// ----------------------------------------------------------------------
+// Form Component
+// ----------------------------------------------------------------------
+
+interface EmailTemplateFormProps {
+    initialData: CreateEmailTemplateRequest;
+    templateId: number | null;
+    onClose: () => void;
+}
+
+function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFormProps) {
+    const queryClient = useQueryClient();
+    const isEdit = templateId !== null;
+    const [activeTab, setActiveTab] = useState('basic');
+
+    // Local State initialized ONCE from props
+    const [formData, setFormData] = useState<CreateEmailTemplateRequest>(initialData);
+
     const createMutation = useMutation({
         mutationFn: RobustaAPI.createEmailTemplate,
         onSuccess: () => {
@@ -92,7 +222,6 @@ export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplate
         },
     });
 
-    // Update mutation
     const updateMutation = useMutation({
         mutationFn: (data: UpdateEmailTemplateRequest) =>
             RobustaAPI.updateEmailTemplate(templateId!, data),
@@ -107,8 +236,15 @@ export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplate
         },
     });
 
+    const isSubmitting = createMutation.isPending || updateMutation.isPending;
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        if (activeTab === 'basic') {
+            setActiveTab('params');
+            return;
+        }
+
         if (!formData.name.trim() || !formData.title.trim() || !formData.body.trim()) {
             toast.error('请填写必填字段');
             return;
@@ -122,194 +258,488 @@ export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplate
     };
 
     const addParam = () => {
-        setFormData({
-            ...formData,
-            params: [...(formData.params || []), { ...defaultParam, key: `param_${Date.now()}` }],
-        });
+        setFormData(prev => ({
+            ...prev,
+            params: {
+                ...prev.params,
+                definitions: [...(prev.params.definitions || []), { ...defaultParam, _id: Math.random().toString(36).substr(2, 9) }],
+            },
+        }));
     };
 
     const removeParam = (index: number) => {
-        const newParams = [...(formData.params || [])];
-        newParams.splice(index, 1);
-        setFormData({ ...formData, params: newParams });
+        setFormData(prev => {
+            const newDefs = [...(prev.params.definitions || [])];
+            newDefs.splice(index, 1);
+            return {
+                ...prev,
+                params: { ...prev.params, definitions: newDefs },
+            };
+        });
     };
 
     const updateParam = (index: number, field: keyof ParamDefinition, value: any) => {
-        const newParams = [...(formData.params || [])];
-        newParams[index] = { ...newParams[index], [field]: value };
-        setFormData({ ...formData, params: newParams });
+        setFormData(prev => {
+            const newDefs = [...(prev.params.definitions || [])];
+            newDefs[index] = { ...newDefs[index], [field]: value };
+            return {
+                ...prev,
+                params: { ...prev.params, definitions: newDefs },
+            };
+        });
     };
 
-    const isSubmitting = createMutation.isPending || updateMutation.isPending;
+    const toggleTable = (tableValue: string) => {
+        setFormData(prev => {
+            const currentTables = prev.params.tables || [];
+            const isSelected = currentTables.includes(tableValue);
+            return {
+                ...prev,
+                params: {
+                    ...prev.params,
+                    tables: isSelected
+                        ? currentTables.filter(t => t !== tableValue)
+                        : [...currentTables, tableValue]
+                }
+            };
+        });
+    };
 
     return (
-        <Sheet open={open} onOpenChange={(val) => !val && onClose()}>
-            <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-                <SheetHeader>
-                    <SheetTitle>{isEdit ? '编辑邮件模板' : '新建邮件模板'}</SheetTitle>
-                    <SheetDescription>
-                        {isEdit ? '修改邮件模板的基本信息、HTML 正文和参数定义。' : '创建新的邮件模板，用于维护通知。'}
-                    </SheetDescription>
-                </SheetHeader>
-
-                {isLoadingTemplate ? (
-                    <div className="flex items-center justify-center h-40">
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                    </div>
-                ) : (
-                    <form onSubmit={handleSubmit} className="space-y-6 mt-6">
-                        {/* Basic Info */}
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="name">模板名称 *</Label>
-                                <Input
-                                    id="name"
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    placeholder="例如：节点维护通知"
-                                />
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col h-full overflow-hidden">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+                <div className="px-8 border-b bg-background/50 sticky top-0 z-20 backdrop-blur-sm">
+                    <TabsList className="w-full justify-start h-14 bg-transparent p-0 gap-6">
+                        {/* ... Tabs Triggers ... */}
+                        <TabsTrigger
+                            value="basic"
+                            className="h-14 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-2 text-sm font-medium text-muted-foreground data-[state=active]:text-primary transition-all duration-300"
+                        >
+                            <div className="flex items-center gap-2">
+                                <FileText className="w-4 h-4" />
+                                基本信息
                             </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="title">邮件标题 *</Label>
-                                <Input
-                                    id="title"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                    placeholder="支持模板变量，如：{{.cluster}} 节点维护通知"
-                                />
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="params"
+                            className="h-14 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-2 text-sm font-medium text-muted-foreground data-[state=active]:text-primary transition-all duration-300"
+                        >
+                            <div className="flex items-center gap-2">
+                                <Settings className="w-4 h-4" />
+                                参数配置
+                                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 min-w-[1.25rem] text-[10px] bg-muted text-muted-foreground group-data-[state=active]:bg-primary/10 group-data-[state=active]:text-primary transition-colors">
+                                    {(formData.params?.tables?.length || 0) + (formData.params?.definitions?.length || 0)}
+                                </Badge>
                             </div>
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="body">HTML 正文 *</Label>
-                                <Textarea
-                                    id="body"
-                                    value={formData.body}
-                                    onChange={(e) => setFormData({ ...formData, body: e.target.value })}
-                                    placeholder="输入 HTML 模板内容，支持模板变量..."
-                                    rows={15}
-                                    className="font-mono text-sm min-h-[400px]"
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                    可用变量：{'{{.cluster}}'}, {'{{.nodes}}'}, {'{{.node_count}}'}, {'{{.affected_resources_table}}'} 等
-                                </p>
-                            </div>
+                <div className="flex-1 overflow-hidden relative">
+                    <TabsContent value="basic" className="h-full mt-0 focus-visible:outline-none">
+                        <ScrollArea className="h-full">
+                            <div className="p-8 space-y-8 max-w-4xl mx-auto">
+                                {/* ... Basic Info Fields (Body, Title, etc - Unchanged) ... */}
+                                <div className="grid gap-6">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="name" className="text-sm font-medium text-muted-foreground">模板名称</Label>
+                                        <Input
+                                            id="name"
+                                            value={formData.name}
+                                            onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))}
+                                            placeholder="例如：节点维护通知"
+                                            className="h-11 text-base bg-muted/20 border-border/60 hover:border-border focus:border-primary/50 transition-colors"
+                                        />
+                                    </div>
 
-                            <div className="flex items-center space-x-2">
-                                <Switch
-                                    id="is_enabled"
-                                    checked={formData.is_enabled}
-                                    onCheckedChange={(checked) => setFormData({ ...formData, is_enabled: checked })}
-                                />
-                                <Label htmlFor="is_enabled">启用模板</Label>
-                            </div>
-                        </div>
-
-                        {/* Parameters */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <Label>参数定义</Label>
-                                <Button type="button" variant="outline" size="sm" onClick={addParam}>
-                                    <Plus className="w-4 h-4 mr-1" /> 添加参数
-                                </Button>
-                            </div>
-
-                            {formData.params && formData.params.length > 0 ? (
-                                <div className="space-y-3">
-                                    {formData.params.map((param, index) => (
-                                        <div key={index} className="p-3 border rounded-lg space-y-3 bg-muted/30">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-sm font-medium">参数 {index + 1}</span>
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-6 w-6"
-                                                    onClick={() => removeParam(index)}
-                                                >
-                                                    <Trash2 className="w-4 h-4 text-destructive" />
-                                                </Button>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <Input
-                                                    placeholder="键名 (key)"
-                                                    value={param.key}
-                                                    onChange={(e) => updateParam(index, 'key', e.target.value)}
-                                                />
-                                                <Input
-                                                    placeholder="标签 (label)"
-                                                    value={param.label}
-                                                    onChange={(e) => updateParam(index, 'label', e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <Select
-                                                    value={param.type}
-                                                    onValueChange={(val) => updateParam(index, 'type', val)}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="类型" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="input">文本输入</SelectItem>
-                                                        <SelectItem value="select">下拉选择</SelectItem>
-                                                        <SelectItem value="datetime">日期时间</SelectItem>
-                                                        <SelectItem value="resource">K8s资源</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <div className="flex items-center space-x-2">
-                                                    <Switch
-                                                        checked={param.required}
-                                                        onCheckedChange={(checked) => updateParam(index, 'required', checked)}
-                                                    />
-                                                    <Label className="text-sm">必填</Label>
-                                                </div>
-                                            </div>
-                                            {param.type === 'select' && (
-                                                <Input
-                                                    placeholder="字典编码 (dictCode)"
-                                                    value={param.dictCode || ''}
-                                                    onChange={(e) => updateParam(index, 'dictCode', e.target.value)}
-                                                />
-                                            )}
-                                            {param.type === 'resource' && (
-                                                <Select
-                                                    value={param.resourceType || 'nodes'}
-                                                    onValueChange={(val) => updateParam(index, 'resourceType', val)}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="资源类型" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="nodes">节点</SelectItem>
-                                                        <SelectItem value="pods">Pod</SelectItem>
-                                                        <SelectItem value="deployments">Deployment</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            )}
+                                    <div className="grid gap-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="title" className="text-sm font-medium text-muted-foreground">邮件标题</Label>
+                                            <TooltipProvider delayDuration={0}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <div className="flex items-center gap-1.5 text-xs text-primary/80 cursor-help px-2 py-1 rounded-md bg-primary/5 hover:bg-primary/10 transition-colors">
+                                                            <Code className="w-3.5 h-3.5" />
+                                                            <span>支持变量</span>
+                                                        </div>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="left" className="p-3 text-xs max-w-xs">
+                                                        标题支持 Go Template 语法，例如：<br />
+                                                        <code className="bg-muted px-1 py-0.5 rounded text-primary">{`{{.cluster}}`}</code> 节点维护通知
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
                                         </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-sm text-muted-foreground text-center py-4 border rounded-lg border-dashed">
-                                    尚未定义参数，点击上方按钮添加。
-                                </p>
-                            )}
-                        </div>
+                                        <Input
+                                            id="title"
+                                            value={formData.title}
+                                            onChange={(e) => setFormData(p => ({ ...p, title: e.target.value }))}
+                                            placeholder="请输入邮件主题..."
+                                            className="h-11 text-base bg-muted/20 border-border/60 hover:border-border focus:border-primary/50 transition-colors"
+                                        />
+                                    </div>
 
-                        {/* Submit */}
-                        <div className="flex justify-end gap-3 pt-4 border-t">
-                            <Button type="button" variant="outline" onClick={onClose}>
-                                取消
-                            </Button>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                                {isEdit ? '保存更改' : '创建模板'}
-                            </Button>
-                        </div>
-                    </form>
-                )}
-            </SheetContent>
-        </Sheet>
+                                    <div className="grid gap-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="body" className="text-sm font-medium text-muted-foreground">HTML 正文</Label>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                    try {
+                                                        const formatted = formData.body
+                                                            .replace(/>\s+</g, '><')
+                                                            .replace(/(<([^>]+)>)/g, '\n$1')
+                                                            .replace(/^\n/, '')
+                                                            .split('\n')
+                                                            .filter(line => line.trim())
+                                                            .join('\n');
+                                                        setFormData(p => ({ ...p, body: formatted }));
+                                                        toast.success('HTML 格式化完成');
+                                                    } catch {
+                                                        toast.error('格式化失败，请检查 HTML 语法');
+                                                    }
+                                                }}
+                                                className="h-7 text-xs"
+                                            >
+                                                <Code className="w-3 h-3 mr-1" />
+                                                格式化 HTML
+                                            </Button>
+                                        </div>
+                                        <div className="relative rounded-xl border border-border/60 bg-muted/20 overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all">
+                                            <Textarea
+                                                id="body"
+                                                value={formData.body}
+                                                onChange={(e) => setFormData(p => ({ ...p, body: e.target.value }))}
+                                                placeholder="输入 HTML 模板内容..."
+                                                rows={25}
+                                                className="font-mono text-sm leading-relaxed p-4 bg-transparent border-0 focus-visible:ring-0 resize-y min-h-[500px]"
+                                            />
+                                            <div className="absolute bottom-3 right-3 flex items-center gap-2 p-2 bg-background/80 backdrop-blur-md rounded-lg border shadow-sm text-xs text-muted-foreground">
+                                                <AlertCircle className="w-3.5 h-3.5 text-primary" />
+                                                支持 HTML & Go Template
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="h-px bg-border/40" />
+
+                                <div className="flex items-center justify-between p-5 rounded-xl border border-border/60 bg-gradient-to-r from-muted/30 to-transparent hover:from-muted/50 transition-all">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="is_enabled" className="text-base font-medium flex items-center gap-2.5">
+                                            启用模板
+                                            {formData.is_enabled && (
+                                                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 text-green-700 text-[10px] font-bold uppercase tracking-wider">
+                                                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                                                    Active
+                                                </span>
+                                            )}
+                                        </Label>
+                                        <p className="text-sm text-muted-foreground">
+                                            控制此邮件模板在系统中的可用性，禁用后将无法通过此模板发送通知。
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        id="is_enabled"
+                                        checked={formData.is_enabled}
+                                        onCheckedChange={(checked) => setFormData(p => ({ ...p, is_enabled: checked }))}
+                                        className="scale-110 data-[state=checked]:bg-green-500"
+                                    />
+                                </div>
+                                <div className="h-12" /> {/* Bottom spacer */}
+                            </div>
+                        </ScrollArea>
+                    </TabsContent>
+
+                    <TabsContent value="params" className="h-full mt-0 focus-visible:outline-none">
+                        <ScrollArea className="h-full">
+                            <div className="p-8 space-y-8 max-w-5xl mx-auto">
+                                {/* 1. Tables Section - Unchanged */}
+                                <div className="space-y-5">
+                                    <div className="space-y-1.5">
+                                        <h3 className="text-lg font-semibold flex items-center gap-2 text-foreground/90">
+                                            <LayoutDashboard className="w-5 h-5 text-primary" />
+                                            附带数据表 (Tables)
+                                        </h3>
+                                        <p className="text-sm text-muted-foreground">
+                                            选择邮件中需要自动生成并附带的数据表格，系统会自动获取上下文数据。
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {TABLE_OPTIONS.map((option) => {
+                                            const isSelected = (formData.params?.tables || []).includes(option.value);
+                                            const Icon = option.icon;
+                                            return (
+                                                <motion.div
+                                                    key={option.value}
+                                                    whileHover={{ scale: 1.02 }}
+                                                    whileTap={{ scale: 0.98 }}
+                                                >
+                                                    <div
+                                                        onClick={() => toggleTable(option.value)}
+                                                        className={cn(
+                                                            "relative flex items-start gap-4 px-5 py-4 rounded-xl border-2 cursor-pointer transition-all duration-200 group h-24",
+                                                            isSelected
+                                                                ? "bg-primary/5 border-primary shadow-sm"
+                                                                : "bg-card border-border/40 hover:border-primary/30 hover:bg-muted/30"
+                                                        )}
+                                                    >
+                                                        <div className={cn(
+                                                            "p-2 rounded-lg transition-colors",
+                                                            isSelected ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground group-hover:text-primary group-hover:bg-primary/10"
+                                                        )}>
+                                                            <Icon className="w-5 h-5" />
+                                                        </div>
+                                                        <div className="space-y-1 flex-1">
+                                                            <p className={cn("text-sm font-semibold transition-colors", isSelected ? "text-primary" : "text-foreground")}>
+                                                                {option.label.split('(')[0].trim()}
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                                                                {option.description}
+                                                            </p>
+                                                        </div>
+                                                        <div className={cn(
+                                                            "absolute top-3 right-3 transition-opacity duration-200",
+                                                            isSelected ? "opacity-100" : "opacity-0"
+                                                        )}>
+                                                            <CheckCircle2 className="w-4 h-4 text-primary fill-primary/20" />
+                                                        </div>
+                                                    </div>
+                                                </motion.div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div className="h-px bg-border/40" />
+
+                                {/* 2. Inputs Section */}
+                                <div className="space-y-5">
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1.5">
+                                            <h3 className="text-lg font-semibold flex items-center gap-2 text-foreground/90">
+                                                <List className="w-5 h-5 text-primary" />
+                                                动态参数定义 (Definitions)
+                                            </h3>
+                                            <p className="text-sm text-muted-foreground">
+                                                定义模板中可使用的动态输入参数，用户发送通知时需要填写这些内容。
+                                            </p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            onClick={addParam}
+                                            className="shadow-sm group h-9 bg-primary/90 hover:bg-primary"
+                                        >
+                                            <Plus className="w-4 h-4 mr-2 group-hover:rotate-90 transition-transform" />
+                                            添加参数
+                                        </Button>
+                                    </div>
+
+                                    <div className="space-y-4 min-h-[200px]">
+                                        <AnimatePresence mode="popLayout">
+                                            {formData.params?.definitions && formData.params.definitions.length > 0 ? (
+                                                formData.params.definitions.map((param, index) => (
+                                                    <motion.div
+                                                        key={param._id || index}
+                                                        layout
+                                                        initial={{ opacity: 0, y: 20 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                        transition={{ duration: 0.2 }}
+                                                        className="group relative grid grid-cols-[auto,1fr] gap-4 p-5 pr-12 rounded-2xl border border-border/60 bg-gradient-to-br from-card to-muted/20 hover:to-muted/40 transition-all shadow-sm hover:shadow-md"
+                                                    >
+                                                        <div className="pt-2 flex flex-col items-center gap-3">
+                                                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold text-xs ring-2 ring-background shadow-sm">
+                                                                {index + 1}
+                                                            </div>
+                                                            <div className="w-px h-full bg-border/50 group-last:hidden" />
+                                                        </div>
+
+                                                        <div className="space-y-4">
+                                                            {/* Delete Button - Positioned Absolute */}
+                                                            <div className="absolute top-4 right-4">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10"
+                                                                    onClick={() => removeParam(index)}
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
+
+                                                            {/* Row 1: Name + Title */}
+                                                            <div className="grid grid-cols-2 gap-4">
+                                                                <div className="space-y-1.5">
+                                                                    <Label className="text-xs text-muted-foreground font-medium">
+                                                                        参数名 <span className="text-destructive">*</span>
+                                                                    </Label>
+                                                                    <Input
+                                                                        placeholder="例如: cluster_name"
+                                                                        value={param.name}
+                                                                        onChange={(e) => updateParam(index, 'name', e.target.value)}
+                                                                        className="font-mono text-sm h-9 border-border/60 focus:border-primary/50 bg-background/50"
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-1.5">
+                                                                    <Label className="text-xs text-muted-foreground font-medium">
+                                                                        显示标题 <span className="text-destructive">*</span>
+                                                                    </Label>
+                                                                    <Input
+                                                                        placeholder="例如: 集群名称"
+                                                                        value={param.title}
+                                                                        onChange={(e) => updateParam(index, 'title', e.target.value)}
+                                                                        className="h-9 border-border/60 focus:border-primary/50 bg-background/50"
+                                                                    />
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Row 2: Type + Required */}
+                                                            <div className="grid grid-cols-2 gap-4">
+                                                                <div className="space-y-1.5">
+                                                                    <Label className="text-xs text-muted-foreground font-medium">参数类型</Label>
+                                                                    <Select
+                                                                        value={param.type}
+                                                                        onValueChange={(val) => updateParam(index, 'type', val)}
+                                                                    >
+                                                                        <SelectTrigger className="h-9 border-border/60 bg-background/50">
+                                                                            <SelectValue placeholder="选择类型" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="input">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                                                                                    <span>文本输入</span>
+                                                                                </div>
+                                                                            </SelectItem>
+                                                                            <SelectItem value="select">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <List className="w-3.5 h-3.5 text-muted-foreground" />
+                                                                                    <span>下拉选择</span>
+                                                                                </div>
+                                                                            </SelectItem>
+                                                                            <SelectItem value="datetime">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                                                                                    <span>日期时间</span>
+                                                                                </div>
+                                                                            </SelectItem>
+                                                                            <SelectItem value="resource">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <Server className="w-3.5 h-3.5 text-muted-foreground" />
+                                                                                    <span>节点选择</span>
+                                                                                </div>
+                                                                            </SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                </div>
+
+                                                                <div className="space-y-1.5">
+                                                                    <Label className="text-xs text-muted-foreground font-medium">必填项</Label>
+                                                                    <div className="flex items-center justify-between px-3 h-9 rounded-md border border-border/60 bg-background/50">
+                                                                        <span className="text-sm font-medium">是否必填</span>
+                                                                        <Switch
+                                                                            checked={param.required}
+                                                                            onCheckedChange={(checked) => updateParam(index, 'required', checked)}
+                                                                            className="scale-90"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Dynamic Conditional Fields with Animation */}
+                                                            <AnimatePresence>
+                                                                {param.type === 'select' && (
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0, height: 0 }}
+                                                                        animate={{ opacity: 1, height: 'auto' }}
+                                                                        exit={{ opacity: 0, height: 0 }}
+                                                                        className="overflow-hidden"
+                                                                    >
+                                                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/40 space-y-2">
+                                                                            <Label className="text-xs font-semibold flex items-center gap-1.5 text-primary">
+                                                                                <List className="w-3.5 h-3.5" />
+                                                                                关联字典编码
+                                                                            </Label>
+                                                                            <Input
+                                                                                placeholder="例如：priority_levels"
+                                                                                value={param.dictCode || ''}
+                                                                                onChange={(e) => updateParam(index, 'dictCode', e.target.value)}
+                                                                                className="font-mono text-sm h-9 bg-background"
+                                                                            />
+                                                                            <p className="text-[10px] text-muted-foreground">请输入系统字典中定义的编码，用于填充下拉选项。</p>
+                                                                        </div>
+                                                                    </motion.div>
+                                                                )}
+                                                            </AnimatePresence>
+                                                        </div>
+                                                    </motion.div>
+                                                ))
+
+                                            ) : (
+                                                <motion.div
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    className="flex flex-col items-center justify-center py-16 px-4 rounded-3xl border-2 border-dashed border-muted-foreground/20 bg-muted/5 group hover:bg-muted/10 transition-colors"
+                                                >
+                                                    <div className="p-4 bg-muted/50 rounded-full mb-4 group-hover:bg-background group-hover:shadow-sm transition-all">
+                                                        <Settings className="w-8 h-8 text-muted-foreground/50 group-hover:text-primary/70" />
+                                                    </div>
+                                                    <p className="text-base font-medium text-foreground mb-1">尚未定义参数</p>
+                                                    <p className="text-sm text-muted-foreground mb-6 max-w-xs text-center">
+                                                        添加参数后，用户在发送通知时将能够输入动态内容。
+                                                    </p>
+                                                    <Button variant="outline" onClick={addParam} className="h-9">
+                                                        开始添加 <ChevronRight className="w-4 h-4 ml-1 opacity-50" />
+                                                    </Button>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
+                                    <div className="h-12" /> {/* Bottom spacer */}
+                                </div>
+                            </div>
+                        </ScrollArea>
+                    </TabsContent>
+                </div>
+
+                <SheetFooter className="px-8 py-5 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:space-x-4 z-20">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={onClose}
+                        disabled={isSubmitting}
+                        className="w-28 h-10 hover:bg-muted/50"
+                    >
+                        取消
+                    </Button>
+                    {activeTab === 'basic' ? (
+                        <Button
+                            key="btn-next"
+                            type="button"
+                            onClick={() => setActiveTab('params')}
+                            disabled={isSubmitting}
+                            className="w-28 h-10 shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all"
+                        >
+                            下一步
+                            <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                    ) : (
+                        <Button
+                            key="btn-save"
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="w-28 h-10 shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all"
+                        >
+                            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {isEdit ? '保存修改' : '立即创建'}
+                        </Button>
+                    )}
+                </SheetFooter>
+            </Tabs>
+        </form>
     );
 }

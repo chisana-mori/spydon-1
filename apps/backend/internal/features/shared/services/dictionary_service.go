@@ -131,16 +131,8 @@ func (s *DictionaryService) CreateDictionary(req CreateDictionaryRequest) (*mode
 		var existingDict models.Dictionary
 		err := tx.Unscoped().Where("code = ?", req.Code).First(&existingDict).Error
 		if err == nil {
-			// 找到了记录
-			if existingDict.DeletedAt.Valid {
-				// 是软删除的记录，直接物理删除它以清理占用的 Code
-				if delErr := tx.Unscoped().Delete(&existingDict).Error; delErr != nil {
-					return fmt.Errorf("清理已删除字典失败: %w", delErr)
-				}
-			} else {
-				// 是正常的记录，报错
-				return fmt.Errorf("字典编码 '%s' 已存在", req.Code)
-			}
+			// 是正常的记录，报错
+			return fmt.Errorf("字典编码 '%s' 已存在", req.Code)
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			// 查询出错
 			return fmt.Errorf("检查字典编码失败: %w", err)
@@ -278,15 +270,9 @@ func (s *DictionaryService) CreateDictionaryItem(dictID uint64, req CreateDictio
 	var existingItem models.DictionaryItem
 	err := s.db.Unscoped().Where("dictionary_id = ? AND `key` = ?", dictID, req.Key).First(&existingItem).Error
 	if err == nil {
-		// 找到了
-		if existingItem.DeletedAt.Valid {
-			// 物理删除旧数据
-			if delErr := s.db.Unscoped().Delete(&existingItem).Error; delErr != nil {
-				return nil, fmt.Errorf("清理已删除字典项失败: %w", delErr)
-			}
-		} else {
-			return nil, fmt.Errorf("字典项 Key '%s' 已存在", req.Key)
-		}
+
+		return nil, fmt.Errorf("字典项 Key '%s' 已存在", req.Key)
+
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("检查字典项Key失败: %w", err)
 	}

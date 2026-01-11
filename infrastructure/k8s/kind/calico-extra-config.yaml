@@ -1,0 +1,17 @@
+apiVersion: crd.projectcalico.org/v1
+kind: FelixConfiguration
+metadata:
+  name: default
+spec:
+  bpfEnabled: false
+  # 启用状态上报，以便 CalicoNodeStatus 资源被创建和更新
+  statusReportingEnabled: true
+---
+apiVersion: crd.projectcalico.org/v1
+kind: BGPPeer
+metadata:
+  name: example-peer
+spec:
+  # 一个示例 BGP Peer，用于展示
+  peerIP: 10.20.0.1
+  asNumber: 65001

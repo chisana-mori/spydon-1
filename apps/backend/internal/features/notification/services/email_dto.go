@@ -1,6 +1,9 @@
 package services
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"robusta-web/backend/internal/models"
+)
 
 // ParamType 参数类型
 type ParamType string
@@ -14,26 +17,34 @@ const (
 
 // ParamDefinition 模板参数定义
 type ParamDefinition struct {
-	Key          string    `json:"key"`                    // 参数键
-	Label        string    `json:"label"`                  // 显示标签
+	Name         string    `json:"name"`                   // 参数键 (原 Key)
+	Title        string    `json:"title"`                  // 显示标题 (原 Label)
 	Type         ParamType `json:"type"`                   // 参数类型
-	Required     bool      `json:"required"`               // 是否必填
+	Value        string    `json:"value,omitempty"`        // 默认值/绑定值
+	Required     bool      `json:"required,omitempty"`     // 是否必填
 	DictCode     string    `json:"dictCode,omitempty"`     // type=select 时关联的字典编码
 	ResourceType string    `json:"resourceType,omitempty"` // type=resource 时的资源类型 (nodes/pods/deployments)
 	Placeholder  string    `json:"placeholder,omitempty"`  // 占位提示
-	DefaultValue string    `json:"defaultValue,omitempty"` // 默认值
+}
+
+// TemplateConfig 模板配置
+type TemplateConfig struct {
+	Tables      []string          `json:"tables"`      // 关联的数据表 (对应 email_sender.go 中的常量)
+	Definitions []ParamDefinition `json:"definitions"` // 用户输入参数定义
 }
 
 // ParseParams 解析参数定义 JSON
-func ParseParams(paramsJSON string) ([]ParamDefinition, error) {
+func ParseParams(paramsJSON string) (TemplateConfig, error) {
+	var config TemplateConfig
 	if paramsJSON == "" {
-		return nil, nil
+		return config, nil
 	}
-	var params []ParamDefinition
-	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
-		return nil, err
+	
+	if err := json.Unmarshal([]byte(paramsJSON), &config); err != nil {
+		return config, err
 	}
-	return params, nil
+	
+	return config, nil
 }
 
 // ========================================
@@ -50,32 +61,32 @@ type EmailTemplateListQuery struct {
 
 // EmailTemplateResponse 模板响应
 type EmailTemplateResponse struct {
-	ID        uint64            `json:"id"`
-	Name      string            `json:"name"`
-	Title     string            `json:"title"`
-	Body      string            `json:"body"`
-	Params    []ParamDefinition `json:"params"`
-	IsEnabled bool              `json:"is_enabled"`
-	CreatedAt string            `json:"created_at"`
-	UpdatedAt string            `json:"updated_at"`
+	ID        uint64         `json:"id"`
+	Name      string         `json:"name"`
+	Title     string         `json:"title"`
+	Body      string         `json:"body"`
+	Params    TemplateConfig `json:"params"`
+	IsEnabled bool           `json:"is_enabled"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 // CreateEmailTemplateRequest 创建模板请求
 type CreateEmailTemplateRequest struct {
-	Name      string            `json:"name" binding:"required,max=100"`
-	Title     string            `json:"title" binding:"required,max=255"`
-	Body      string            `json:"body" binding:"required"`
-	Params    []ParamDefinition `json:"params"`
-	IsEnabled *bool             `json:"is_enabled"`
+	Name      string         `json:"name" binding:"required,max=100"`
+	Title     string         `json:"title" binding:"required,max=255"`
+	Body      string         `json:"body" binding:"required"`
+	Params    TemplateConfig `json:"params"`
+	IsEnabled *bool          `json:"is_enabled"`
 }
 
 // UpdateEmailTemplateRequest 更新模板请求
 type UpdateEmailTemplateRequest struct {
-	Name      *string           `json:"name"`
-	Title     *string           `json:"title"`
-	Body      *string           `json:"body"`
-	Params    []ParamDefinition `json:"params"`
-	IsEnabled *bool             `json:"is_enabled"`
+	Name      *string         `json:"name"`
+	Title     *string         `json:"title"`
+	Body      *string         `json:"body"`
+	Params    *TemplateConfig `json:"params"`
+	IsEnabled *bool           `json:"is_enabled"`
 }
 
 // ========================================
@@ -185,4 +196,119 @@ type TemplateResources struct {
 	Nodes       []NodeInfo       `json:"nodes"`
 	Pods        []PodInfo        `json:"pods"`
 	Deployments []DeploymentInfo `json:"deployments"`
+}
+
+type SendEmailsReq struct {
+	Emails []SendEmailReq
+}
+
+type CheckRst struct {
+	Exist         bool   `json:"exist"`
+	ResourceCount int    `json:"count"`
+	ResourceType  string `json:"type"`
+}
+
+type ExComponentCheck struct {
+	Ingress    CheckRst `json:"ingress"`
+	Higress    CheckRst `json:"higress"`
+	SolarAgent CheckRst `json:"solarAgent"`
+	JMXDS      CheckRst `json:"jmxDS"`
+	CatAgent   CheckRst `json:"catAgent"`
+	Asta       CheckRst `json:"asta"`
+	HIDS       CheckRst `json:"hids"`
+	Istio      CheckRst `json:"istio"`
+	Armada     CheckRst `json:"armada"`
+}
+
+type AppSlice []AppBoard
+
+func (a AppSlice) Len() int {
+	return len(a)
+}
+
+func (a AppSlice) Less(i, j int) bool {
+	if a[i].AppLevel == "" {
+		return false
+	}
+	if a[j].AppLevel == "" {
+		return true
+	}
+	return a[i].AppLevel < a[j].AppLevel
+}
+
+func (a AppSlice) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+type AppBoard struct {
+	AppId           string
+	AppLevel        string
+	NamespaceName   string
+	NamespaceCNName string
+	DeploymentName  string
+	Team            string
+	Develops        string
+	Operations      string
+}
+
+type App struct {
+	AppId     string
+	Name      string
+	Namespace string
+}
+
+type Cluster struct {
+	Name string `json:"name"`
+	Id   int    `json:"id"`
+}
+
+type MailGenReq struct {
+	TemplateId int                    `json:"emailTemplateId"`
+	AddressId  int                    `json:"addressId"`
+	Additional map[string]interface{} `json:"additional"`
+}
+
+type Node struct {
+	Name     string
+	Function string
+	IP       string
+}
+
+type DiffAppsBoard struct {
+	HistoryDeployCount int
+	InstantDeployCount int
+	Apps               AppSlice
+}
+
+type Migration struct {
+	Apps          AppSlice
+	InitialCount  int
+	MigratedCount int
+	RemainCount   int
+}
+
+type MailContentProperty struct {
+	Cluster        models.Cluster
+	NodeCidr       []string
+	Nodes          []Node
+	Apps           AppSlice
+	Migration      Migration
+	ComponentCheck ExComponentCheck
+	DiffAppsBoard  DiffAppsBoard
+	AppIdCount     int
+	Additional     map[string]interface{}
+}
+
+type AttachFile struct {
+	Name    string
+	Content string
+}
+
+type SendEmailReq struct {
+	TemplateId  int          `json:"templateId"`
+	Subject     string       `json:"subject"`
+	Content     string       `json:"content"`
+	AttachFiles []AttachFile `json:"attachFiles"`
+	Addresses   []string     `json:"addresses"`
+	AppId       []string     `json:"appid"`
 }

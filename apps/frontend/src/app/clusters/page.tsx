@@ -32,7 +32,6 @@ import {
   Server,
   Search,
   RefreshCw,
-  Clock,
   CheckCircle,
   XCircle,
   Activity,
@@ -45,8 +44,6 @@ import {
   Settings,
 } from 'lucide-react'
 import RobustaAPI from '@/lib/api'
-import { formatDistanceToNow } from 'date-fns'
-import { zhCN } from 'date-fns/locale'
 import { KiteLink } from '@/components/kite'
 import { ClusterDrawer } from './components/ClusterDrawer'
 import { InventoryVariablesDialog } from './components/InventoryVariablesDialog'
@@ -132,26 +129,33 @@ export default function Clusters() {
   // 获取状态配置
   const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'active':
+      case 'Running':
         return {
           variant: 'outline' as const,
-          label: '活跃',
+          label: '运行中',
           icon: CheckCircle,
           className: 'bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20'
         }
-      case 'inactive':
+      case 'Offline':
         return {
           variant: 'outline' as const,
-          label: '离线',
+          label: '已下线',
           icon: XCircle,
           className: 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20'
         }
-      case 'maintenance':
+      case 'Pending':
         return {
           variant: 'outline' as const,
           label: '维护中',
           icon: Activity,
           className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20 hover:bg-yellow-500/20'
+        }
+      case 'Init':
+        return {
+          variant: 'outline' as const,
+          label: '初始化',
+          icon: Server,
+          className: 'bg-blue-500/10 text-blue-600 border-blue-500/20 hover:bg-blue-500/20'
         }
       default:
         return {
@@ -264,9 +268,10 @@ export default function Clusters() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">所有状态</SelectItem>
-                  <SelectItem value="active">活跃</SelectItem>
-                  <SelectItem value="inactive">离线</SelectItem>
-                  <SelectItem value="maintenance">维护中</SelectItem>
+                  <SelectItem value="Init">初始化</SelectItem>
+                  <SelectItem value="Running">运行中</SelectItem>
+                  <SelectItem value="Pending">维护中</SelectItem>
+                  <SelectItem value="Offline">已下线</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -320,11 +325,6 @@ export default function Clusters() {
                           <span className="text-xs text-muted-foreground font-mono">
                             {cluster.cluster_id || '-'}
                           </span>
-                          {cluster.description && (
-                            <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={cluster.description}>
-                              {cluster.description}
-                            </span>
-                          )}
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
@@ -351,15 +351,6 @@ export default function Clusters() {
                           <StatusIcon className="h-3 w-3" />
                           {statusConfig.label}
                         </Badge>
-                        {cluster.last_heartbeat && (
-                          <div className="flex items-center text-xs text-muted-foreground mt-1">
-                            <Clock className="mr-1 h-3 w-3" />
-                            {formatDistanceToNow(new Date(cluster.last_heartbeat), {
-                              addSuffix: true,
-                              locale: zhCN
-                            })}
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell className="text-right align-top">
                         <div className="flex justify-end gap-2 items-center">

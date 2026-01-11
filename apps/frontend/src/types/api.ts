@@ -27,8 +27,7 @@ export interface Cluster {
   description?: string
   kube_config?: string
   prometheus_url?: string
-  status: 'active' | 'inactive' | 'maintenance'
-  last_heartbeat?: string
+  status: 'Init' | 'Pending' | 'Running' | 'Offline'
   created_at: string
   updated_at: string
   // Navy fields
@@ -51,7 +50,6 @@ export interface ClusterStats {
   status: string
   alert_count: number
   critical_count: number
-  last_heartbeat?: string
 }
 
 export interface ClusterSummary {

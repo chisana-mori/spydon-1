@@ -589,6 +589,10 @@ export class RobustaAPI {
         return handleResponse(apiClient.get('/email/affected-resources', { params }))
     }
 
+    static async buildEmail(data: any): Promise<any> {
+        return handleResponse(apiClient.post('/email/build', data))
+    }
+
     // ============ Calico Network Observability ============
     static async getCalicoOverview(): Promise<OverviewResponse> {
         return handleResponse(apiClient.get('/calico/overview'))
@@ -596,6 +600,10 @@ export class RobustaAPI {
 
     static async getCalicoClusterDetail(clusterName: string): Promise<ClusterDetailResponse> {
         return handleResponse(apiClient.get(`/calico/clusters/${clusterName}`))
+    }
+
+    static async syncIPPoolsToWayne(clusterName: string): Promise<{ created: number; updated: number; deleted: number }> {
+        return handleResponse(apiClient.post(`/calico/clusters/${clusterName}/sync-wayne`))
     }
 
 }

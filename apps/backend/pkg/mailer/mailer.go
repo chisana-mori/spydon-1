@@ -65,6 +65,58 @@ func New(cfg Config) *Mailer {
 
 // Send 发送邮件
 func (m *Mailer) Send(msg Message) error {
+	if err := m.validateMessage(msg); err != nil {
+		return err
+	}
+
+	mail := gomail.NewMessage()
+
+	// Set headers
+	m.setFromHeader(mail)
+	mail.SetHeader("To", msg.To...)
+
+	if len(msg.Cc) > 0 {
+		mail.SetHeader("Cc", msg.Cc...)
+	}
+
+	if len(msg.Bcc) > 0 {
+		mail.SetHeader("Bcc", msg.Bcc...)
+	}
+
+	mail.SetHeader("Subject", msg.Subject)
+
+	// Set custom headers
+	for key, value := range msg.Headers {
+		mail.SetHeader(key, value)
+	}
+
+	// Set body
+	if msg.HTMLBody != "" {
+		mail.SetBody("text/html", msg.HTMLBody)
+		if msg.Body != "" {
+			mail.AddAlternative("text/plain", msg.Body)
+		}
+	} else {
+		mail.SetBody("text/plain", msg.Body)
+	}
+
+	// Add attachments
+	for _, att := range msg.Attachments {
+		if err := m.attachFile(mail, att); err != nil {
+			return fmt.Errorf("添加附件失败 [%s]: %w", att.Filename, err)
+		}
+	}
+
+	// Send email
+	if err := m.dialer.DialAndSend(mail); err != nil {
+		return fmt.Errorf("发送邮件失败: %w", err)
+	}
+
+	return nil
+}
+
+// validateMessage 验证邮件消息
+func (m *Mailer) validateMessage(msg Message) error {
 	if len(msg.To) == 0 {
 		return fmt.Errorf("收件人不能为空")
 	}
@@ -74,61 +126,16 @@ func (m *Mailer) Send(msg Message) error {
 	if msg.Body == "" && msg.HTMLBody == "" {
 		return fmt.Errorf("邮件正文不能为空")
 	}
+	return nil
+}
 
-	mail := gomail.NewMessage()
-
-	// 设置发件人
+// setFromHeader 设置发件人
+func (m *Mailer) setFromHeader(mail *gomail.Message) {
 	if m.config.FromName != "" {
 		mail.SetAddressHeader("From", m.config.From, m.config.FromName)
 	} else {
 		mail.SetHeader("From", m.config.From)
 	}
-
-	// 设置收件人
-	mail.SetHeader("To", msg.To...)
-
-	// 设置抄送
-	if len(msg.Cc) > 0 {
-		mail.SetHeader("Cc", msg.Cc...)
-	}
-
-	// 设置密送
-	if len(msg.Bcc) > 0 {
-		mail.SetHeader("Bcc", msg.Bcc...)
-	}
-
-	// 设置主题
-	mail.SetHeader("Subject", msg.Subject)
-
-	// 设置自定义头
-	for key, value := range msg.Headers {
-		mail.SetHeader(key, value)
-	}
-
-	// 设置正文
-	if msg.HTMLBody != "" {
-		mail.SetBody("text/html", msg.HTMLBody)
-		// 如果同时有纯文本，添加为备选
-		if msg.Body != "" {
-			mail.AddAlternative("text/plain", msg.Body)
-		}
-	} else {
-		mail.SetBody("text/plain", msg.Body)
-	}
-
-	// 添加附件
-	for _, att := range msg.Attachments {
-		if err := m.attachFile(mail, att); err != nil {
-			return fmt.Errorf("添加附件失败 [%s]: %w", att.Filename, err)
-		}
-	}
-
-	// 发送邮件
-	if err := m.dialer.DialAndSend(mail); err != nil {
-		return fmt.Errorf("发送邮件失败: %w", err)
-	}
-
-	return nil
 }
 
 // attachFile 添加附件到邮件
@@ -137,31 +144,44 @@ func (m *Mailer) attachFile(mail *gomail.Message, att Attachment) error {
 		return fmt.Errorf("附件文件名不能为空")
 	}
 
-	var data []byte
-	if att.Data != nil {
-		data = att.Data
-	} else if att.Reader != nil {
-		var err error
-		data, err = io.ReadAll(att.Reader)
-		if err != nil {
-			return fmt.Errorf("读取附件数据失败: %w", err)
-		}
-	} else {
-		return fmt.Errorf("附件数据为空")
-	}
-
-	// 使用 gomail 的 AttachReader 方法
-	mail.Attach(att.Filename, gomail.SetCopyFunc(func(w io.Writer) error {
-		_, err := io.Copy(w, bytes.NewReader(data))
+	data, err := m.readAttachmentData(att)
+	if err != nil {
 		return err
-	}))
-
-	// 设置 Content-Type（如果指定）
-	if att.ContentType != "" {
-		mail.SetHeader("Content-Type", att.ContentType)
 	}
+
+	settings := []gomail.FileSetting{
+		gomail.SetCopyFunc(func(w io.Writer) error {
+			_, err := io.Copy(w, bytes.NewReader(data))
+			return err
+		}),
+	}
+
+	if att.ContentType != "" {
+		settings = append(settings, gomail.SetHeader(map[string][]string{
+			"Content-Type": {att.ContentType},
+		}))
+	}
+
+	mail.Attach(att.Filename, settings...)
 
 	return nil
+}
+
+// readAttachmentData 读取附件数据
+func (m *Mailer) readAttachmentData(att Attachment) ([]byte, error) {
+	if att.Data != nil {
+		return att.Data, nil
+	}
+
+	if att.Reader != nil {
+		data, err := io.ReadAll(att.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("读取附件数据失败: %w", err)
+		}
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("附件数据为空")
 }
 
 // SendSimple 简化的发送方法
@@ -197,15 +217,15 @@ func ParseAddresses(addressStr string) []string {
 	if addressStr == "" {
 		return nil
 	}
-	parts := strings.Split(addressStr, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		addr := strings.TrimSpace(p)
+
+	var addresses []string
+	for _, part := range strings.Split(addressStr, ",") {
+		addr := strings.TrimSpace(part)
 		if addr != "" {
-			result = append(result, addr)
+			addresses = append(addresses, addr)
 		}
 	}
-	return result
+	return addresses
 }
 
 // NewAttachmentFromBytes 从字节数组创建附件

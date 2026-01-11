@@ -175,7 +175,7 @@ export function parseDictionaryValues(
 ): string {
     if (!keys) return '-'
 
-    const keyArray = keys.split(',').filter(Boolean)
+    const keyArray = keys.split(',').map(k => k.trim()).filter(Boolean)
     if (keyArray.length === 0) return '-'
 
     const values = keyArray

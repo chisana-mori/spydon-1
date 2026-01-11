@@ -2,16 +2,28 @@ package support
 
 import (
 	"fmt"
+	"strings"
 
 	"robusta-web/backend/pkg/dlink"
 	"robusta-web/backend/pkg/dragonfly"
 	"robusta-web/backend/pkg/logger"
 	"robusta-web/backend/pkg/mailer"
 	"robusta-web/backend/pkg/narwhal"
+	"robusta-web/backend/pkg/orchid"
 	"robusta-web/backend/pkg/redis"
+	"robusta-web/backend/pkg/wayne_api"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+)
+
+// Configuration keys
+const (
+	configKeyExternalDeps = "external_dependencies"
+	redisSchemePrefix     = "redis://"
+	passwordMask          = "***"
+	logFieldHost          = "host"
+	logFieldURL           = "url"
 )
 
 // ExternalDependencies 外部依赖配置（从 config.yaml 读取）
@@ -21,6 +33,20 @@ type ExternalDependencies struct {
 	Dragonfly DragonflyConfig `mapstructure:"dragonfly" yaml:"dragonfly"`
 	Email     EmailConfig     `mapstructure:"email" yaml:"email"`
 	Redis     RedisConfig     `mapstructure:"redis" yaml:"redis"`
+	Wayne     WayneConfig     `mapstructure:"wayne" yaml:"wayne"`
+	Orchid    OrchidConfig    `mapstructure:"orchid" yaml:"orchid"`
+}
+
+// WayneConfig Wayne 配置
+type WayneConfig struct {
+	Host  string `mapstructure:"host" yaml:"host"`
+	Token string `mapstructure:"token" yaml:"token"`
+}
+
+// OrchidConfig Orchid 配置
+type OrchidConfig struct {
+	Host  string `mapstructure:"host" yaml:"host"`
+	Token string `mapstructure:"token" yaml:"token"`
 }
 
 // DlinkConfig Dlink 配置
@@ -39,6 +65,8 @@ type NarwhalConfig struct {
 	Token string `mapstructure:"token" yaml:"token"`
 }
 
+
+
 // DragonflyConfig Dragonfly 变更管理配置
 type DragonflyConfig struct {
 	Host     string `mapstructure:"host" yaml:"host"`
@@ -51,14 +79,12 @@ type DragonflyConfig struct {
 
 // EmailConfig 邮件服务配置
 type EmailConfig struct {
-	Host     string `mapstructure:"host" yaml:"host"`
-	Port     int    `mapstructure:"port" yaml:"port"`
-	Username string `mapstructure:"username" yaml:"username"`
-	Password string `mapstructure:"password" yaml:"password"`
-	From     string `mapstructure:"from" yaml:"from"`
-	FromName string `mapstructure:"from_name" yaml:"from_name"`
-	Cc       string `mapstructure:"cc" yaml:"cc"`
-	UseTLS   bool   `mapstructure:"use_tls" yaml:"use_tls"`
+	Host   string `mapstructure:"host" yaml:"host"`
+	Port   int    `mapstructure:"port" yaml:"port"`
+	From   string `mapstructure:"from" yaml:"from"`
+	Cc     string `mapstructure:"cc" yaml:"cc"`
+	IsSSL  bool   `mapstructure:"is-ssl" yaml:"is-ssl"`
+	Secret string `mapstructure:"secret" yaml:"secret"`
 }
 
 // RedisConfig Redis 配置
@@ -79,86 +105,155 @@ var (
 	initResult   *InitResult
 )
 
-// Init 从 viper 实例读取配置并初始化所有外部依赖
-// 此方法应在 config.Load() 之后调用
+// Init 从 viper 实例读取配置并初始化所有外部依赖。
+// 此方法应在 config.Load() 之后调用。
 func Init(v *viper.Viper) (*InitResult, error) {
-	deps := &ExternalDependencies{}
-
-	// 读取外部依赖配置
-	if err := v.UnmarshalKey("external_dependencies", deps); err != nil {
-		return nil, fmt.Errorf("解析外部依赖配置失败: %w", err)
+	deps, err := loadExternalDeps(v)
+	if err != nil {
+		return nil, err
 	}
 
 	externalDeps = deps
 	result := &InitResult{}
 
-	// 初始化 Dlink
-	if deps.Dlink.Host != "" {
-		dlink.Init(dlink.Config{
-			Host:     deps.Dlink.Host,
-			Token:    deps.Dlink.Token,
-			TimeOut:  deps.Dlink.Timeout,
-			UseProxy: deps.Dlink.UseProxy,
-			Proxy:    deps.Dlink.Proxy,
-			IsDebug:  deps.Dlink.IsDebug,
-		})
-		logger.L().Info("Dlink 初始化成功", zap.String("host", deps.Dlink.Host))
-	}
-
-	// 初始化 Narwhal
-	if deps.Narwhal.Host != "" {
-		narwhal.Init(narwhal.Config{
-			Host:  deps.Narwhal.Host,
-			Token: deps.Narwhal.Token,
-		})
-		logger.L().Info("Narwhal 初始化成功", zap.String("host", deps.Narwhal.Host))
-	}
-
-	// 初始化 Dragonfly
-	if deps.Dragonfly.Host != "" {
-		dragonfly.Init(dragonfly.Config{
-			Host:     deps.Dragonfly.Host,
-			Token:    deps.Dragonfly.Token,
-			TimeOut:  deps.Dragonfly.Timeout,
-			UseProxy: deps.Dragonfly.UseProxy,
-			Proxy:    deps.Dragonfly.Proxy,
-			IsDebug:  deps.Dragonfly.IsDebug,
-		})
-		logger.L().Info("Dragonfly 初始化成功", zap.String("host", deps.Dragonfly.Host))
-	}
-
-	// 初始化 Mailer
-	if deps.Email.Host != "" {
-		m := mailer.New(mailer.Config{
-			Host:     deps.Email.Host,
-			Port:     deps.Email.Port,
-			Username: deps.Email.Username,
-			Password: deps.Email.Password,
-			From:     deps.Email.From,
-			FromName: deps.Email.FromName,
-			UseTLS:   deps.Email.UseTLS,
-		})
-		result.Mailer = m
-		logger.L().Info("Mailer 初始化成功", zap.String("host", deps.Email.Host))
-	}
-
-	// 初始化 Redis
-	if deps.Redis.Enabled && deps.Redis.URL != "" {
-		factory := redis.GetFactory()
-		if err := factory.Setup(deps.Redis.URL, deps.Redis.PoolSize); err != nil {
-			logger.L().Warn("Redis 初始化失败", zap.Error(err))
-		} else {
-			client, _ := factory.GetClient()
-			result.Redis = client
-			logger.L().Info("Redis 初始化成功", zap.String("url", maskRedisURL(deps.Redis.URL)))
-		}
-	}
+	// 按依赖顺序初始化各个外部依赖
+	initDlinkService(deps.Dlink)
+	initNarwhalService(deps.Narwhal)
+	initDragonflyService(deps.Dragonfly)
+	initMailerService(deps.Email, result)
+	initRedisService(deps.Redis, result)
+	initWayneService(deps.Wayne)
+	initOrchidService(deps.Orchid)
 
 	initResult = result
 	return result, nil
 }
 
-// InitFromConfig 从配置文件直接初始化（简化入口）
+// loadExternalDeps 从 viper 加载外部依赖配置。
+func loadExternalDeps(v *viper.Viper) (*ExternalDependencies, error) {
+	deps := &ExternalDependencies{}
+	if err := v.UnmarshalKey(configKeyExternalDeps, deps); err != nil {
+		return nil, fmt.Errorf("解析外部依赖配置失败: %w", err)
+	}
+	return deps, nil
+}
+
+// initDlinkService 初始化 Dlink 服务。
+func initDlinkService(cfg DlinkConfig) {
+	if cfg.Host == "" {
+		return
+	}
+
+	dlink.Init(dlink.Config{
+		Host:     cfg.Host,
+		Token:    cfg.Token,
+		TimeOut:  cfg.Timeout,
+		UseProxy: cfg.UseProxy,
+		Proxy:    cfg.Proxy,
+		IsDebug:  cfg.IsDebug,
+	})
+	logServiceInitialized("Dlink", cfg.Host)
+}
+
+// initNarwhalService 初始化 Narwhal 服务。
+func initNarwhalService(cfg NarwhalConfig) {
+	if cfg.Host == "" {
+		return
+	}
+
+	narwhal.Init(narwhal.Config{
+		Host:  cfg.Host,
+		Token: cfg.Token,
+	})
+	logServiceInitialized("Narwhal", cfg.Host)
+}
+
+// initDragonflyService 初始化 Dragonfly 服务。
+func initDragonflyService(cfg DragonflyConfig) {
+	if cfg.Host == "" {
+		return
+	}
+
+	dragonfly.Init(dragonfly.Config{
+		Host:     cfg.Host,
+		Token:    cfg.Token,
+		TimeOut:  cfg.Timeout,
+		UseProxy: cfg.UseProxy,
+		Proxy:    cfg.Proxy,
+		IsDebug:  cfg.IsDebug,
+	})
+	logServiceInitialized("Dragonfly", cfg.Host)
+}
+
+// initWayneService 初始化 Wayne 服务。
+func initWayneService(cfg WayneConfig) {
+	if cfg.Host == "" {
+		return
+	}
+
+	wayne_api.Init(wayne_api.Config{
+		Host:  cfg.Host,
+		Token: cfg.Token,
+	})
+	logServiceInitialized("Wayne", cfg.Host)
+}
+
+// initOrchidService 初始化 Orchid 服务。
+func initOrchidService(cfg OrchidConfig) {
+	if cfg.Host == "" {
+		return
+	}
+
+	orchid.Init(orchid.Config{
+		Host:  cfg.Host,
+		Token: cfg.Token,
+	})
+	logServiceInitialized("Orchid", cfg.Host)
+}
+
+// initMailerService 初始化邮件服务。
+func initMailerService(cfg EmailConfig, result *InitResult) {
+	if cfg.Host == "" {
+		return
+	}
+
+	m := mailer.New(mailer.Config{
+		Host:     cfg.Host,
+		Port:     cfg.Port,
+		Username: cfg.From,
+		Password: cfg.Secret,
+		From:     cfg.From,
+		FromName: "",
+		UseTLS:   cfg.IsSSL,
+	})
+	result.Mailer = m
+	logServiceInitialized("Mailer", cfg.Host)
+}
+
+// initRedisService 初始化 Redis 服务。
+func initRedisService(cfg RedisConfig, result *InitResult) {
+	if !cfg.Enabled || cfg.URL == "" {
+		return
+	}
+
+	factory := redis.GetFactory()
+	if err := factory.Setup(cfg.URL, cfg.PoolSize); err != nil {
+		logger.L().Warn("Redis 初始化失败", zap.Error(err))
+		return
+	}
+
+	client, _ := factory.GetClient()
+	result.Redis = client
+	logger.L().Info("Redis 初始化成功",
+		zap.String(logFieldURL, maskRedisURL(cfg.URL)))
+}
+
+// logServiceInitialized 记录服务初始化成功日志。
+func logServiceInitialized(serviceName, host string) {
+	logger.L().Info(serviceName+" 初始化成功", zap.String(logFieldHost, host))
+}
+
+// InitFromConfig 从配置文件直接初始化（简化入口）。
 func InitFromConfig(configPath string) (*InitResult, error) {
 	v := viper.New()
 	v.SetConfigFile(configPath)
@@ -170,40 +265,40 @@ func InitFromConfig(configPath string) (*InitResult, error) {
 	return Init(v)
 }
 
-// GetExternalDeps 获取外部依赖配置
+// GetExternalDeps 获取外部依赖配置。
 func GetExternalDeps() *ExternalDependencies {
 	return externalDeps
 }
 
-// GetInitResult 获取初始化结果
+// GetInitResult 获取初始化结果。
 func GetInitResult() *InitResult {
 	return initResult
 }
 
-// Close 关闭所有外部依赖连接
+// Close 关闭所有外部依赖连接。
 func Close() {
-	if redis.GetFactory().IsSetup() {
-		if err := redis.GetFactory().Close(); err != nil {
+	factory := redis.GetFactory()
+	if factory.IsSetup() {
+		if err := factory.Close(); err != nil {
 			logger.L().Warn("关闭 Redis 连接失败", zap.Error(err))
 		}
 	}
 	logger.L().Info("外部依赖资源已释放")
 }
 
-// maskRedisURL 隐藏 Redis URL 中的密码
+// maskRedisURL 隐藏 Redis URL 中的密码。
+// 示例：redis://:password@host:port -> redis://***@host:port
 func maskRedisURL(url string) string {
-	// redis://:password@host:port -> redis://***@host:port
-	if len(url) > 8 && url[8] == ':' {
-		atIdx := -1
-		for i := 8; i < len(url); i++ {
-			if url[i] == '@' {
-				atIdx = i
-				break
-			}
-		}
-		if atIdx > 8 {
-			return url[:8] + "***" + url[atIdx:]
-		}
+	if !strings.HasPrefix(url, redisSchemePrefix) {
+		return url
 	}
-	return url
+
+	// 查找 @ 符号位置（密码结束标记）
+	atIdx := strings.Index(url, "@")
+	if atIdx <= len(redisSchemePrefix) {
+		return url
+	}
+
+	// 替换密码部分
+	return redisSchemePrefix + passwordMask + url[atIdx:]
 }

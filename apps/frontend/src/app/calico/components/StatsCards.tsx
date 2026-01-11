@@ -13,10 +13,12 @@ export function StatsCards({ stats, isLoading }: StatsCardsProps) {
         return (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {[1, 2, 3, 4].map((i) => (
-                    <Card key={i} className="bg-card/50">
-                        <CardContent className="p-6">
-                            <div className="h-4 w-24 bg-muted animate-pulse rounded mb-2" />
-                            <div className="h-8 w-16 bg-muted animate-pulse rounded" />
+                    <Card key={i} className="relative overflow-hidden border-border/50 bg-card/40 backdrop-blur-sm">
+                        <div className="absolute inset-0 bg-gradient-to-br from-muted/20 to-transparent opacity-50" />
+                        <CardContent className="p-6 relative">
+                            <div className="h-4 w-28 bg-muted/60 animate-pulse rounded mb-3" />
+                            <div className="h-9 w-20 bg-muted/60 animate-pulse rounded mb-2" />
+                            <div className="h-3 w-16 bg-muted/40 animate-pulse rounded" />
                         </CardContent>
                     </Card>
                 ))}
@@ -45,103 +47,140 @@ export function StatsCards({ stats, isLoading }: StatsCardsProps) {
     return (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {/* IP Pools Card */}
-            <Card className="bg-gradient-to-br from-blue-500/10 to-transparent border-blue-500/20 hover:shadow-lg hover:from-blue-500/20 transition-all duration-300">
-                <CardContent className="p-6 relative overflow-hidden">
-                    <div className="absolute right-4 top-4 bg-blue-500/10 p-3 rounded-full">
-                        <Network className="h-6 w-6 text-blue-500" />
+            <Card className="group relative overflow-hidden border-blue-500/20 bg-gradient-to-br from-blue-500/5 via-blue-500/[0.02] to-transparent hover:shadow-lg hover:shadow-blue-500/10 hover:from-blue-500/10 transition-all duration-300">
+                {/* Decorative glow */}
+                <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl group-hover:bg-blue-500/20 transition-all duration-500" />
+                <CardContent className="p-6 relative">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                            <div className="text-xs font-medium uppercase tracking-wider text-blue-500/80">IP 地址池</div>
+                            <div className="h-px w-8 bg-gradient-to-r from-blue-500/50 to-transparent" />
+                        </div>
+                        <div className="inline-flex items-center justify-center rounded-xl bg-blue-500/10 p-2.5 ring-1 ring-blue-500/20">
+                            <Network className="h-5 w-5 text-blue-500" />
+                        </div>
                     </div>
-                    <div className="text-sm font-medium text-blue-500 mb-1">IP 地址池总数</div>
-                    <div className="text-3xl font-bold text-foreground mt-2">
-                        {total_ip_pools}
-                        <span className="text-base font-normal text-muted-foreground ml-2">个</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-3 flex items-center gap-2">
-                        <span className="bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded-full font-medium">IPv4: {total_ipv4_pools}</span>
-                        <span className="bg-purple-500/10 text-purple-500 px-2 py-0.5 rounded-full font-medium">IPv6: {total_ipv6_pools}</span>
+                    <div className="space-y-3">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold tracking-tight text-foreground tabular-nums">{total_ip_pools}</span>
+                            <span className="text-sm text-muted-foreground">总池数</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20">
+                                IPv4: {total_ipv4_pools}
+                            </span>
+                            <span className="inline-flex items-center rounded-full bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20">
+                                IPv6: {total_ipv6_pools}
+                            </span>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
 
             {/* BGP Peers Card */}
-            <Card className={`hover:shadow-lg transition-all duration-300 ${bgpHealthy ? 'bg-gradient-to-br from-green-500/10 to-transparent border-green-500/20 hover:from-green-500/20' : 'bg-gradient-to-br from-yellow-500/10 to-transparent border-yellow-500/20 hover:from-yellow-500/20'}`}>
-                <CardContent className="p-6 relative overflow-hidden">
-                    <div className={`absolute right-4 top-4 p-3 rounded-full ${bgpHealthy ? 'bg-green-500/10' : 'bg-yellow-500/10'}`}>
-                        <Activity className={`h-6 w-6 ${bgpHealthy ? 'text-green-500' : 'text-yellow-500'}`} />
+            <Card className={`group relative overflow-hidden hover:shadow-lg transition-all duration-300 ${
+                bgpHealthy
+                    ? 'border-green-500/20 bg-gradient-to-br from-green-500/5 via-green-500/[0.02] to-transparent hover:shadow-green-500/10 hover:from-green-500/10'
+                    : 'border-amber-500/20 bg-gradient-to-br from-amber-500/5 via-amber-500/[0.02] to-transparent hover:shadow-amber-500/10 hover:from-amber-500/10'
+            }`}>
+                <div className={`absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl transition-all duration-500 ${
+                    bgpHealthy ? 'bg-green-500/10 group-hover:bg-green-500/20' : 'bg-amber-500/10 group-hover:bg-amber-500/20'
+                }`} />
+                <CardContent className="p-6 relative">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                            <div className={`text-xs font-medium uppercase tracking-wider ${bgpHealthy ? 'text-green-500/80' : 'text-amber-500/80'}`}>BGP 对等体</div>
+                            <div className={`h-px w-8 bg-gradient-to-r ${bgpHealthy ? 'from-green-500/50' : 'from-amber-500/50'} to-transparent`} />
+                        </div>
+                        <div className={`inline-flex items-center justify-center rounded-xl p-2.5 ring-1 ${
+                            bgpHealthy ? 'bg-green-500/10 ring-green-500/20' : 'bg-amber-500/10 ring-amber-500/20'
+                        }`}>
+                            <Activity className={`h-5 w-5 ${bgpHealthy ? 'text-green-500' : 'text-amber-500'}`} />
+                        </div>
                     </div>
-                    <div className={`text-sm font-medium ${bgpHealthy ? 'text-green-500' : 'text-yellow-500'} mb-1`}>BGP 对等体</div>
-
-                    {bgpHealthy ? (
-                        <div className="mt-2">
-                            <div className="text-3xl font-bold text-foreground">
-                                {active_bgp_peers}/{total_bgp_peers}
-                            </div>
-                            <div className="text-xs text-green-600 mt-3 font-medium flex items-center gap-1">
-                                <CheckCircle className="h-3 w-3" />
-                                所有对等体连接正常
-                            </div>
+                    <div className="space-y-3">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold tracking-tight text-foreground tabular-nums">{active_bgp_peers}</span>
+                            <span className={`text-sm ${bgpHealthy ? 'text-green-500' : 'text-amber-500'}`}>/ {total_bgp_peers}</span>
                         </div>
-                    ) : (
-                        <div className="mt-2">
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-3xl font-bold text-foreground">{active_bgp_peers}</span>
-                                <span className="text-sm text-yellow-500">/ {total_bgp_peers}</span>
+                        {bgpHealthy ? (
+                            <div className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-3 py-1.5 text-xs font-medium text-green-600 dark:text-green-400 ring-1 ring-green-500/20">
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                <span>所有对等体连接正常</span>
                             </div>
-                            <div className="text-xs text-red-500 mt-3 font-medium flex items-center gap-1">
-                                <AlertCircle className="h-3 w-3" />
-                                {total_bgp_peers - active_bgp_peers} 个对等体异常
+                        ) : (
+                            <div className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 ring-1 ring-red-500/20">
+                                <AlertCircle className="h-3.5 w-3.5" />
+                                <span>{total_bgp_peers - active_bgp_peers} 个对等体异常</span>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </CardContent>
             </Card>
 
             {/* Policies Card */}
-            <Card className="bg-gradient-to-br from-purple-500/10 to-transparent border-purple-500/20 hover:shadow-lg hover:from-purple-500/20 transition-all duration-300">
-                <CardContent className="p-6 relative overflow-hidden">
-                    <div className="absolute right-4 top-4 bg-purple-500/10 p-3 rounded-full">
-                        <Shield className="h-6 w-6 text-purple-500" />
+            <Card className="group relative overflow-hidden border-purple-500/20 bg-gradient-to-br from-purple-500/5 via-purple-500/[0.02] to-transparent hover:shadow-lg hover:shadow-purple-500/10 hover:from-purple-500/10 transition-all duration-300">
+                <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-purple-500/10 blur-2xl group-hover:bg-purple-500/20 transition-all duration-500" />
+                <CardContent className="p-6 relative">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                            <div className="text-xs font-medium uppercase tracking-wider text-purple-500/80">网络策略</div>
+                            <div className="h-px w-8 bg-gradient-to-r from-purple-500/50 to-transparent" />
+                        </div>
+                        <div className="inline-flex items-center justify-center rounded-xl bg-purple-500/10 p-2.5 ring-1 ring-purple-500/20">
+                            <Shield className="h-5 w-5 text-purple-500" />
+                        </div>
                     </div>
-                    <div className="text-sm font-medium text-purple-500 mb-1">网络策略</div>
-                    <div className="text-3xl font-bold text-foreground mt-2">
-                        {total_policies}
-                        <span className="text-base font-normal text-muted-foreground ml-2">生效中</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-3">
-                        覆盖所有命名空间
+                    <div className="space-y-3">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold tracking-tight text-foreground tabular-nums">{total_policies}</span>
+                            <span className="text-sm text-muted-foreground">生效中</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            覆盖所有命名空间
+                        </div>
                     </div>
                 </CardContent>
             </Card>
 
             {/* Cluster Health Card */}
-            <Card className={`hover:shadow-lg transition-all duration-300 ${clusterAllHealthy ? 'bg-gradient-to-br from-teal-500/10 to-transparent border-teal-500/20 hover:from-teal-500/20' : 'bg-gradient-to-br from-red-500/10 to-transparent border-red-500/20 hover:from-red-500/20'}`}>
-                <CardContent className="p-6 relative overflow-hidden">
-                    <div className={`absolute right-4 top-4 p-3 rounded-full ${clusterAllHealthy ? 'bg-teal-500/10' : 'bg-red-500/10'}`}>
-                        <Server className={`h-6 w-6 ${clusterAllHealthy ? 'text-teal-500' : 'text-red-500'}`} />
+            <Card className={`group relative overflow-hidden hover:shadow-lg transition-all duration-300 ${
+                clusterAllHealthy
+                    ? 'border-teal-500/20 bg-gradient-to-br from-teal-500/5 via-teal-500/[0.02] to-transparent hover:shadow-teal-500/10 hover:from-teal-500/10'
+                    : 'border-red-500/20 bg-gradient-to-br from-red-500/5 via-red-500/[0.02] to-transparent hover:shadow-red-500/10 hover:from-red-500/10'
+            }`}>
+                <div className={`absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl transition-all duration-500 ${
+                    clusterAllHealthy ? 'bg-teal-500/10 group-hover:bg-teal-500/20' : 'bg-red-500/10 group-hover:bg-red-500/20'
+                }`} />
+                <CardContent className="p-6 relative">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="space-y-1">
+                            <div className={`text-xs font-medium uppercase tracking-wider ${clusterAllHealthy ? 'text-teal-500/80' : 'text-red-500/80'}`}>集群健康</div>
+                            <div className={`h-px w-8 bg-gradient-to-r ${clusterAllHealthy ? 'from-teal-500/50' : 'from-red-500/50'} to-transparent`} />
+                        </div>
+                        <div className={`inline-flex items-center justify-center rounded-xl p-2.5 ring-1 ${
+                            clusterAllHealthy ? 'bg-teal-500/10 ring-teal-500/20' : 'bg-red-500/10 ring-red-500/20'
+                        }`}>
+                            <Server className={`h-5 w-5 ${clusterAllHealthy ? 'text-teal-500' : 'text-red-500'}`} />
+                        </div>
                     </div>
-                    <div className={`text-sm font-medium ${clusterAllHealthy ? 'text-teal-500' : 'text-red-500'} mb-1`}>集群健康状态</div>
-
-                    {clusterAllHealthy ? (
-                        <div className="mt-2">
-                            <div className="text-3xl font-bold text-foreground">
-                                {healthy_clusters}/{total_clusters}
-                            </div>
-                            <div className="text-xs text-teal-600 mt-3 font-medium flex items-center gap-1">
-                                <CheckCircle className="h-3 w-3" />
-                                所有集群运行正常
-                            </div>
+                    <div className="space-y-3">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-4xl font-bold tracking-tight text-foreground tabular-nums">{healthy_clusters}</span>
+                            <span className="text-sm text-muted-foreground">/ {total_clusters}</span>
                         </div>
-                    ) : (
-                        <div className="mt-2">
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-3xl font-bold text-foreground">{healthy_clusters}</span>
-                                <span className="text-sm text-muted-foreground">/ {total_clusters} 正常</span>
+                        {clusterAllHealthy ? (
+                            <div className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/10 px-3 py-1.5 text-xs font-medium text-teal-600 dark:text-teal-400 ring-1 ring-teal-500/20">
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                <span>所有集群运行正常</span>
                             </div>
-                            <div className="text-xs text-red-500 mt-3 font-medium flex items-center gap-1">
-                                <AlertCircle className="h-3 w-3" />
-                                {total_clusters - healthy_clusters} 个集群存在异常
+                        ) : (
+                            <div className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 ring-1 ring-red-500/20">
+                                <AlertCircle className="h-3.5 w-3.5" />
+                                <span>{total_clusters - healthy_clusters} 个集群存在异常</span>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </CardContent>
             </Card>
         </div>

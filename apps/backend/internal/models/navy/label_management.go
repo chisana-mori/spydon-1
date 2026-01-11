@@ -21,5 +21,5 @@ type LabelValue struct {
 }
 
 func (l LabelValue) TableName() string {
-	return "label_feature_value"
+	return "label_feature_values"
 }

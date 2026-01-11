@@ -103,24 +103,8 @@ func (s *AlertService) ProcessAlert(ctx context.Context, req ProcessAlertRequest
 	return &alert.ID, nil
 }
 
-// IngestConvertedAlert 处理已转换的告警（保存、心跳、审计）
+// IngestConvertedAlert 处理已转换的告警（保存、审计）
 func (s *AlertService) IngestConvertedAlert(ctx context.Context, alert *models.Alert, clientIP, userAgent string) error {
-	// 确保集群存在
-	// 更新集群心跳（如果集群存在）
-	if s.clusterService != nil {
-		if err := s.clusterService.UpdateHeartbeat(ctx, &models.Cluster{
-			Name:      alert.ClusterName,
-			ClusterID: alert.ClusterID,
-			Status:    string(models.ClusterStatusActive),
-		}); err != nil {
-			// 仅记录日志，不中断告警处理流程
-			// 这种情况通常发生在收到未注册集群的告警时
-			logger.L().Warn("failed to update cluster heartbeat",
-				zap.String("cluster_name", alert.ClusterName),
-				zap.Error(err),
-			)
-		}
-	}
 
 	// 保存告警
 	if err := s.CreateOrUpdateAlert(ctx, alert); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
@@ -17,12 +18,17 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"go.uber.org/zap/zapcore"
 )
 
 // Scheme 包含 core 和 Calico CRD 类型
 var Scheme = runtime.NewScheme()
+
+// setControllerLoggerOnce 确保 controller-runtime logger 只设置一次
+var setControllerLoggerOnce sync.Once
 
 func init() {
 	_ = corev1.AddToScheme(Scheme)
@@ -34,6 +40,7 @@ type Controller struct {
 	clusterName string
 	database    *db.Database
 	mgr         manager.Manager
+	restConfig  interface{} // *rest.Config, stored as interface to avoid import cycle
 	cancel      context.CancelFunc
 }
 
@@ -44,6 +51,15 @@ func NewController(cluster *models.Cluster, database *db.Database) (*Controller,
 	if err != nil {
 		return nil, fmt.Errorf("解析 kubeconfig 失败: %w", err)
 	}
+
+	// 设置 controller-runtime 的 logger（只设置一次）
+	// 使用 zap logger，并将其映射到 controller-runtime 的 logr 接口
+	// 注意：这里使用 sync.Once 来确保只设置一次
+	setControllerLoggerOnce.Do(func() {
+		ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zap.Options{
+			Level: zapcore.InfoLevel, // 设置为 Info 级别
+		})))
+	})
 
 	// 创建 controller-runtime manager
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
@@ -66,6 +82,7 @@ func NewController(cluster *models.Cluster, database *db.Database) (*Controller,
 		clusterName: cluster.Name,
 		database:    database,
 		mgr:         mgr,
+		restConfig:  restConfig,
 	}, nil
 }
 
@@ -117,4 +134,9 @@ func (c *Controller) GetNode(ctx context.Context, nodeName string) (*corev1.Node
 		return nil, err
 	}
 	return &node, nil
+}
+
+// GetRESTConfig 获取 REST 配置（用于创建 dynamic client）
+func (c *Controller) GetRESTConfig() interface{} {
+	return c.restConfig
 }

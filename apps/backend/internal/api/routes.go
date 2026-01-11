@@ -93,9 +93,88 @@ func SetupRoutes(
 	nodesyncManager *nodesync.Manager,
 	awxRuntime *pipelineservice.AWXRuntime,
 ) (*BackgroundServices, error) {
-	// =========================================================================
-	// 1. 构建核心业务服务
-	// =========================================================================
+	// Apply global middleware first
+	applyGlobalMiddleware(router)
+
+	// Build core services
+	coreServices, err := buildCoreServices(database, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build Navy-specific services
+	navyServices, redisHandler := buildNavyServices(database, cfg, nodesyncManager, awxRuntime)
+
+	// Build external dependencies
+	externalDeps, err := buildExternalDependencies(cfg, awxRuntime, database)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register all routes
+	registerRoutes(
+		router, database, cfg, nodesyncManager,
+		coreServices, navyServices, externalDeps, redisHandler,
+	)
+
+	// Return background services for main to start
+	return &BackgroundServices{
+		ChangeManager: navyServices.changeMgr,
+		AWXJobPoller:  navyservice.NewAWXJobPoller(navyServices.changeMgr, awxRuntime, logger.L()),
+	}, nil
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// coreServices holds core business services shared across features
+type coreServices struct {
+	objectStorage    *sharedservices.ObjectStorageService
+	clusterSvc       *queryservice.ClusterService
+	auditSvc         *sharedservices.AuditService
+	knowledgeSvc     *knowledgeservice.KnowledgeService
+	systemSettingSvc *systemsettingservice.SystemSettingService
+	holmesSvc        *holmesservice.HolmesService
+	rcaSvc           *rcaservice.RCAService
+	alertSvc         *ingestservice.AlertService
+	authSvc          *authservice.AuthService
+	userSvc          *userservice.UserService
+	apiKeySvc        *apikeyservice.APIKeyService
+	dictionarySvc    *sharedservices.DictionaryService
+}
+
+// navyServices holds Navy-specific device management services
+type navyServices struct {
+	connMgr       *sharedservices.ClusterConnectionManager
+	safeDrainSvc  *navyservice.SimpleDrainService
+	deviceSvc     *navyservice.NavyDeviceService
+	deviceOpsSvc  *navyservice.DeviceOperationsService
+	changeMgr     *navyservice.ChangeManager
+	k8sNodeMgrSvc *navyservice.K8sNodeManageService
+	f5Svc         *navyservice.F5InfoService
+}
+
+// externalDependencies holds external system dependencies
+type externalDependencies struct {
+	casClient      *cas.Client
+	pipelineEngine *pipelineservice.PipelineEngine
+	awxStreamer    *pipelineservice.AWXStreamer
+}
+
+// applyGlobalMiddleware applies global middleware to the router
+func applyGlobalMiddleware(router *gin.Engine) {
+	router.Use(
+		middleware.CORSMiddleware(),
+		middleware.SecurityHeadersMiddleware(),
+		middleware.RequestIDMiddleware(),
+		middleware.ErrorHandler(),
+		middleware.RequestResponseLogger(),
+	)
+}
+
+// buildCoreServices constructs core business services
+func buildCoreServices(database *db.Database, cfg *config.Config) (*coreServices, error) {
 	objectStorage, err := sharedservices.NewObjectStorageService(cfg)
 	if err != nil {
 		return nil, err
@@ -113,17 +192,39 @@ func SetupRoutes(
 	apiKeySvc := apikeyservice.NewAPIKeyService(database)
 	dictionarySvc := sharedservices.NewDictionaryService(database)
 
-	// =========================================================================
-	// 2. 构建 Navy 相关服务
-	// =========================================================================
-	redisHandler, redisErr := redis.NewHandler(cfg.Redis.URL, cfg.Redis.PoolSize)
-	if redisErr != nil {
-		logger.L().Warn("Redis 初始化失败，部分功能受限", zap.Error(redisErr))
+	return &coreServices{
+		objectStorage:    objectStorage,
+		clusterSvc:       clusterSvc,
+		auditSvc:         auditSvc,
+		knowledgeSvc:     knowledgeSvc,
+		systemSettingSvc: systemSettingSvc,
+		holmesSvc:        holmesSvc,
+		rcaSvc:           rcaSvc,
+		alertSvc:         alertSvc,
+		authSvc:          authSvc,
+		userSvc:          userSvc,
+		apiKeySvc:        apiKeySvc,
+		dictionarySvc:    dictionarySvc,
+	}, nil
+}
+
+// buildNavyServices constructs Navy-specific services
+func buildNavyServices(
+	database *db.Database,
+	cfg *config.Config,
+	nodesyncManager *nodesync.Manager,
+	awxRuntime *pipelineservice.AWXRuntime,
+) (*navyServices, *redis.Handler) {
+	// Initialize Redis (optional)
+	redisHandler, _ := redis.NewHandler(cfg.Redis.URL, cfg.Redis.PoolSize)
+	if redisHandler == nil {
+		logger.L().Warn("Redis 初始化失败，部分功能受限")
 	}
 
+	// Initialize cluster connection manager
 	connMgr := sharedservices.NewClusterConnectionManager(database.DB)
-	if initErr := connMgr.Initialize(); initErr != nil {
-		logger.L().Warn("ClusterConnectionManager 初始化失败", zap.Error(initErr))
+	if err := connMgr.Initialize(); err != nil {
+		logger.L().Warn("ClusterConnectionManager 初始化失败", zap.Error(err))
 	}
 
 	safeDrainSvc := navyservice.NewSimpleDrainService(connMgr, redisHandler)
@@ -131,17 +232,33 @@ func SetupRoutes(
 	deviceOpsSvc := navyservice.NewDeviceOperationsService(
 		database, database, nodesyncManager, awxRuntime, cfg, logger.L(), safeDrainSvc,
 	)
+
 	changeMgrCfg := navyservice.ChangeManagerConfig{
 		Enabled: cfg.ChangeManagement.Enabled,
 		Timeout: time.Duration(cfg.ChangeManagement.TimeoutMinutes) * time.Minute,
 	}
 	changeMgr := navyservice.NewChangeManager(changeMgrCfg, redisHandler, nil, logger.L())
+
 	k8sNodeMgrSvc := navyservice.NewK8sNodeManageService(database, nodesyncManager)
 	f5Svc := navyservice.NewF5InfoService(database.DB)
 
-	// =========================================================================
-	// 3. 构建外部依赖
-	// =========================================================================
+	return &navyServices{
+		connMgr:       connMgr,
+		safeDrainSvc:  safeDrainSvc,
+		deviceSvc:     deviceSvc,
+		deviceOpsSvc:  deviceOpsSvc,
+		changeMgr:     changeMgr,
+		k8sNodeMgrSvc: k8sNodeMgrSvc,
+		f5Svc:         f5Svc,
+	}, redisHandler
+}
+
+// buildExternalDependencies constructs external system dependencies
+func buildExternalDependencies(
+	cfg *config.Config,
+	awxRuntime *pipelineservice.AWXRuntime,
+	database *db.Database,
+) (*externalDependencies, error) {
 	casClient, err := buildCASClient(cfg)
 	if err != nil {
 		return nil, err
@@ -154,122 +271,112 @@ func SetupRoutes(
 	)
 	awxStreamer := pipelineservice.NewAWXStreamer(database.DB, awxRuntime.GetClient())
 
-	// =========================================================================
-	// 4. 应用全局中间件
-	// =========================================================================
-	router.Use(
-		middleware.CORSMiddleware(),
-		middleware.SecurityHeadersMiddleware(),
-		middleware.RequestIDMiddleware(),
-		middleware.ErrorHandler(),
-		middleware.RequestResponseLogger(),
-	)
+	return &externalDependencies{
+		casClient:      casClient,
+		pipelineEngine: pipelineEngine,
+		awxStreamer:    awxStreamer,
+	}, nil
+}
 
-	// =========================================================================
-	// 5. 创建 Handlers 并注册路由 (Navy 风格)
-	// =========================================================================
+// registerRoutes registers all API routes using Navy-style explicit registration
+func registerRoutes(
+	router *gin.Engine,
+	database *db.Database,
+	cfg *config.Config,
+	nodesyncManager *nodesync.Manager,
+	core *coreServices,
+	navy *navyServices,
+	ext *externalDependencies,
+	redisHandler *redis.Handler,
+) {
 	v1 := router.Group(constants.APIVersionV1)
 
-	// ----- Health (根路由) -----
+	// Health check (root routes)
 	healthHandler := healthhttp.New(database)
 	healthHandler.RegisterRoutes(router)
 
-	// ----- Auth (认证) -----
-	authHandler := authhttp.New(cfg, authSvc, casClient)
+	// Authentication
+	authHandler := authhttp.New(cfg, core.authSvc, ext.casClient)
 	authHandler.RegisterRoutes(router, v1)
 
-	// ----- Ingest Webhooks (API Key 认证) -----
-	ingestHandler := ingesthttp.New(alertSvc, rcaSvc, clusterSvc, auditSvc, objectStorage)
+	// Ingest webhooks (API Key authentication)
+	ingestHandler := ingesthttp.New(core.alertSvc, core.rcaSvc, core.clusterSvc, core.auditSvc, core.objectStorage)
 	webhookGroup := v1.Group("")
-	webhookGroup.Use(middleware.APIKeyMiddleware(cfg, apiKeySvc))
+	webhookGroup.Use(middleware.APIKeyMiddleware(cfg, core.apiKeySvc))
 	webhookGroup.POST("/ingest/robusta-webhook", ingestHandler.IngestRobustaFinding)
 	webhookGroup.POST("/ingest/alertmanager", ingestHandler.IngestAlertmanagerWebhook)
 
-	// ----- Ingest (HMAC 认证) -----
+	// Ingest endpoints (HMAC authentication)
 	ingestGroup := v1.Group("/ingest")
 	ingestGroup.Use(middleware.EnhancedHMACMiddleware(cfg))
 	ingestGroup.Use(middleware.AuditLogMiddleware())
 	ingestGroup.POST("/alert", ingestHandler.IngestAlert)
 
-	// ----- Query -----
-	queryHandler := queryhttp.New(alertSvc, rcaSvc, clusterSvc, objectStorage)
+	// Query endpoints
+	queryHandler := queryhttp.New(core.alertSvc, core.rcaSvc, core.clusterSvc, core.objectStorage)
 	adminGroup := createAdminGroup(v1, cfg, false)
 	queryHandler.RegisterRoutes(v1, adminGroup)
 
-	// ----- RCA (审计日志) -----
-	rcaHandler := rcahttp.New(holmesSvc, rcaSvc, alertSvc)
+	// RCA endpoints (with audit logging)
+	rcaHandler := rcahttp.New(core.holmesSvc, core.rcaSvc, core.alertSvc)
 	rcaGroup := createAdminGroup(v1, cfg, true)
 	rcaHandler.RegisterRoutes(rcaGroup)
 
-	// ----- User -----
-	userHandler := userhttp.New(userSvc)
+	// User management
+	userHandler := userhttp.New(core.userSvc)
 	userAdminGroup := createAdminGroup(v1, cfg, true)
 	userHandler.RegisterRoutes(userAdminGroup)
 
-	// ----- API Key -----
-	apiKeyHandler := apikeyhttp.New(cfg, apiKeySvc)
+	// API Key management
+	apiKeyHandler := apikeyhttp.New(cfg, core.apiKeySvc)
 	apiKeyHandler.RegisterRoutes(v1, userAdminGroup)
 
-	// ----- System Setting -----
-	systemSettingHandler := systemsettinghttp.New(systemSettingSvc, rcaSvc)
+	// System settings
+	systemSettingHandler := systemsettinghttp.New(core.systemSettingSvc, core.rcaSvc)
 	systemSettingHandler.RegisterRoutes(userAdminGroup)
 
-	// ----- Holmes AI -----
-	holmesHandler := holmeshttp.New(cfg, holmesSvc, alertSvc)
+	// Holmes AI
+	holmesHandler := holmeshttp.New(cfg, core.holmesSvc, core.alertSvc)
 	holmesHandler.RegisterRoutes(v1)
 
-	// ----- Knowledge -----
-	knowledgeHandler := knowledgehttp.New(knowledgeSvc)
+	// Knowledge base
+	knowledgeHandler := knowledgehttp.New(core.knowledgeSvc)
 	knowledgeAdminGroup := createAdminGroup(v1, cfg, false)
 	knowledgeHandler.RegisterRoutes(v1, knowledgeAdminGroup)
 
-	// ----- Pipeline -----
-	pipelineHandler := pipelinehttp.New(pipelineEngine, awxStreamer)
+	// Pipeline execution
+	pipelineHandler := pipelinehttp.New(ext.pipelineEngine, ext.awxStreamer)
 	pipelineHandler.RegisterRoutes(v1, knowledgeAdminGroup)
 
-	// ----- Navy (设备管理) -----
+	// Navy device management
 	navyHandler := navyhttp.New(
-		cfg, database, deviceSvc, deviceOpsSvc,
-		safeDrainSvc, k8sNodeMgrSvc, changeMgr, f5Svc,
+		cfg, database, navy.deviceSvc, navy.deviceOpsSvc,
+		navy.safeDrainSvc, navy.k8sNodeMgrSvc, navy.changeMgr, navy.f5Svc,
 	)
 	navyHandler.RegisterRoutes(v1)
 
-	// ----- Shared (字典等) -----
-	sharedHandler := sharedhttp.New(cfg, dictionarySvc)
+	// Shared resources (dictionaries, etc.)
+	sharedHandler := sharedhttp.New(cfg, core.dictionarySvc)
 	sharedHandler.RegisterRoutes(v1)
 
-	// ----- Configuration -----
+	// Configuration management
 	configHandler := configurationhttp.NewConfigurationHandler(database)
 	configGroup := v1.Group("/configuration")
 	configGroup.Use(middleware.CookieAuthMiddleware(cfg))
 	configGroup.Use(middleware.RequireAdmin())
 	configHandler.RegisterRoutes(configGroup)
 
-	// ----- Notification (邮件通知) -----
-	notificationHandler := buildNotificationHandler(database, cfg, nodesyncManager)
+	// Email notifications
+	notificationHandler := buildNotificationHandler(database, cfg, nodesyncManager, redisHandler)
 	notificationHandler.RegisterRoutes(v1)
 
-	// ----- Calico (网络概览) -----
-	calicoSvc := calico.NewService(nodesyncManager)
+	// Calico network overview
+	calicoSvc := calico.NewService(nodesyncManager, cfg)
 	calicoHandler := calicohttp.NewHandler(calicoSvc, nodesyncManager)
 	calicoHandler.RegisterRoutes(v1)
-
-	// =========================================================================
-	// 6. 返回后台服务
-	// =========================================================================
-	bgServices := &BackgroundServices{
-		ChangeManager: changeMgr,
-		AWXJobPoller:  navyservice.NewAWXJobPoller(changeMgr, awxRuntime, logger.L()),
-	}
-
-	return bgServices, nil
 }
 
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-// createAdminGroup 创建带管理员权限的路由组
+// createAdminGroup creates a route group with admin authentication
 func createAdminGroup(v1 *gin.RouterGroup, cfg *config.Config, withAudit bool) *gin.RouterGroup {
 	group := v1.Group("/admin")
 	group.Use(middleware.CookieAuthMiddleware(cfg))
@@ -281,10 +388,21 @@ func createAdminGroup(v1 *gin.RouterGroup, cfg *config.Config, withAudit bool) *
 }
 
 // buildNotificationHandler 构建邮件通知处理器
-func buildNotificationHandler(database *db.Database, cfg *config.Config, nodesyncManager *nodesync.Manager) *notificationhttp.EmailHandler {
+func buildNotificationHandler(
+	database *db.Database,
+	cfg *config.Config,
+	nodesyncManager *nodesync.Manager,
+	redisHandler *redis.Handler,
+) *notificationhttp.EmailHandler {
 	templateSvc := notificationservice.NewEmailTemplateService(database)
 	contactSvc := notificationservice.NewEmailContactService(database)
 	emailSvc := sharedservices.NewEmailService(cfg)
+
+	// Initialize notification resource services
+	notificationservice.InitDeployService(nodesyncManager, database)
+	notificationservice.InitNodeService(nodesyncManager, database)
+	notificationservice.InitExComponentService(nodesyncManager)
+	notificationservice.InitPodService(nodesyncManager, database, redisHandler)
 
 	notificationSvc := notificationservice.NewEmailNotificationService(database, cfg, emailSvc, templateSvc)
 	notificationSvc.SetResourceFetcher(nodesyncManager)

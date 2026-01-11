@@ -193,6 +193,11 @@ func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
 	c.Set("user_name", claims["name"])
 	c.Set("user_roles", claims["roles"])
 
+	// 设置username字段
+	if username, ok := claims["username"]; ok {
+		c.Set("username", username)
+	}
+
 	// 设置is_admin字段
 	if isAdmin, ok := claims["is_admin"].(bool); ok {
 		c.Set("is_admin", isAdmin)

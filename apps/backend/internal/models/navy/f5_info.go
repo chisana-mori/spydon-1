@@ -18,7 +18,7 @@ type F5Info struct {
 	PoolStatus    string          `gorm:"column:pool_status;type:varchar(50)"`       // Pool状态
 	PoolMembers   string          `gorm:"column:pool_members;type:text"`             // Pool成员
 	ClusterID     *uint           `gorm:"column:k8s_cluster_id;type:int unsigned"`   // 集群ID (使用现有k8s_cluster_id列，映射到robusta_hub.clusters)
-	Cluster       *models.Cluster `gorm:"foreignKey:ClusterID;references:ID"`        // 集群信息 (关联robusta_hub.clusters表)
+	Cluster       *models.Cluster `gorm:"foreignKey:ClusterID;references:ID;constraint:OnDelete:SET NULL"` // 集群信息 (关联robusta_hub.clusters表)
 	Domains       string          `gorm:"column:domains;type:text"`                  // 域名
 	GrafanaParams string          `gorm:"column:grafana_params;type:text"`           // Grafana参数
 	Ignored       bool            `gorm:"column:ignored;type:boolean;default:false"` // 是否忽略
@@ -29,5 +29,5 @@ type F5Info struct {
 
 // TableName 指定表名.
 func (F5Info) TableName() string {
-	return "f5_info"
+	return "k8s_f5_cluster"
 }

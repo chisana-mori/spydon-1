@@ -22,14 +22,15 @@ interface OverviewTableProps {
 export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
     if (isLoading) {
         return (
-            <div className="rounded-md border bg-card">
-                <div className="p-8 space-y-4">
+            <div className="relative overflow-hidden rounded-xl border border-border/50 bg-card/40 backdrop-blur-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-muted/10 to-transparent opacity-30" />
+                <div className="p-8 space-y-4 relative">
                     {[1, 2, 3].map(i => (
                         <div key={i} className="flex items-center space-x-4">
-                            <div className="h-12 w-12 rounded-full bg-muted animate-pulse" />
+                            <div className="h-12 w-12 rounded-xl bg-muted/40 animate-pulse" />
                             <div className="space-y-2 flex-1">
-                                <div className="h-4 w-1/3 bg-muted animate-pulse rounded" />
-                                <div className="h-3 w-1/4 bg-muted animate-pulse rounded" />
+                                <div className="h-4 w-1/3 bg-muted/40 animate-pulse rounded" />
+                                <div className="h-3 w-1/4 bg-muted/30 animate-pulse rounded" />
                             </div>
                         </div>
                     ))}
@@ -39,31 +40,45 @@ export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
     }
 
     return (
-        <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
+        <div className="relative overflow-hidden rounded-xl border border-border/50 bg-card/60 backdrop-blur-sm shadow-sm">
+            {/* Subtle gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-br from-muted/[0.02] to-transparent pointer-events-none" />
+
             <Table>
-                <TableHeader className="bg-muted/30">
-                    <TableRow>
-                        <TableHead className="font-semibold">集群名称</TableHead>
-                        <TableHead className="font-semibold">IP 地址池</TableHead>
-                        <TableHead className="font-semibold">BGP 对等体 (活跃/总数)</TableHead>
-                        <TableHead className="font-semibold">网络策略</TableHead>
-                        <TableHead className="w-[200px] font-semibold">健康评分</TableHead>
-                        <TableHead className="text-right font-semibold">操作</TableHead>
+                <TableHeader className="bg-muted/20">
+                    <TableRow className="hover:bg-transparent border-border/50">
+                        <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">集群名称</TableHead>
+                        <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">IP 地址池</TableHead>
+                        <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">BGP 对等体 (活跃/总数)</TableHead>
+                        <TableHead className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">网络策略</TableHead>
+                        <TableHead className="w-[200px] font-semibold text-xs uppercase tracking-wider text-muted-foreground">健康评分</TableHead>
+                        <TableHead className="text-right font-semibold text-xs uppercase tracking-wider text-muted-foreground">操作</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {clusters.length === 0 ? (
                         <TableRow>
-                            <TableCell colSpan={6} className="h-[300px] text-center">
-                                <div className="flex flex-col items-center justify-center space-y-3 py-10">
-                                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/30 ring-1 ring-border">
-                                        <SearchX className="h-8 w-8 text-muted-foreground" />
+                            <TableCell colSpan={6} className="h-[400px]">
+                                <div className="flex flex-col items-center justify-center space-y-4 py-16">
+                                    <div className="relative">
+                                        <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted/10 ring-1 ring-border/50">
+                                            <SearchX className="h-10 w-10 text-muted-foreground/50" />
+                                        </div>
+                                        {/* Subtle glow effect */}
+                                        <div className="absolute inset-0 h-20 w-20 rounded-2xl bg-muted/5 blur-xl" />
                                     </div>
-                                    <h3 className="text-lg font-medium text-foreground">未发现集群</h3>
-                                    <p className="text-sm text-muted-foreground max-w-sm mx-auto text-center">
-                                        暂无受管纳的 Calico 集群。请检查 NodeSync 状态或确认集群是否已接入。
-                                    </p>
-                                    <Button variant="outline" size="sm" className="mt-2" onClick={() => window.location.reload()}>
+                                    <div className="space-y-2 text-center">
+                                        <h3 className="text-lg font-semibold text-foreground">未发现集群</h3>
+                                        <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
+                                            暂无受管理的 Calico 集群。请检查 NodeSync 状态或确认集群是否已正确接入。
+                                        </p>
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="default"
+                                        className="mt-4 shadow-sm hover:shadow hover:bg-primary/5 transition-all duration-200"
+                                        onClick={() => window.location.reload()}
+                                    >
                                         <RefreshCw className="mr-2 h-4 w-4" />
                                         重试
                                     </Button>
@@ -72,12 +87,15 @@ export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
                         </TableRow>
                     ) : (
                         clusters.map((cluster) => (
-                            <TableRow key={cluster.cluster_name} className="hover:bg-muted/5 transition-colors">
+                            <TableRow
+                                key={cluster.cluster_name}
+                                className="hover:bg-muted/[0.03] transition-colors border-border/30"
+                            >
                                 <TableCell className="font-medium">
                                     <div className="flex flex-col">
-                                        <span className="text-base">{cluster.cluster_name}</span>
+                                        <span className="text-sm font-medium">{cluster.cluster_name}</span>
                                         {cluster.err_msg && (
-                                            <span className="text-xs text-destructive truncate max-w-[150px]" title={cluster.err_msg}>
+                                            <span className="text-xs text-destructive truncate max-w-[180px] mt-1" title={cluster.err_msg}>
                                                 {cluster.err_msg}
                                             </span>
                                         )}
@@ -85,10 +103,13 @@ export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex items-center gap-2">
-                                        <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20">
+                                        <Badge
+                                            variant="secondary"
+                                            className="bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 border-blue-500/20 font-normal"
+                                        >
                                             Total: {cluster.ipv4_pool_count + cluster.ipv6_pool_count}
                                         </Badge>
-                                        <span className="text-xs text-muted-foreground tabular-nums">
+                                        <span className="text-[11px] text-muted-foreground tabular-nums">
                                             (v4: {cluster.ipv4_pool_count}, v6: {cluster.ipv6_pool_count})
                                         </span>
                                     </div>
@@ -96,28 +117,34 @@ export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
                                 <TableCell>
                                     <div className="flex items-center gap-2">
                                         {cluster.active_bgp_peers === cluster.total_bgp_peers && cluster.total_bgp_peers > 0 ? (
-                                            <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20 gap-1 pr-3">
-                                                <CheckCircle className="h-3 w-3" />
+                                            <Badge className="bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 gap-1.5 pr-3 font-normal">
+                                                <CheckCircle className="h-3.5 w-3.5" />
                                                 {cluster.active_bgp_peers}/{cluster.total_bgp_peers}
                                             </Badge>
                                         ) : (
-                                            <Badge variant="destructive" className="bg-red-500/10 text-red-600 border-red-500/20 gap-1 pr-3">
-                                                <AlertTriangle className="h-3 w-3" />
+                                            <Badge className="bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 gap-1.5 pr-3 font-normal">
+                                                <AlertTriangle className="h-3.5 w-3.5" />
                                                 {cluster.active_bgp_peers}/{cluster.total_bgp_peers}
                                             </Badge>
                                         )}
                                     </div>
                                 </TableCell>
                                 <TableCell>
-                                    <span className="font-mono text-sm">{cluster.policy_count}</span>
+                                    <span className="font-mono text-sm font-medium">{cluster.policy_count}</span>
                                 </TableCell>
                                 <TableCell>
-                                    <div className="space-y-1.5 pr-4">
+                                    <div className="space-y-2 pr-4">
                                         <div className="flex justify-between text-xs font-medium">
-                                            <span className={cluster.health_score > 90 ? "text-green-600" : cluster.health_score > 70 ? "text-yellow-600" : "text-red-600"}>
+                                            <span className={
+                                                cluster.health_score > 90
+                                                    ? "text-green-600 dark:text-green-400"
+                                                    : cluster.health_score > 70
+                                                        ? "text-yellow-600 dark:text-yellow-400"
+                                                        : "text-red-600 dark:text-red-400"
+                                            }>
                                                 {cluster.health_score > 90 ? '极佳' : cluster.health_score > 70 ? '警告' : '危险'}
                                             </span>
-                                            <span>{cluster.health_score}%</span>
+                                            <span className="tabular-nums">{cluster.health_score}%</span>
                                         </div>
                                         <Progress
                                             value={cluster.health_score}
@@ -129,9 +156,15 @@ export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    <Button asChild variant="ghost" size="sm" className="hover:bg-primary/5 hover:text-primary">
+                                    <Button
+                                        asChild
+                                        variant="ghost"
+                                        size="sm"
+                                        className="hover:bg-primary/5 hover:text-primary group transition-all duration-200"
+                                    >
                                         <Link href={`/calico/${cluster.cluster_name}`}>
-                                            详情 <ArrowRight className="ml-2 h-4 w-4" />
+                                            详情
+                                            <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform duration-200" />
                                         </Link>
                                     </Button>
                                 </TableCell>

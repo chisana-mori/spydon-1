@@ -109,26 +109,33 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
   // 获取状态配置
   const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'active':
+      case 'Running':
         return {
           variant: 'secondary' as const,
-          label: '活跃',
+          label: '运行中',
           icon: CheckCircle,
           color: 'text-green-600'
         }
-      case 'inactive':
+      case 'Offline':
         return {
           variant: 'destructive' as const,
           label: '离线',
           icon: XCircle,
           color: 'text-red-600'
         }
-      case 'maintenance':
+      case 'Pending':
         return {
           variant: 'default' as const,
-          label: '维护中',
+          label: '初始化中',
           icon: Activity,
           color: 'text-yellow-600'
+        }
+      case 'Init':
+        return {
+          variant: 'outline' as const,
+          label: '初始化',
+          icon: Server,
+          color: 'text-blue-600'
         }
       default:
         return {
@@ -182,7 +189,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
         <div className="bg-white border-b border-gray-100 px-8 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${cluster.status === 'active'
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${cluster.status === 'Running'
                 ? 'bg-green-100 text-green-600'
                 : 'bg-gray-100 text-gray-600'
                 }`}>
@@ -193,7 +200,7 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
                   <h1 className="text-2xl font-bold text-gray-900">{cluster.name}</h1>
                   <Badge
                     variant={statusConfig.variant}
-                    className={`px-3 py-1 text-sm font-medium ${cluster.status === 'active'
+                    className={`px-3 py-1 text-sm font-medium ${cluster.status === 'Running'
                       ? 'bg-green-100 text-green-800 border-green-200'
                       : 'bg-gray-100 text-gray-800 border-gray-200'
                       }`}
@@ -225,23 +232,6 @@ export default function ClusterDetailPage({ params }: ClusterDetailPageProps) {
             {/* 左侧时间信息 */}
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">时间信息</h3>
-
-              <div className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <Clock className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">最后心跳</p>
-                    <p className="text-sm text-gray-600 font-mono">
-                      {cluster.last_heartbeat
-                        ? format(new Date(cluster.last_heartbeat), 'yyyy-MM-dd HH:mm:ss')
-                        : '无数据'
-                      }
-                    </p>
-                  </div>
-                </div>
-              </div>
 
               <div className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-center space-x-3">

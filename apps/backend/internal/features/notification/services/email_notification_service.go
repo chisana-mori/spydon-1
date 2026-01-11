@@ -206,78 +206,100 @@ func (s *EmailNotificationService) buildTemplateData(clusterName string, nodes [
 	// 生成受影响资源的 HTML 表格
 	data["affected_resources_table"] = s.generateResourcesHTMLTable(affectedResources)
 
-	// 动态获取资源并添加到模板数据（供 {{range .Nodes}}, {{range .Pods}}, {{range .Deployments}} 使用）
+	// 动态获取资源
 	if s.resourceFetcher != nil && clusterName != "" {
-		// Nodes
-		nodeInfos := make([]NodeInfo, 0, len(nodes))
-		k8sNodes, err := s.resourceFetcher.ListNodes(clusterName)
-		if err == nil {
-			nodeSet := make(map[string]bool)
-			for _, n := range nodes {
-				nodeSet[n] = true
-			}
-			for _, n := range k8sNodes {
-				if len(nodes) == 0 || nodeSet[n.Name] {
-					nodeInfo := NodeInfo{Name: n.Name}
-					// 获取节点状态
-					for _, cond := range n.Status.Conditions {
-						if cond.Type == "Ready" {
-							if cond.Status == "True" {
-								nodeInfo.Status = "Ready"
-							} else {
-								nodeInfo.Status = "NotReady"
-							}
-							break
-						}
-					}
-					// 获取节点 IP
-					for _, addr := range n.Status.Addresses {
-						if addr.Type == "InternalIP" {
-							nodeInfo.IP = addr.Address
-							break
-						}
-					}
-					nodeInfos = append(nodeInfos, nodeInfo)
-				}
-			}
-		}
-		data["Nodes"] = nodeInfos
-
-		// Pods (已在 buildAffectedResources 中获取，这里转换格式)
-		podInfos := make([]PodInfo, 0)
-		pods, err := s.resourceFetcher.ListPodsOnNodes(clusterName, nodes)
-		if err == nil {
-			for _, pod := range pods {
-				podInfos = append(podInfos, PodInfo{
-					Name:      pod.Name,
-					Namespace: pod.Namespace,
-					NodeName:  pod.Spec.NodeName,
-					Status:    string(pod.Status.Phase),
-					IP:        pod.Status.PodIP,
-				})
-			}
-		}
-		data["Pods"] = podInfos
-		data["pod_count"] = len(podInfos)
-
-		// Deployments (集群级别，不按节点过滤)
-		deployInfos := make([]DeploymentInfo, 0)
-		deploys, err := s.resourceFetcher.ListDeployments(clusterName, "")
-		if err == nil {
-			for _, d := range deploys {
-				deployInfos = append(deployInfos, DeploymentInfo{
-					Name:      d.Name,
-					Namespace: d.Namespace,
-					Replicas:  *d.Spec.Replicas,
-					Ready:     d.Status.ReadyReplicas,
-				})
-			}
-		}
-		data["Deployments"] = deployInfos
-		data["deployment_count"] = len(deployInfos)
+		s.enrichWithK8sResources(data, clusterName, nodes)
 	}
 
 	return data
+}
+
+func (s *EmailNotificationService) enrichWithK8sResources(data map[string]interface{}, clusterName string, nodes []string) {
+	// Nodes
+	k8sNodes, err := s.resourceFetcher.ListNodes(clusterName)
+	if err == nil {
+		data["Nodes"] = s.mapNodes(k8sNodes, nodes)
+	}
+
+	// Pods
+	pods, err := s.resourceFetcher.ListPodsOnNodes(clusterName, nodes)
+	if err == nil {
+		podInfos := s.mapPods(pods)
+		data["Pods"] = podInfos
+		data["pod_count"] = len(podInfos)
+	}
+
+	// Deployments
+	deploys, err := s.resourceFetcher.ListDeployments(clusterName, "")
+	if err == nil {
+		deployInfos := s.mapDeployments(deploys)
+		data["Deployments"] = deployInfos
+		data["deployment_count"] = len(deployInfos)
+	}
+}
+
+func (s *EmailNotificationService) mapNodes(k8sNodes []corev1.Node, filterNodes []string) []NodeInfo {
+	nodeSet := make(map[string]bool)
+	for _, n := range filterNodes {
+		nodeSet[n] = true
+	}
+
+	var nodeInfos []NodeInfo
+	for _, n := range k8sNodes {
+		if len(filterNodes) > 0 && !nodeSet[n.Name] {
+			continue
+		}
+
+		nodeInfo := NodeInfo{Name: n.Name}
+		
+		// Status
+		for _, cond := range n.Status.Conditions {
+			if cond.Type == "Ready" {
+				nodeInfo.Status = "NotReady"
+				if cond.Status == "True" {
+					nodeInfo.Status = "Ready"
+				}
+				break
+			}
+		}
+		
+		// IP
+		for _, addr := range n.Status.Addresses {
+			if addr.Type == "InternalIP" {
+				nodeInfo.IP = addr.Address
+				break
+			}
+		}
+		nodeInfos = append(nodeInfos, nodeInfo)
+	}
+	return nodeInfos
+}
+
+func (s *EmailNotificationService) mapPods(pods []corev1.Pod) []PodInfo {
+	var podInfos []PodInfo
+	for _, pod := range pods {
+		podInfos = append(podInfos, PodInfo{
+			Name:      pod.Name,
+			Namespace: pod.Namespace,
+			NodeName:  pod.Spec.NodeName,
+			Status:    string(pod.Status.Phase),
+			IP:        pod.Status.PodIP,
+		})
+	}
+	return podInfos
+}
+
+func (s *EmailNotificationService) mapDeployments(deploys []appsv1.Deployment) []DeploymentInfo {
+	var deployInfos []DeploymentInfo
+	for _, d := range deploys {
+		deployInfos = append(deployInfos, DeploymentInfo{
+			Name:      d.Name,
+			Namespace: d.Namespace,
+			Replicas:  *d.Spec.Replicas,
+			Ready:     d.Status.ReadyReplicas,
+		})
+	}
+	return deployInfos
 }
 
 // generateResourcesHTMLTable 生成受影响资源的 HTML 表格
@@ -322,19 +344,13 @@ func (s *EmailNotificationService) generateExcelAttachment(resources []AffectedR
 		return nil, fmt.Errorf("创建工作表失败: %w", err)
 	}
 	f.SetActiveSheet(index)
-
-	// 删除默认的 Sheet1
-	if err := f.DeleteSheet("Sheet1"); err != nil {
-		logger.S().Warnw("删除默认工作表失败", "error", err)
-	}
+	_ = f.DeleteSheet("Sheet1")
 
 	// 设置表头
 	headers := []string{"类型", "名称", "命名空间", "状态", "IP", "应用"}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		if err := f.SetCellValue(sheetName, cell, h); err != nil {
-			return nil, fmt.Errorf("设置表头失败: %w", err)
-		}
+		_ = f.SetCellValue(sheetName, cell, h)
 	}
 
 	// 设置表头样式
@@ -343,30 +359,26 @@ func (s *EmailNotificationService) generateExcelAttachment(resources []AffectedR
 		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
-	if err := f.SetRowStyle(sheetName, 1, 1, headerStyle); err != nil {
-		logger.S().Warnw("设置表头样式失败", "error", err)
-	}
+	_ = f.SetRowStyle(sheetName, 1, 1, headerStyle)
 
 	// 填充数据
 	for i, r := range resources {
 		row := i + 2
-		_ = f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), r.Type)
-		_ = f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), r.Name)
-		_ = f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), r.Namespace)
-		_ = f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), r.Status)
-		_ = f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), r.IP)
-		_ = f.SetCellValue(sheetName, fmt.Sprintf("F%d", row), r.App)
+		vals := []interface{}{r.Type, r.Name, r.Namespace, r.Status, r.IP, r.App}
+		for j, val := range vals {
+			cell, _ := excelize.CoordinatesToCellName(j+1, row)
+			_ = f.SetCellValue(sheetName, cell, val)
+		}
 	}
 
 	// 设置列宽
-	_ = f.SetColWidth(sheetName, "A", "A", 10)
-	_ = f.SetColWidth(sheetName, "B", "B", 30)
-	_ = f.SetColWidth(sheetName, "C", "C", 20)
-	_ = f.SetColWidth(sheetName, "D", "D", 15)
-	_ = f.SetColWidth(sheetName, "E", "E", 15)
-	_ = f.SetColWidth(sheetName, "F", "F", 20)
+	colWidths := map[string]float64{
+		"A": 10, "B": 30, "C": 20, "D": 15, "E": 15, "F": 20,
+	}
+	for col, width := range colWidths {
+		_ = f.SetColWidth(sheetName, col, col, width)
+	}
 
-	// 写入到 buffer
 	var buf bytes.Buffer
 	if err := f.Write(&buf); err != nil {
 		return nil, fmt.Errorf("写入 Excel 失败: %w", err)
@@ -419,10 +431,6 @@ func (s *EmailNotificationService) sendSingleEmail(to, subject, htmlBody string,
 
 	// 验证配置
 	if s.cfg.Email.SMTPHost == "" || s.cfg.Email.From == "" {
-		logger.S().Warnw("SMTP 配置不完整，跳过发送",
-			"smtp_host", s.cfg.Email.SMTPHost,
-			"from", s.cfg.Email.From,
-		)
 		return fmt.Errorf("SMTP 配置不完整")
 	}
 
@@ -453,11 +461,6 @@ func (s *EmailNotificationService) sendSingleEmail(to, subject, htmlBody string,
 
 	// 发送邮件
 	if err := m.Send(msg); err != nil {
-		logger.S().Errorw("发送邮件失败",
-			"to", to,
-			"subject", subject,
-			"error", err,
-		)
 		return fmt.Errorf("发送邮件失败: %w", err)
 	}
 

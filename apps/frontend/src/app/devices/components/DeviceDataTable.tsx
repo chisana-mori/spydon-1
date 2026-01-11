@@ -510,7 +510,7 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                             </p>
                                             {!device.isVirtual && device.cluster && (
                                                 <a
-                                                    href={`/kite/nodes/${device.ci_code}?tab=overview&cluster=${device.cluster}`}
+                                                    href={`/kite/nodes/${device.ci_code?.toLowerCase()}?tab=overview&cluster=${device.cluster}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     onClick={(e) => e.stopPropagation()}

@@ -97,13 +97,3 @@ type QueryTemplate struct {
 func (QueryTemplate) TableName() string {
 	return "query_template"
 }
-
-// K8sCluster 表示 Kubernetes 集群信息 (仅保留 device 查询所需的最小字段)
-type K8sCluster struct {
-	BaseModel
-	Name string `gorm:"column:name;type:varchar(191);not null" json:"name"`
-}
-
-func (K8sCluster) TableName() string {
-	return "k8s_cluster"
-}

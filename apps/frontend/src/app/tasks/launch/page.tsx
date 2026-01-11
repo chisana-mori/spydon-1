@@ -670,7 +670,7 @@ export default function PipelineLaunchWizard() {
             setLoading(true)
             try {
                 const [clustersData, templatesData] = await Promise.all([
-                    RobustaAPI.getClusters(1, 100, 'active'),
+                    RobustaAPI.getClusters(1, 100, 'Running'),
                     RobustaAPI.listPipelineTemplates(1, 100)
                 ])
                 setClusters(clustersData.data)
@@ -999,7 +999,7 @@ export default function PipelineLaunchWizard() {
                                 renderItem={(item) => (
                                     <div className="flex items-center justify-between w-full">
                                         <span className="font-medium">{item.name}</span>
-                                        <Badge variant={item.status === 'active' ? 'default' : 'secondary'} className="text-[10px] h-4 px-1">{item.status}</Badge>
+                                        <Badge variant={item.status === 'Running' ? 'default' : 'secondary'} className="text-[10px] h-4 px-1">{item.status}</Badge>
                                     </div>
                                 )}
                             />

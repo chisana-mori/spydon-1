@@ -185,7 +185,7 @@ func (h *Handler) CreateCluster(c *gin.Context) {
 	}
 
 	if cluster.Status == "" {
-		cluster.Status = "active"
+		cluster.Status = string(models.ClusterStatusInit)
 	}
 
 	if err := h.clusterService.CreateCluster(cluster); err != nil {
