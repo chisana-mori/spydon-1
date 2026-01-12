@@ -14,6 +14,7 @@ type EmailHandler struct {
 	templateService     *services.EmailTemplateService
 	contactService      *services.EmailContactService
 	notificationService *services.EmailNotificationService
+	noticeEmailFe       *services.NoticeEmailFe
 }
 
 // NewEmailHandler 创建 EmailHandler
@@ -21,11 +22,13 @@ func NewEmailHandler(
 	templateService *services.EmailTemplateService,
 	contactService *services.EmailContactService,
 	notificationService *services.EmailNotificationService,
+	noticeEmailFe *services.NoticeEmailFe,
 ) *EmailHandler {
 	return &EmailHandler{
 		templateService:     templateService,
 		contactService:      contactService,
 		notificationService: notificationService,
+		noticeEmailFe:       noticeEmailFe,
 	}
 }
 
@@ -336,18 +339,20 @@ func (h *EmailHandler) DeleteContact(c *gin.Context) {
 // @Tags Notification,Email
 // @Accept json
 // @Produce json
-// @Param request body services.PreviewEmailRequest true "预览请求参数"
-// @Success 200 {object} httpx.Response{data=services.PreviewEmailResponse}
+// @Param request body services.MailGenReq true "预览请求参数"
+// @Success 200 {object} httpx.Response{data=services.SendEmailReq}
 // @Failure 400 {object} httpx.ErrorResponse
 // @Router /email/preview [post]
 func (h *EmailHandler) PreviewEmail(c *gin.Context) {
-	var req services.PreviewEmailRequest
+	var req services.MailGenReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.BadRequest(c, "", "参数错误: "+err.Error())
 		return
 	}
 
-	preview, err := h.notificationService.PreviewEmail(req)
+	// 适配前端参数结构: map[string]any -> map[string]interface{} (gin bind json handles this)
+	// BuildEmail returns SendEmailReq and error
+	preview, err := h.noticeEmailFe.BuildEmail(req)
 	if err != nil {
 		httpx.BadRequest(c, "", err.Error())
 		return

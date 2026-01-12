@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"robusta-web/backend/internal/features/navy/services"
@@ -14,11 +15,20 @@ import (
 type DeviceOpsHandler struct {
 	svc           *services.DeviceOperationsService
 	changeManager *services.ChangeManager
+	validator     *services.DeviceValidator
 }
 
 // NewDeviceOpsHandler 创建 DeviceOpsHandler
-func NewDeviceOpsHandler(svc *services.DeviceOperationsService, changeMgr *services.ChangeManager) *DeviceOpsHandler {
-	return &DeviceOpsHandler{svc: svc, changeManager: changeMgr}
+func NewDeviceOpsHandler(
+	svc *services.DeviceOperationsService,
+	changeMgr *services.ChangeManager,
+	validator *services.DeviceValidator,
+) *DeviceOpsHandler {
+	return &DeviceOpsHandler{
+		svc:           svc,
+		changeManager: changeMgr,
+		validator:     validator,
+	}
 }
 
 // RegisterRoutes 注册设备操作路由
@@ -46,7 +56,8 @@ type DrainNodesRequest struct {
 	Force            bool     `json:"force"`
 	IgnoreDaemonsets bool     `json:"ignore_daemonsets"`
 	DeleteLocalData  bool     `json:"delete_local_data"`
-	Timeout          int      `json:"timeout"` // 秒
+	Timeout          int      `json:"timeout"`   // 秒
+	CHNumber         string   `json:"ch_number"` // Pre-existing Dragonfly change order
 }
 
 // TaintNodesRequest Taint 操作请求
@@ -65,12 +76,38 @@ type LabelNodesRequest struct {
 	Action  string            `json:"action" binding:"required,oneof=add remove"`
 }
 
+// extractUserContext extracts user context from Gin context for Dragonfly
+func (h *DeviceOpsHandler) extractUserContext(c *gin.Context) map[string]any {
+	return map[string]any{
+		"um_checker":  h.extractUser(c, "um_checker"),
+		"um_operator": h.extractUser(c, "username"),
+		"applicant":   h.extractUser(c, "user_id"),
+	}
+}
+
+// extractUser helper to get user field from context
+func (h *DeviceOpsHandler) extractUser(c *gin.Context, key string) string {
+	if val, exists := c.Get(key); exists {
+		if str, ok := val.(string); ok {
+			return str
+		}
+		return fmt.Sprintf("%v", val)
+	}
+	return ""
+}
+
 // helper: handle batch operations that return BatchOperationResult
 func (h *DeviceOpsHandler) handleBatchResultOp(c *gin.Context, opType services.ChangeOperationType, fn func(ctx context.Context, ciCodes []string) (*services.BatchOperationResult, error)) {
 	var req BatchNodeOperationRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
+	}
+
+	// Extract user context for Dragonfly
+	userContext := h.extractUserContext(c)
+	metadata := map[string]any{
+		"user_context": userContext,
 	}
 
 	var result *services.BatchOperationResult
@@ -80,11 +117,12 @@ func (h *DeviceOpsHandler) handleBatchResultOp(c *gin.Context, opType services.C
 		c.Request.Context(),
 		opType,
 		req.CICodes,
-		nil,
+		metadata,
 		func(ticketID string) error {
 			result, opErr = fn(c.Request.Context(), req.CICodes)
 			return opErr
 		},
+		services.WithValidator(h.validator.ValidateDevicesExist),
 	)
 
 	if err != nil {
@@ -107,6 +145,12 @@ func (h *DeviceOpsHandler) handleBatchJobOp(c *gin.Context, opType services.Chan
 		return
 	}
 
+	// Extract user context for Dragonfly
+	userContext := h.extractUserContext(c)
+	metadata := map[string]any{
+		"user_context": userContext,
+	}
+
 	var handle *pipelineservice.JobHandle
 	var opErr error
 
@@ -114,7 +158,7 @@ func (h *DeviceOpsHandler) handleBatchJobOp(c *gin.Context, opType services.Chan
 		c.Request.Context(),
 		opType,
 		req.CICodes,
-		nil,
+		metadata,
 		func(tid string) error {
 			handle, opErr = fn(c.Request.Context(), req.CICodes)
 			return opErr
@@ -197,20 +241,25 @@ func (h *DeviceOpsHandler) DrainNodes(c *gin.Context) {
 	var result *services.BatchOperationResult
 	var opErr error
 
+	// Extract user context for Dragonfly (passed to SimpleDrainService via DeviceOperationsService)
+	userContext := h.extractUserContext(c)
+
 	ticketID, err := h.changeManager.WithChange(
 		c.Request.Context(),
 		services.ChangeOpDrain,
 		req.CICodes,
-		map[string]any{"force": req.Force, "ignore_daemonsets": req.IgnoreDaemonsets},
+		map[string]any{"force": req.Force, "ignore_daemonsets": req.IgnoreDaemonsets, "user_context": userContext},
 		func(tid string) error {
 			result, opErr = h.svc.DrainNodes(c.Request.Context(), req.CICodes, services.DrainOptions{
 				Force:            req.Force,
 				IgnoreDaemonsets: req.IgnoreDaemonsets,
 				DeleteLocalData:  req.DeleteLocalData,
 				Timeout:          req.Timeout,
-			})
+				CHNumber:         req.CHNumber,
+			}, userContext)
 			return opErr
 		},
+		services.WithValidator(h.validator.ValidateDrainPrerequisite),
 	)
 
 	if err != nil {
@@ -255,6 +304,16 @@ func (h *DeviceOpsHandler) TaintNodes(c *gin.Context) {
 		return
 	}
 
+	// Extract user context for Dragonfly
+	userContext := h.extractUserContext(c)
+	metadata := map[string]any{
+		"key":          req.Key,
+		"value":        req.Value,
+		"effect":       req.Effect,
+		"action":       req.Action,
+		"user_context": userContext,
+	}
+
 	var result *services.BatchOperationResult
 	var opErr error
 
@@ -262,7 +321,7 @@ func (h *DeviceOpsHandler) TaintNodes(c *gin.Context) {
 		c.Request.Context(),
 		services.ChangeOpTaint,
 		req.CICodes,
-		map[string]any{"key": req.Key, "value": req.Value, "effect": req.Effect, "action": req.Action},
+		metadata,
 		func(ticketID string) error {
 			result, opErr = h.svc.TaintNodes(c.Request.Context(), req.CICodes, services.TaintOperation{
 				Key:    req.Key,
@@ -272,6 +331,7 @@ func (h *DeviceOpsHandler) TaintNodes(c *gin.Context) {
 			})
 			return opErr
 		},
+		services.WithValidator(h.validator.ValidateDevicesExist),
 	)
 
 	if err != nil {
@@ -304,6 +364,14 @@ func (h *DeviceOpsHandler) LabelNodes(c *gin.Context) {
 		return
 	}
 
+	// Extract user context for Dragonfly
+	userContext := h.extractUserContext(c)
+	metadata := map[string]any{
+		"labels":       req.Labels,
+		"action":       req.Action,
+		"user_context": userContext,
+	}
+
 	var result *services.BatchOperationResult
 	var opErr error
 
@@ -311,7 +379,7 @@ func (h *DeviceOpsHandler) LabelNodes(c *gin.Context) {
 		c.Request.Context(),
 		services.ChangeOpLabel,
 		req.CICodes,
-		map[string]any{"labels": req.Labels, "action": req.Action},
+		metadata,
 		func(ticketID string) error {
 			result, opErr = h.svc.LabelNodes(c.Request.Context(), req.CICodes, services.LabelOperation{
 				Labels: req.Labels,
@@ -319,6 +387,7 @@ func (h *DeviceOpsHandler) LabelNodes(c *gin.Context) {
 			})
 			return opErr
 		},
+		services.WithValidator(h.validator.ValidateDevicesExist),
 	)
 
 	if err != nil {

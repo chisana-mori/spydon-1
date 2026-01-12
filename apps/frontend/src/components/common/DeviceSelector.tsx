@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useMemo, useEffect } from 'react';
 import {
     Table,
@@ -234,6 +236,17 @@ export function DeviceSelector({ devices, selectedCiCodes, onSelectionChange, is
     }, [processedDevices.length]);
 
 
+    const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+    // Auto-resize textarea
+    useEffect(() => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = `${textarea.scrollHeight}px`;
+        }
+    }, [inputText]);
+
     // Handlers
     const handleSearch = () => {
         setKeyword(inputText);
@@ -312,8 +325,9 @@ export function DeviceSelector({ devices, selectedCiCodes, onSelectionChange, is
                 </div>
                 <div className="flex gap-2 items-start">
                     <Textarea
+                        ref={textareaRef}
                         placeholder="输入IP or CI_CODE, 支持多行批量筛选..."
-                        className="flex-1 h-20 min-h-[80px] font-mono text-sm resize-y"
+                        className="flex-1 min-h-[80px] max-h-[300px] font-mono text-sm resize-none overflow-y-auto"
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                     />
@@ -373,13 +387,14 @@ export function DeviceSelector({ devices, selectedCiCodes, onSelectionChange, is
                             <TableHead className="w-[120px]">IP</TableHead>
                             <TableHead>IDC/Room</TableHead>
                             <TableHead>App</TableHead>
+                            <TableHead className="w-[120px]">集群</TableHead>
                             <TableHead className="w-[100px]">状态</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-32 text-center">
+                                <TableCell colSpan={7} className="h-32 text-center">
                                     <div className="flex flex-col items-center justify-center text-muted-foreground">
                                         <Loader2 className="w-6 h-6 animate-spin mb-2" />
                                         <span>加载中...</span>
@@ -388,7 +403,7 @@ export function DeviceSelector({ devices, selectedCiCodes, onSelectionChange, is
                             </TableRow>
                         ) : paginatedDevices.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                                     暂无数据，请确认集群或筛选条件
                                 </TableCell>
                             </TableRow>
@@ -461,6 +476,9 @@ export function DeviceSelector({ devices, selectedCiCodes, onSelectionChange, is
                                                     {device.app_name}
                                                 </Badge>
                                             ) : '-'}
+                                        </TableCell>
+                                        <TableCell className="py-2 text-xs text-muted-foreground">
+                                            {device.cluster || '-'}
                                         </TableCell>
                                         <TableCell className="py-2">
                                             {isMissing ? (

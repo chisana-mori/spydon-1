@@ -11,8 +11,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Copy, Server, HardDrive, Activity, Network } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+
 import { cn } from '@/lib/utils'
 
 interface ClusterNodesSheetProps {
@@ -36,6 +38,7 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster }: ClusterNodesS
             setIsReady(false)
         }
     }, [open])
+
 
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text)
@@ -136,18 +139,14 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster }: ClusterNodesS
                                     </div>
                                 </div>
 
+
+
                                 <div className="flex items-center gap-2">
-                                    <span className={cn(
-                                        "opacity-0 group-hover:opacity-100 text-[10px] font-medium transition-all transform translate-x-2 group-hover:translate-x-0",
-                                        style.color
-                                    )}>
-                                        复制 IP
-                                    </span>
                                     <Button
                                         variant="ghost"
                                         size="icon"
                                         className={cn(
-                                            "h-8 w-8 text-muted-foreground/40 transition-all",
+                                            "h-8 w-8 text-muted-foreground/40 transition-all opacity-0 group-hover:opacity-100",
                                             "hover:bg-background hover:shadow-sm",
                                             style.color.replace('text-', 'hover:text-')
                                         )}
@@ -168,7 +167,7 @@ export function ClusterNodesSheet({ open, onOpenChange, cluster }: ClusterNodesS
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="p-0 w-full sm:max-w-[1200px] sm:w-[1200px] flex flex-col h-full bg-background border-l shadow-2xl overflow-hidden">
+            <SheetContent className="p-0 w-full sm:max-w-[800px] sm:w-[800px] flex flex-col h-full bg-background border-l shadow-2xl overflow-hidden">
                 <div className="relative overflow-hidden border-b bg-muted/20">
                     {/* Background Decorative Elements - Subtle and Adaptive */}
                     {isReady && (

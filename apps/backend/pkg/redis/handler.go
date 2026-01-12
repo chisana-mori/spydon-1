@@ -33,8 +33,40 @@ type Handler struct {
 	ctx    context.Context
 }
 
-// NewHandler creates a new Redis handler
-func NewHandler(redisURL string, poolSize int) (*Handler, error) {
+// NewHandler gets or creates a global Redis handler instance via Factory
+func NewHandler(redisURL, password string, poolSize int) (*Handler, error) {
+	f := GetFactory()
+	// If factory is not set up, set it up now
+	// Note: In a concurrent environment, Setup handles locking, so this is safe technically,
+	// but usually Setup is called once. If multiple goroutines call NewHandler at startup,
+	// Factory.Setup's mutex will handle it (returning error if already setup).
+	// We should check IsSetup first to avoid error spam, but handle the race.
+
+	if !f.IsSetup() {
+		if err := f.Setup(redisURL, password, poolSize); err != nil {
+			// If error is "already setup", we can ignore it and proceed to GetClient
+			// But factory.Setup returns error.
+			// Let's rely on GetClient returning the client if setup.
+			if err.Error() != "redis factory already setup" {
+				return nil, err
+			}
+		}
+	}
+
+	c, err := f.GetClient()
+	if err != nil {
+		return nil, err
+	}
+
+	h, ok := c.(*Handler)
+	if !ok {
+		return nil, errors.New("global redis client is not of type *Handler")
+	}
+	return h, nil
+}
+
+// createClient creates a new Redis handler (internal use only)
+func createClient(redisURL, password string, poolSize int) (*Handler, error) {
 	var client goredis.UniversalClient
 	ctx := context.Background()
 
@@ -42,6 +74,9 @@ func NewHandler(redisURL string, poolSize int) (*Handler, error) {
 		univOpts := parseClusterOptions(redisURL)
 		if poolSize > 0 {
 			univOpts.PoolSize = poolSize
+		}
+		if password != "" {
+			univOpts.Password = password
 		}
 		client = goredis.NewUniversalClient(univOpts)
 	} else {
@@ -51,6 +86,9 @@ func NewHandler(redisURL string, poolSize int) (*Handler, error) {
 		}
 		if poolSize > 0 {
 			opts.PoolSize = poolSize
+		}
+		if password != "" {
+			opts.Password = password
 		}
 		client = goredis.NewClient(opts)
 	}

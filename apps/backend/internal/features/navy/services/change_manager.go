@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"robusta-web/backend/internal/db"
 	sharedservices "robusta-web/backend/internal/features/shared/services"
 )
 
@@ -33,6 +34,25 @@ const (
 	TicketStatusInProgress ChangeTicketStatus = "in_progress"
 	TicketStatusCompleted  ChangeTicketStatus = "completed"
 )
+
+// OperationValidator 定义验证函数签名
+// 验证函数在创建变更单之前执行，用于验证参数的合法性
+type OperationValidator func(ctx context.Context, targets []string, metadata map[string]any) error
+
+// WithChangeOption 定义可选项
+type WithChangeOption func(*changeOptions)
+
+// changeOptions 存储可选配置
+type changeOptions struct {
+	validator OperationValidator
+}
+
+// WithValidator 提供验证函数的可选项
+func WithValidator(v OperationValidator) WithChangeOption {
+	return func(opts *changeOptions) {
+		opts.validator = v
+	}
+}
 
 // ChangeTicket 变更单
 type ChangeTicket struct {
@@ -75,15 +95,17 @@ func (c *NoopITSMClient) CloseTicket(ctx context.Context, itsmTicketID string, s
 
 // ChangeManagerConfig 配置
 type ChangeManagerConfig struct {
-	Enabled bool          // 是否启用变更管理
-	Timeout time.Duration // 超时时间 (默认 30 分钟)
+	Enabled          bool          // 是否启用变更管理
+	DragonflyEnabled bool          // 是否启用Dragonfly集成
+	Timeout          time.Duration // 超时时间 (默认 30 分钟)
 }
 
 // DefaultChangeManagerConfig 默认配置
 func DefaultChangeManagerConfig() ChangeManagerConfig {
 	return ChangeManagerConfig{
-		Enabled: false,
-		Timeout: 30 * time.Minute,
+		Enabled:          false,
+		DragonflyEnabled: false,
+		Timeout:          30 * time.Minute,
 	}
 }
 
@@ -93,6 +115,7 @@ type ChangeManager struct {
 	redis      sharedservices.RedisClient
 	itsmClient ITSMClient
 	logger     *zap.Logger
+	database   *db.Database
 }
 
 // NewChangeManager 创建变更管理器
@@ -101,15 +124,32 @@ func NewChangeManager(
 	redis sharedservices.RedisClient,
 	itsmClient ITSMClient,
 	logger *zap.Logger,
+	database *db.Database,
 ) *ChangeManager {
-	if itsmClient == nil {
+	// 如果提供了外部ITSMClient，使用它
+	if itsmClient != nil {
+		return &ChangeManager{
+			config:     config,
+			redis:      redis,
+			itsmClient: itsmClient,
+			logger:     logger,
+			database:   database,
+		}
+	}
+
+	// 根据配置决定使用哪个ITSMClient
+	if config.DragonflyEnabled {
+		itsmClient = NewDragonflyITSMClient(logger, true, database)
+	} else {
 		itsmClient = &NoopITSMClient{}
 	}
+
 	return &ChangeManager{
 		config:     config,
 		redis:      redis,
 		itsmClient: itsmClient,
 		logger:     logger,
+		database:   database,
 	}
 }
 
@@ -127,10 +167,37 @@ func (m *ChangeManager) WithChange(
 	targets []string,
 	metadata map[string]any,
 	operation func(ticketID string) error,
+	opts ...WithChangeOption,
 ) (string, error) {
 	if !m.config.Enabled {
 		// 禁用时直接执行操作
 		return "", operation("")
+	}
+
+	// 【NEW】For drain operations, skip ChangeManager ITSM integration
+	// since Dragonfly handles change orders directly in SimpleDrainService
+	if opType == ChangeOpDrain {
+		m.logger.Info("Drain operation: skipping ChangeManager ITSM, using Dragonfly integration",
+			zap.String("op", string(opType)),
+			zap.Strings("targets", targets))
+		return "", operation("")
+	}
+
+	// 解析可选项
+	options := &changeOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// 【关键改动】在创建变更单前执行验证
+	if options.validator != nil {
+		if err := options.validator(ctx, targets, metadata); err != nil {
+			m.logger.Warn("变更验证失败",
+				zap.String("op", string(opType)),
+				zap.Strings("targets", targets),
+				zap.Error(err))
+			return "", fmt.Errorf("变更验证失败: %w", err)
+		}
 	}
 
 	// 1. 创建变更单

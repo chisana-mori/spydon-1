@@ -385,12 +385,6 @@ func extractCIDRsFromNodes(nodes []corev1.Node) []string {
 func buildEmailAddresses(p MailGenReq, addressObj models.EmailContact) ([]string, errs.Error) {
 	addresses := strings.Split(addressObj.Address, ",")
 
-	if v, ok := p.Additional["isPoweroff"]; ok {
-		if isOff, ok := v.(bool); ok && isOff {
-			addresses = append(addresses, "ml_pab3765@pingan.com.cn")
-		}
-	}
-
 	officerEmails, err := fetchOfficerEmails()
 	if err != nil {
 		return nil, err

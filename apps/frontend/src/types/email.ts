@@ -1,15 +1,22 @@
 // Email Notification Types
 
+export interface ParamOption {
+    label: string
+    value: string
+}
+
 export interface ParamDefinition {
     name: string
     title: string
-    type: 'input' | 'select' | 'datetime' | 'resource'
-    value?: string
+    type: 'string' | 'select' | 'date' | 'datetime' | 'component'
+    value?: string           // 默认值（用于所有类型）
     required?: boolean
-    dictCode?: string        // type=select 时关联的字典编码
-    resourceType?: string    // type=resource 时的资源类型 (nodes/pods/deployments)
+    options?: ParamOption[]  // type=select 时的手动选项
+    isValueSeparated?: boolean // 是否键值分离 (全局控制选项)
+    resourceType?: string    // type=component 时的资源类型 (nodes/pods/deployments)
     placeholder?: string
     _id?: string
+    defaultTime?: string     // @deprecated: 使用 value 代替
 }
 
 export interface TemplateConfig {
@@ -62,18 +69,39 @@ export interface UpdateEmailContactRequest {
     address?: string
 }
 
+export interface MailGenReq {
+    emailTemplateId: number
+    addressId: number
+    additional: Record<string, any>
+}
+
 export interface PreviewEmailRequest {
+    // Legacy preview params, kept for backward compatibility if needed,
+    // but the new flow uses MailGenReq structure for preview/build
     template_id: number
     cluster_name?: string
     nodes?: string[]
     params?: Record<string, unknown>
 }
 
-export interface PreviewEmailResponse {
+// Response from BuildEmail (which returns SendEmailReq structure)
+export interface BuildEmailResponse {
+    templateId: number
     subject: string
-    html_body: string
-    affected_resources: AffectedResource[]
-    attachment_name?: string  // Excel 附件文件名
+    content: string
+    attachFiles: AttachFile[]
+    addresses: string[]
+    appid: string[]
+}
+
+export interface AttachFile {
+    Name: string
+    Content: string // base64
+}
+
+export interface PreviewEmailResponse extends BuildEmailResponse {
+    // Mapping backend response to frontend expectations if we need adapter layer
+    // But currently backend BuildEmail returns SendEmailReq struct directly
 }
 
 export interface AffectedResource {
@@ -91,4 +119,6 @@ export interface SendEmailRequest {
     nodes?: string[]
     params?: Record<string, unknown>
     recipients: string[]
+    subject?: string
+    body?: string
 }

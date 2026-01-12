@@ -89,6 +89,7 @@ type EmailConfig struct {
 type RedisConfig struct {
 	URL      string `mapstructure:"url" yaml:"url"`
 	PoolSize int    `mapstructure:"pool_size" yaml:"pool_size"`
+	Password string `mapstructure:"password" yaml:"password"`
 	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
 }
 
@@ -235,7 +236,7 @@ func initRedisService(cfg RedisConfig, result *InitResult) {
 	}
 
 	factory := redis.GetFactory()
-	if err := factory.Setup(cfg.URL, cfg.PoolSize); err != nil {
+	if err := factory.Setup(cfg.URL, cfg.Password, cfg.PoolSize); err != nil {
 		logger.L().Warn("Redis 初始化失败", zap.Error(err))
 		return
 	}

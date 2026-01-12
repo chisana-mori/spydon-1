@@ -2,7 +2,10 @@ package redis
 
 import (
 	"fmt"
+	"robusta-web/backend/pkg/logger"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // Factory 是 Redis 客户端工厂，负责管理全局 Redis 客户端实例
@@ -31,7 +34,7 @@ func GetFactory() *Factory {
 // Setup 初始化 Redis 客户端（应在应用启动时调用一次）
 // redisURL: Redis 连接 URL，支持单机或集群模式
 // poolSize: 连接池大小，0 表示使用默认值
-func (f *Factory) Setup(redisURL string, poolSize int) error {
+func (f *Factory) Setup(redisURL, password string, poolSize int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -39,7 +42,8 @@ func (f *Factory) Setup(redisURL string, poolSize int) error {
 		return fmt.Errorf("redis factory already setup")
 	}
 
-	handler, err := NewHandler(redisURL, poolSize)
+	handler, err := createClient(redisURL, password, poolSize)
+	logger.L().Info("redis地址为", zap.String("redis", redisURL))
 	if err != nil {
 		return fmt.Errorf("failed to create redis handler: %w", err)
 	}

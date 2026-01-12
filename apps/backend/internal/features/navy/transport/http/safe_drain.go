@@ -17,11 +17,20 @@ import (
 type SafeDrainHandler struct {
 	svc           *services.SimpleDrainService
 	changeManager *services.ChangeManager
+	validator     *services.DeviceValidator
 }
 
 // NewSafeDrainHandler 创建 SafeDrainHandler
-func NewSafeDrainHandler(svc *services.SimpleDrainService, changeMgr *services.ChangeManager) *SafeDrainHandler {
-	return &SafeDrainHandler{svc: svc, changeManager: changeMgr}
+func NewSafeDrainHandler(
+	svc *services.SimpleDrainService,
+	changeMgr *services.ChangeManager,
+	validator *services.DeviceValidator,
+) *SafeDrainHandler {
+	return &SafeDrainHandler{
+		svc:           svc,
+		changeManager: changeMgr,
+		validator:     validator,
+	}
 }
 
 // RegisterRoutes 注册安全驱逐路由
@@ -67,6 +76,7 @@ func (h *SafeDrainHandler) StartDrain(c *gin.Context) {
 			response, opErr = h.svc.StartDrain(c.Request.Context(), &req)
 			return opErr
 		},
+		services.WithValidator(h.validator.ValidateDrainPrerequisite),
 	)
 
 	if err != nil {

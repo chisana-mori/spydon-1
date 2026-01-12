@@ -72,6 +72,7 @@ linters:
     - whitespace
   disable:
     - contextcheck
+    - dupl  # Disabled due to necessary duplication in v1/v3 API adapter code
     - gosec
     - gochecknoinits
     - gocognit
@@ -191,6 +192,7 @@ issues:
   exclude-dirs:
     - vendor
     - bin
+    - internal/pkg/calico/v1  # Generated v1 API adapter code (has necessary duplication)
   exclude-files:
     - ".*\\.pb\\.go$"
     - ".*_generated\\.go$"

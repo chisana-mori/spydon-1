@@ -9,6 +9,12 @@ type StartDrainRequest struct {
 	NodeName string `json:"nodeName" binding:"required" example:"worker-node-01"`
 	DryRun   bool   `json:"dryRun" example:"false"`
 	Timeout  int    `json:"timeout" example:"300"`
+	// Dragonfly change order integration
+	CHNumber string `json:"chNumber,omitempty"` // Change order number
+	// User context for Dragonfly
+	UMChecker  string `json:"umChecker,omitempty"`
+	UMOperator string `json:"umOperator,omitempty"`
+	Applicant  string `json:"applicant,omitempty"`
 }
 
 // DrainStatusResponse 表示 drain 的状态响应
@@ -186,6 +192,12 @@ type DrainState struct {
 	Progress    int          `json:"progress"`
 	Error       string       `json:"error,omitempty"`
 	Message     string       `json:"message"`
+
+	// Dragonfly change order fields
+	CHNumber      string    `json:"chNumber,omitempty"`      // Dragonfly change number (or local fallback)
+	CHStartTime   time.Time `json:"chStartTime,omitempty"`   // When change order was created
+	CHExecType    string    `json:"chExecType,omitempty"`    // Exec type to use on close (1/2/4/6)
+	IsLocalTicket bool      `json:"isLocalTicket,omitempty"` // True if using local fallback ticket
 }
 
 // DeploymentGroup 表示 Deployment 分组

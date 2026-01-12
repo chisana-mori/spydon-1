@@ -6,11 +6,11 @@ import {
     Loader2, Plus, Trash2, Mail, FileText, Code, Settings, ChevronRight,
     Server, Package, History, Layers, Rocket, Network,
     ArrowDownCircle, ArrowUpCircle, ArrowRightCircle, CheckCircle2,
-    LayoutDashboard, List, Calendar, Box, AlertCircle
+    LayoutDashboard, List, Calendar, Box, AlertCircle, Link, Unlink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RobustaAPI } from '@/lib/api';
-import { CreateEmailTemplateRequest, UpdateEmailTemplateRequest, ParamDefinition, TemplateConfig } from '@/types/email';
+import { CreateEmailTemplateRequest, UpdateEmailTemplateRequest, ParamDefinition, TemplateConfig, ParamOption } from '@/types/email';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -47,7 +47,7 @@ interface EmailTemplateDrawerProps {
 const defaultParam: ParamDefinition = {
     name: '',
     title: '',
-    type: 'input',
+    type: 'string',
     required: false,
 };
 
@@ -120,6 +120,9 @@ export function EmailTemplateDrawer({ open, onClose, templateId }: EmailTemplate
                     ...p,
                     name: p.name || p.key,   // Support both for transition
                     title: p.title || p.label,
+                    defaultTime: p.defaultTime || p.default_time,
+                    options: p.options || [],
+                    isValueSeparated: p.isValueSeparated || false,
                     _id: Math.random().toString(36).substr(2, 9)
                 }))
             };
@@ -271,6 +274,17 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
         setFormData(prev => {
             const newDefs = [...(prev.params.definitions || [])];
             newDefs.splice(index, 1);
+            return {
+                ...prev,
+                params: { ...prev.params, definitions: newDefs },
+            };
+        });
+    };
+
+    const insertParam = (index: number) => {
+        setFormData(prev => {
+            const newDefs = [...(prev.params.definitions || [])];
+            newDefs.splice(index + 1, 0, { ...defaultParam, _id: Math.random().toString(36).substr(2, 9) });
             return {
                 ...prev,
                 params: { ...prev.params, definitions: newDefs },
@@ -537,7 +551,7 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                         </Button>
                                     </div>
 
-                                    <div className="space-y-4 min-h-[200px]">
+                                    <div className="space-y-3 min-h-[200px]">
                                         <AnimatePresence mode="popLayout">
                                             {formData.params?.definitions && formData.params.definitions.length > 0 ? (
                                                 formData.params.definitions.map((param, index) => (
@@ -548,68 +562,68 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                                         animate={{ opacity: 1, y: 0 }}
                                                         exit={{ opacity: 0, scale: 0.95 }}
                                                         transition={{ duration: 0.2 }}
-                                                        className="group relative grid grid-cols-[auto,1fr] gap-4 p-5 pr-12 rounded-2xl border border-border/60 bg-gradient-to-br from-card to-muted/20 hover:to-muted/40 transition-all shadow-sm hover:shadow-md"
+                                                        className="group relative grid grid-cols-[auto,1fr] gap-3 p-4 pr-10 rounded-xl border border-border/60 bg-gradient-to-br from-card to-muted/20 hover:to-muted/40 transition-all shadow-sm hover:shadow-md"
                                                     >
-                                                        <div className="pt-2 flex flex-col items-center gap-3">
-                                                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold text-xs ring-2 ring-background shadow-sm">
+                                                        <div className="pt-1.5 flex flex-col items-center gap-2">
+                                                            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary font-bold text-xs ring-2 ring-background shadow-sm">
                                                                 {index + 1}
                                                             </div>
                                                             <div className="w-px h-full bg-border/50 group-last:hidden" />
                                                         </div>
 
-                                                        <div className="space-y-4">
+                                                        <div className="space-y-3">
                                                             {/* Delete Button - Positioned Absolute */}
-                                                            <div className="absolute top-4 right-4">
+                                                            <div className="absolute top-3 right-3">
                                                                 <Button
                                                                     type="button"
                                                                     variant="ghost"
                                                                     size="icon"
-                                                                    className="h-8 w-8 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10"
+                                                                    className="h-7 w-7 text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10"
                                                                     onClick={() => removeParam(index)}
                                                                 >
-                                                                    <Trash2 className="w-4 h-4" />
+                                                                    <Trash2 className="w-3.5 h-3.5" />
                                                                 </Button>
                                                             </div>
 
                                                             {/* Row 1: Name + Title */}
-                                                            <div className="grid grid-cols-2 gap-4">
-                                                                <div className="space-y-1.5">
-                                                                    <Label className="text-xs text-muted-foreground font-medium">
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-[11px] text-muted-foreground font-medium">
                                                                         参数名 <span className="text-destructive">*</span>
                                                                     </Label>
                                                                     <Input
                                                                         placeholder="例如: cluster_name"
                                                                         value={param.name}
                                                                         onChange={(e) => updateParam(index, 'name', e.target.value)}
-                                                                        className="font-mono text-sm h-9 border-border/60 focus:border-primary/50 bg-background/50"
+                                                                        className="font-mono text-sm h-8 border-border/60 focus:border-primary/50 bg-background/50"
                                                                     />
                                                                 </div>
-                                                                <div className="space-y-1.5">
-                                                                    <Label className="text-xs text-muted-foreground font-medium">
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-[11px] text-muted-foreground font-medium">
                                                                         显示标题 <span className="text-destructive">*</span>
                                                                     </Label>
                                                                     <Input
                                                                         placeholder="例如: 集群名称"
                                                                         value={param.title}
                                                                         onChange={(e) => updateParam(index, 'title', e.target.value)}
-                                                                        className="h-9 border-border/60 focus:border-primary/50 bg-background/50"
+                                                                        className="h-8 border-border/60 focus:border-primary/50 bg-background/50"
                                                                     />
                                                                 </div>
                                                             </div>
 
                                                             {/* Row 2: Type + Required */}
-                                                            <div className="grid grid-cols-2 gap-4">
-                                                                <div className="space-y-1.5">
-                                                                    <Label className="text-xs text-muted-foreground font-medium">参数类型</Label>
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-[11px] text-muted-foreground font-medium">参数类型</Label>
                                                                     <Select
                                                                         value={param.type}
                                                                         onValueChange={(val) => updateParam(index, 'type', val)}
                                                                     >
-                                                                        <SelectTrigger className="h-9 border-border/60 bg-background/50">
+                                                                        <SelectTrigger className="h-8 border-border/60 bg-background/50">
                                                                             <SelectValue placeholder="选择类型" />
                                                                         </SelectTrigger>
                                                                         <SelectContent>
-                                                                            <SelectItem value="input">
+                                                                            <SelectItem value="string">
                                                                                 <div className="flex items-center gap-2">
                                                                                     <FileText className="w-3.5 h-3.5 text-muted-foreground" />
                                                                                     <span>文本输入</span>
@@ -621,13 +635,19 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                                                                     <span>下拉选择</span>
                                                                                 </div>
                                                                             </SelectItem>
+                                                                            <SelectItem value="date">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                                                                                    <span>日期 (年月日)</span>
+                                                                                </div>
+                                                                            </SelectItem>
                                                                             <SelectItem value="datetime">
                                                                                 <div className="flex items-center gap-2">
                                                                                     <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                                                                                    <span>日期时间</span>
+                                                                                    <span>日期时间 (精确到秒)</span>
                                                                                 </div>
                                                                             </SelectItem>
-                                                                            <SelectItem value="resource">
+                                                                            <SelectItem value="component">
                                                                                 <div className="flex items-center gap-2">
                                                                                     <Server className="w-3.5 h-3.5 text-muted-foreground" />
                                                                                     <span>节点选择</span>
@@ -637,9 +657,9 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                                                     </Select>
                                                                 </div>
 
-                                                                <div className="space-y-1.5">
-                                                                    <Label className="text-xs text-muted-foreground font-medium">必填项</Label>
-                                                                    <div className="flex items-center justify-between px-3 h-9 rounded-md border border-border/60 bg-background/50">
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-[11px] text-muted-foreground font-medium">必填项</Label>
+                                                                    <div className="flex items-center justify-between px-3 h-8 rounded-md border border-border/60 bg-background/50">
                                                                         <span className="text-sm font-medium">是否必填</span>
                                                                         <Switch
                                                                             checked={param.required}
@@ -652,6 +672,28 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
 
                                                             {/* Dynamic Conditional Fields with Animation */}
                                                             <AnimatePresence>
+                                                                {param.type === 'string' && (
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0, height: 0 }}
+                                                                        animate={{ opacity: 1, height: 'auto' }}
+                                                                        exit={{ opacity: 0, height: 0 }}
+                                                                        className="overflow-hidden"
+                                                                    >
+                                                                        <div className="bg-muted/30 p-3 rounded-lg border border-border/40 space-y-2">
+                                                                            <Label className="text-[11px] font-semibold flex items-center gap-1.5 text-primary">
+                                                                                <FileText className="w-3 h-3" />
+                                                                                默认值 (可选)
+                                                                            </Label>
+                                                                            <Input
+                                                                                placeholder="例如: 默认文本"
+                                                                                value={param.value || ''}
+                                                                                onChange={(e) => updateParam(index, 'value', e.target.value)}
+                                                                                className="font-mono text-sm h-8 bg-background border-input focus:border-primary transition-all"
+                                                                            />
+                                                                            <p className="text-[10px] text-muted-foreground">发送时将使用此默认文本值。</p>
+                                                                        </div>
+                                                                    </motion.div>
+                                                                )}
                                                                 {param.type === 'select' && (
                                                                     <motion.div
                                                                         initial={{ opacity: 0, height: 0 }}
@@ -659,22 +701,58 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                                                         exit={{ opacity: 0, height: 0 }}
                                                                         className="overflow-hidden"
                                                                     >
-                                                                        <div className="bg-muted/30 p-4 rounded-lg border border-border/40 space-y-2">
-                                                                            <Label className="text-xs font-semibold flex items-center gap-1.5 text-primary">
-                                                                                <List className="w-3.5 h-3.5" />
-                                                                                关联字典编码
+                                                                        <ParamOptionsEditor
+                                                                            options={param.options}
+                                                                            isValueSeparated={param.isValueSeparated}
+                                                                            onChange={(opts) => updateParam(index, 'options', opts)}
+                                                                            onModeChange={(isSep) => updateParam(index, 'isValueSeparated', isSep)}
+                                                                        />
+                                                                    </motion.div>
+                                                                )}
+                                                                {(param.type === 'date' || param.type === 'datetime') && (
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0, height: 0 }}
+                                                                        animate={{ opacity: 1, height: 'auto' }}
+                                                                        exit={{ opacity: 0, height: 0 }}
+                                                                        className="overflow-hidden"
+                                                                    >
+                                                                        <div className="bg-muted/30 p-3 rounded-lg border border-border/40 space-y-2">
+                                                                            <Label className="text-[11px] font-semibold flex items-center gap-1.5 text-primary">
+                                                                                <Calendar className="w-3 h-3" />
+                                                                                默认值 (可选)
                                                                             </Label>
                                                                             <Input
-                                                                                placeholder="例如：priority_levels"
-                                                                                value={param.dictCode || ''}
-                                                                                onChange={(e) => updateParam(index, 'dictCode', e.target.value)}
-                                                                                className="font-mono text-sm h-9 bg-background"
+                                                                                placeholder={param.type === 'date' ? '例如: 2024-01-15' : '例如: 2024-01-15 14:30:00'}
+                                                                                value={param.value || ''}
+                                                                                onChange={(e) => updateParam(index, 'value', e.target.value)}
+                                                                                className="font-mono text-sm h-8 bg-background border-input focus:border-primary transition-all"
                                                                             />
-                                                                            <p className="text-[10px] text-muted-foreground">请输入系统字典中定义的编码，用于填充下拉选项。</p>
+                                                                            <div className="flex items-start gap-2 text-[10px] text-muted-foreground bg-background/50 p-2 rounded border border-border/20">
+                                                                                <AlertCircle className="w-3 h-3 text-primary/70 mt-0.5 shrink-0" />
+                                                                                <p>
+                                                                                    {param.type === 'date'
+                                                                                        ? '发送时将使用此默认日期（格式：YYYY-MM-DD）。'
+                                                                                        : '发送时将使用此默认日期时间（格式：YYYY-MM-DD HH:mm:ss）。'}
+                                                                                </p>
+                                                                            </div>
                                                                         </div>
                                                                     </motion.div>
                                                                 )}
                                                             </AnimatePresence>
+
+                                                            {/* Insert Action */}
+                                                            <div className="flex justify-center pt-2">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => insertParam(index)}
+                                                                    className="w-full h-8 text-xs text-muted-foreground/70 hover:text-primary hover:bg-primary/5 dashed-border border-t border-border/30 rounded-none rounded-b-lg"
+                                                                >
+                                                                    <Plus className="w-3.5 h-3.5 mr-1" />
+                                                                    在此位置后添加参数
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </motion.div>
                                                 ))
@@ -740,6 +818,128 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                     )}
                 </SheetFooter>
             </Tabs>
-        </form>
+        </form >
+    );
+}
+
+// ----------------------------------------------------------------------
+// Helper Components
+// ----------------------------------------------------------------------
+
+function ParamOptionsEditor({
+    options = [],
+    isValueSeparated = false,
+    onChange,
+    onModeChange
+}: {
+    options?: ParamOption[],
+    isValueSeparated?: boolean,
+    onChange: (opts: ParamOption[]) => void,
+    onModeChange: (isSeparated: boolean) => void
+}) {
+    const handleAdd = () => {
+        onChange([...options, { label: '新选项', value: 'new_option' }]);
+    };
+
+    const handleRemove = (idx: number) => {
+        const newOpts = [...options];
+        newOpts.splice(idx, 1);
+        onChange(newOpts);
+    };
+
+    const handleUpdate = (idx: number, field: keyof ParamOption, val: string) => {
+        const newOpts = [...options];
+        const newOpt = { ...newOpts[idx], [field]: val };
+
+        // If NOT separated (i.e. Synced) and we are updating Label, sync Value
+        if (!isValueSeparated && field === 'label') {
+            newOpt.value = val;
+        }
+
+        newOpts[idx] = newOpt;
+        onChange(newOpts);
+    };
+
+    return (
+        <div className="bg-muted/30 p-3 rounded-lg border border-border/40 space-y-3">
+            <div className="flex items-center justify-between">
+                <Label className="text-[11px] font-semibold flex items-center gap-1.5 text-primary">
+                    <List className="w-3 h-3" />
+                    选项列表
+                </Label>
+                <div className="flex items-center gap-2">
+                    <TooltipProvider delayDuration={0}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className={cn("h-6 w-6", !isValueSeparated ? "text-primary bg-primary/10" : "text-muted-foreground")}
+                                    onClick={() => onModeChange(!isValueSeparated)}
+                                >
+                                    {!isValueSeparated ? <Link className="w-3.5 h-3.5" /> : <Unlink className="w-3.5 h-3.5" />}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="text-xs">
+                                {!isValueSeparated ? '键值同步：修改标签自动更新值' : '键值分离：独立编辑标签与值'}
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleAdd}
+                        className="h-6 text-[10px] px-2"
+                    >
+                        <Plus className="w-3 h-3 mr-1" />
+                        添加
+                    </Button>
+                </div>
+            </div>
+
+            <div className="space-y-2 max-h-[200px] overflow-y-auto p-1">
+                {options.length === 0 && (
+                    <div className="text-center py-4 text-xs text-muted-foreground bg-background/50 rounded border border-dashed">
+                        暂无选项，请添加
+                    </div>
+                )}
+                {options.map((opt, idx) => (
+                    <div key={idx} className="flex gap-2 items-start group/row">
+                        <div className="flex-1 space-y-1">
+                            <Input
+                                value={opt.label}
+                                onChange={(e) => handleUpdate(idx, 'label', e.target.value)}
+                                placeholder="显示文字 (Label)"
+                                className="h-8 text-xs bg-background"
+                            />
+                        </div>
+
+                        {(isValueSeparated) && (
+                            <div className="flex-1 space-y-1 animate-in fade-in slide-in-from-left-2 duration-200">
+                                <Input
+                                    value={opt.value}
+                                    onChange={(e) => handleUpdate(idx, 'value', e.target.value)}
+                                    placeholder="实际值"
+                                    className="h-8 text-xs bg-background font-mono text-muted-foreground"
+                                />
+                            </div>
+                        )}
+
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemove(idx)}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0 opacity-50 group-hover/row:opacity-100 transition-opacity"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                    </div>
+                ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">定义下拉菜单的候选项 (Label/Value)。</p>
+        </div>
     );
 }

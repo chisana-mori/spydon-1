@@ -37,14 +37,15 @@ func New(
 	k8sNodeManageService *services.K8sNodeManageService,
 	changeManager *services.ChangeManager,
 	f5Service *services.F5InfoService,
+	deviceValidator *services.DeviceValidator,
 ) *Handler {
 	return &Handler{
 		cfg:    cfg,
 		navyDB: navyDB,
 
 		device: NewDeviceHandler(navyDeviceService),
-		ops:    NewDeviceOpsHandler(deviceOpsService, changeManager),
-		drain:  NewSafeDrainHandler(safeDrainService, changeManager),
+		ops:    NewDeviceOpsHandler(deviceOpsService, changeManager, deviceValidator),
+		drain:  NewSafeDrainHandler(safeDrainService, changeManager, deviceValidator),
 		k8s:    NewK8sNodeHandler(k8sNodeManageService),
 		f5:     NewF5Handler(f5Service),
 	}

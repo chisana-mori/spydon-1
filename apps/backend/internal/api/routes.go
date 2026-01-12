@@ -43,7 +43,9 @@ import (
 	"robusta-web/backend/internal/pkg/calico"
 	"robusta-web/backend/internal/pkg/nodesync"
 	"robusta-web/backend/pkg/logger"
+	"robusta-web/backend/pkg/mailer"
 	"robusta-web/backend/pkg/redis"
+	"robusta-web/backend/pkg/support"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -146,13 +148,14 @@ type coreServices struct {
 
 // navyServices holds Navy-specific device management services
 type navyServices struct {
-	connMgr       *sharedservices.ClusterConnectionManager
-	safeDrainSvc  *navyservice.SimpleDrainService
-	deviceSvc     *navyservice.NavyDeviceService
-	deviceOpsSvc  *navyservice.DeviceOperationsService
-	changeMgr     *navyservice.ChangeManager
-	k8sNodeMgrSvc *navyservice.K8sNodeManageService
-	f5Svc         *navyservice.F5InfoService
+	connMgr         *sharedservices.ClusterConnectionManager
+	safeDrainSvc    *navyservice.SimpleDrainService
+	deviceSvc       *navyservice.NavyDeviceService
+	deviceOpsSvc    *navyservice.DeviceOperationsService
+	deviceValidator *navyservice.DeviceValidator
+	changeMgr       *navyservice.ChangeManager
+	k8sNodeMgrSvc   *navyservice.K8sNodeManageService
+	f5Svc           *navyservice.F5InfoService
 }
 
 // externalDependencies holds external system dependencies
@@ -216,7 +219,7 @@ func buildNavyServices(
 	awxRuntime *pipelineservice.AWXRuntime,
 ) (*navyServices, *redis.Handler) {
 	// Initialize Redis (optional)
-	redisHandler, _ := redis.NewHandler(cfg.Redis.URL, cfg.Redis.PoolSize)
+	redisHandler, _ := redis.NewHandler(cfg.ExternalDependencies.Redis.URL, cfg.ExternalDependencies.Redis.Password, cfg.ExternalDependencies.Redis.PoolSize)
 	if redisHandler == nil {
 		logger.L().Warn("Redis 初始化失败，部分功能受限")
 	}
@@ -227,29 +230,34 @@ func buildNavyServices(
 		logger.L().Warn("ClusterConnectionManager 初始化失败", zap.Error(err))
 	}
 
-	safeDrainSvc := navyservice.NewSimpleDrainService(connMgr, redisHandler)
+	safeDrainSvc := navyservice.NewSimpleDrainService(connMgr, redisHandler, logger.L(), cfg.ChangeManagement.DragonflyEnabled)
 	deviceSvc := navyservice.NewNavyDeviceService(database, nodesyncManager)
 	deviceOpsSvc := navyservice.NewDeviceOperationsService(
 		database, database, nodesyncManager, awxRuntime, cfg, logger.L(), safeDrainSvc,
 	)
 
+	// 创建验证器
+	deviceValidator := navyservice.NewDeviceValidator(database, nodesyncManager)
+
 	changeMgrCfg := navyservice.ChangeManagerConfig{
-		Enabled: cfg.ChangeManagement.Enabled,
-		Timeout: time.Duration(cfg.ChangeManagement.TimeoutMinutes) * time.Minute,
+		Enabled:          cfg.ChangeManagement.Enabled,
+		DragonflyEnabled: cfg.ChangeManagement.DragonflyEnabled,
+		Timeout:          time.Duration(cfg.ChangeManagement.TimeoutMinutes) * time.Minute,
 	}
-	changeMgr := navyservice.NewChangeManager(changeMgrCfg, redisHandler, nil, logger.L())
+	changeMgr := navyservice.NewChangeManager(changeMgrCfg, redisHandler, nil, logger.L(), database)
 
 	k8sNodeMgrSvc := navyservice.NewK8sNodeManageService(database, nodesyncManager)
 	f5Svc := navyservice.NewF5InfoService(database.DB)
 
 	return &navyServices{
-		connMgr:       connMgr,
-		safeDrainSvc:  safeDrainSvc,
-		deviceSvc:     deviceSvc,
-		deviceOpsSvc:  deviceOpsSvc,
-		changeMgr:     changeMgr,
-		k8sNodeMgrSvc: k8sNodeMgrSvc,
-		f5Svc:         f5Svc,
+		connMgr:         connMgr,
+		safeDrainSvc:    safeDrainSvc,
+		deviceSvc:       deviceSvc,
+		deviceOpsSvc:    deviceOpsSvc,
+		deviceValidator: deviceValidator,
+		changeMgr:       changeMgr,
+		k8sNodeMgrSvc:   k8sNodeMgrSvc,
+		f5Svc:           f5Svc,
 	}, redisHandler
 }
 
@@ -352,6 +360,7 @@ func registerRoutes(
 	navyHandler := navyhttp.New(
 		cfg, database, navy.deviceSvc, navy.deviceOpsSvc,
 		navy.safeDrainSvc, navy.k8sNodeMgrSvc, navy.changeMgr, navy.f5Svc,
+		navy.deviceValidator,
 	)
 	navyHandler.RegisterRoutes(v1)
 
@@ -407,7 +416,15 @@ func buildNotificationHandler(
 	notificationSvc := notificationservice.NewEmailNotificationService(database, cfg, emailSvc, templateSvc)
 	notificationSvc.SetResourceFetcher(nodesyncManager)
 
-	return notificationhttp.NewEmailHandler(templateSvc, contactSvc, notificationSvc)
+	// Use global Mailer from support package
+	var m *mailer.Mailer
+	if initResult := support.GetInitResult(); initResult != nil {
+		m = initResult.Mailer
+	}
+	// Note: NoticeEmailFe handles nil mailer internally if needed, or we might want to log a warning here
+	noticeEmailFe := notificationservice.NewNoticeEmailFe(database, m, nodesyncManager)
+
+	return notificationhttp.NewEmailHandler(templateSvc, contactSvc, notificationSvc, noticeEmailFe)
 }
 
 // buildCASClient 构建 CAS 单点登录客户端

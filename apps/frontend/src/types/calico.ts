@@ -21,6 +21,7 @@ export interface ClusterOverviewItem {
     policy_count: number
     is_healthy: boolean
     health_score: number
+    deductions?: string[]
     err_msg?: string
 }
 

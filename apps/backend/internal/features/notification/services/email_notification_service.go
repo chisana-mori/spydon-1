@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html/template"
@@ -18,7 +19,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/xuri/excelize/v2"
 	"gorm.io/gorm"
 )
 
@@ -104,15 +104,14 @@ func (s *EmailNotificationService) PreviewEmail(req PreviewEmailRequest) (*Previ
 
 // SendEmail 发送邮件
 func (s *EmailNotificationService) SendEmail(req SendEmailRequest) error {
-	// 预览邮件（同时验证模板）
-	preview, err := s.PreviewEmail(PreviewEmailRequest{
-		TemplateID:  req.TemplateID,
-		ClusterName: req.ClusterName,
-		Nodes:       req.Nodes,
-		Params:      req.Params,
-	})
-	if err != nil {
-		return err
+	// 直接使用请求中的 标题/正文
+	// 前端已经完成了预览和确认，这里直接发送
+	subject := req.Subject
+	htmlBody := req.Body
+
+	if subject == "" || htmlBody == "" {
+		// 虽然前端应该保证不为空，但为了健壮性，如果为空可以报错或者尝试回退（但不建议回退到模板计算，保持逻辑简单）
+		return fmt.Errorf("邮件标题或正文不能为空")
 	}
 
 	// 合并收件人
@@ -121,17 +120,18 @@ func (s *EmailNotificationService) SendEmail(req SendEmailRequest) error {
 		return fmt.Errorf("收件人列表为空")
 	}
 
-	// 生成 Excel 附件
-	excelData, err := s.generateExcelAttachment(preview.AffectedResources)
-	if err != nil {
-		logger.S().Warnw("生成 Excel 附件失败", "error", err)
-		// 即使附件生成失败也继续发送邮件
-		excelData = nil
+	// 准备附件列表
+	// 直接使用前端传递的附件列表（包含之前预览生成的 Excel）
+	var attachments []AttachFile
+	if len(req.AttachFiles) > 0 {
+		attachments = append(attachments, req.AttachFiles...)
 	}
 
 	// 发送邮件
+	// Log count of attachments?
+
 	for _, recipient := range allRecipients {
-		if err := s.sendSingleEmail(recipient, preview.Subject, preview.HTMLBody, excelData, preview.AttachmentName); err != nil {
+		if err := s.sendSingleEmail(recipient, subject, htmlBody, attachments); err != nil {
 			logger.S().Errorw("发送邮件失败",
 				"recipient", recipient,
 				"error", err,
@@ -143,7 +143,7 @@ func (s *EmailNotificationService) SendEmail(req SendEmailRequest) error {
 	logger.S().Infow("邮件发送完成",
 		"template_id", req.TemplateID,
 		"recipients_count", len(allRecipients),
-		"affected_resources_count", len(preview.AffectedResources),
+		"attachment_count", len(attachments),
 	)
 
 	return nil
@@ -329,64 +329,6 @@ func (s *EmailNotificationService) generateResourcesHTMLTable(resources []Affect
 	return template.HTML(sb.String())
 }
 
-// generateExcelAttachment 生成 Excel 附件
-func (s *EmailNotificationService) generateExcelAttachment(resources []AffectedResource) ([]byte, error) {
-	f := excelize.NewFile()
-	defer func() {
-		if err := f.Close(); err != nil {
-			logger.S().Warnw("关闭 Excel 文件失败", "error", err)
-		}
-	}()
-
-	sheetName := "受影响资源"
-	index, err := f.NewSheet(sheetName)
-	if err != nil {
-		return nil, fmt.Errorf("创建工作表失败: %w", err)
-	}
-	f.SetActiveSheet(index)
-	_ = f.DeleteSheet("Sheet1")
-
-	// 设置表头
-	headers := []string{"类型", "名称", "命名空间", "状态", "IP", "应用"}
-	for i, h := range headers {
-		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		_ = f.SetCellValue(sheetName, cell, h)
-	}
-
-	// 设置表头样式
-	headerStyle, _ := f.NewStyle(&excelize.Style{
-		Font:      &excelize.Font{Bold: true},
-		Fill:      excelize.Fill{Type: "pattern", Color: []string{"#4472C4"}, Pattern: 1},
-		Alignment: &excelize.Alignment{Horizontal: "center"},
-	})
-	_ = f.SetRowStyle(sheetName, 1, 1, headerStyle)
-
-	// 填充数据
-	for i, r := range resources {
-		row := i + 2
-		vals := []interface{}{r.Type, r.Name, r.Namespace, r.Status, r.IP, r.App}
-		for j, val := range vals {
-			cell, _ := excelize.CoordinatesToCellName(j+1, row)
-			_ = f.SetCellValue(sheetName, cell, val)
-		}
-	}
-
-	// 设置列宽
-	colWidths := map[string]float64{
-		"A": 10, "B": 30, "C": 20, "D": 15, "E": 15, "F": 20,
-	}
-	for col, width := range colWidths {
-		_ = f.SetColWidth(sheetName, col, col, width)
-	}
-
-	var buf bytes.Buffer
-	if err := f.Write(&buf); err != nil {
-		return nil, fmt.Errorf("写入 Excel 失败: %w", err)
-	}
-
-	return buf.Bytes(), nil
-}
-
 // renderTemplate 渲染模板
 func (s *EmailNotificationService) renderTemplate(name, templateStr string, data map[string]interface{}) (string, error) {
 	tpl, err := template.New(name).Parse(templateStr)
@@ -422,27 +364,44 @@ func (s *EmailNotificationService) mergeRecipients(recipients []string) []string
 	return result
 }
 
-// sendSingleEmail 发送单封邮件（支持 HTML 正文和 Excel 附件）
-func (s *EmailNotificationService) sendSingleEmail(to, subject, htmlBody string, attachment []byte, attachmentName string) error {
-	if s.cfg == nil || !s.cfg.Email.Enabled {
+// sendSingleEmail 发送单封邮件（支持 HTML 正文和多个附件）
+// attachments: 包含 Name 和 Content (Content 可能是 base64 或者是 raw string，取决于来源)
+// 对于 Excel 生成的，我们暂时将它转为 string 存储在 AttachFile Content 中?
+// 不，AttachFile Content 在 JSON 中通常是 Base64。但如果是内部生成的 Excel []byte，我们需要区分。
+// 为了简化，我们重新定义一个内部使用的 Attachment struct 或者在 sendSingleEmail 中处理。
+// 让我们修改 sendSingleEmail 接受 []AttachFile，但要注意 AttachFile.Content 的含义。
+// 假设前端传来的 AttachFile.Content 是 Base64。
+// 后端生成的 Excel 是 []byte。
+// 我们可以在调用前统一处理：
+//  - 前端来的: 解码 Base64 -> []byte
+//  - 后端Excel: 直接是 []byte
+// 为了避免混淆，SendEmail 函数里应该负责解码/转换，传给 sendSingleEmail 的是统一的结构，比如 mailer.Attachment。
+// 但这里为了最小改动，我们让 sendSingleEmail 接收 []AttachFile，并在内部判断/转换。
+// 可是 AttachFile 定义在 DTO 中，是 string content。
+// 这样吧：我们先修改 sendSingleEmail 签名，接受 []AttachFile。
+// 对于 Excel，我们在 SendEmail 中将 []byte 转为 Base64 string 放入 AttachFile，
+// 并在 sendSingleEmail 中统一 Base64 解码。这样最一致。
+
+func (s *EmailNotificationService) sendSingleEmail(to, subject, htmlBody string, attachments []AttachFile) error {
+	if s.cfg == nil || !s.cfg.ExternalDependencies.Email.Enabled {
 		logger.S().Infow("邮件功能未启用，跳过发送", "to", to)
 		return nil
 	}
 
 	// 验证配置
-	if s.cfg.Email.SMTPHost == "" || s.cfg.Email.From == "" {
+	if s.cfg.ExternalDependencies.Email.Host == "" || s.cfg.ExternalDependencies.Email.From == "" {
 		return fmt.Errorf("SMTP 配置不完整")
 	}
 
 	// 创建 mailer
 	m := mailer.New(mailer.Config{
-		Host:     s.cfg.Email.SMTPHost,
-		Port:     s.cfg.Email.SMTPPort,
-		Username: s.cfg.Email.SMTPUser,
-		Password: s.cfg.Email.SMTPPass,
-		From:     s.cfg.Email.From,
-		FromName: s.cfg.Email.FromName,
-		UseTLS:   s.cfg.Email.UseTLS,
+		Host:     s.cfg.ExternalDependencies.Email.Host,
+		Port:     s.cfg.ExternalDependencies.Email.Port,
+		Username: s.cfg.ExternalDependencies.Email.User,
+		Password: s.cfg.ExternalDependencies.Email.Secret,
+		From:     s.cfg.ExternalDependencies.Email.From,
+		FromName: s.cfg.ExternalDependencies.Email.FromName,
+		UseTLS:   s.cfg.ExternalDependencies.Email.IsSSL,
 	})
 
 	// 构建消息
@@ -453,10 +412,27 @@ func (s *EmailNotificationService) sendSingleEmail(to, subject, htmlBody string,
 	}
 
 	// 添加附件（如果有）
-	if attachment != nil && attachmentName != "" {
-		msg.Attachments = []mailer.Attachment{
-			mailer.NewExcelAttachment(attachmentName, attachment),
+	if len(attachments) > 0 {
+		var mailAttachments []mailer.Attachment
+		for _, att := range attachments {
+			// 1. 解码 Base64 内容
+			contentBytes, err := base64.StdEncoding.DecodeString(att.Content)
+			if err != nil {
+				// Fallback: 如果解码失败，尝试作为普通字节处理（虽然预期是 Base64）
+				contentBytes = []byte(att.Content)
+			}
+
+			// 2. 处理文件名后缀：如果没有 .xlsx/.xls 后缀，且这是一个 Excel 附件（这里假设所有附件都是 Excel，或者默认添加 .xlsx？）
+			// 根据用户需求："前端传递的...只有文件名...需要后端处理文件名+.xlsx"
+			// 我们检查后缀，如果没有常见 Excel 后缀，则追加 .xlsx
+			fileName := att.Name
+			if !strings.HasSuffix(strings.ToLower(fileName), ".xlsx") && !strings.HasSuffix(strings.ToLower(fileName), ".xls") {
+				fileName += ".xlsx"
+			}
+
+			mailAttachments = append(mailAttachments, mailer.NewExcelAttachment(fileName, contentBytes))
 		}
+		msg.Attachments = mailAttachments
 	}
 
 	// 发送邮件
@@ -467,7 +443,7 @@ func (s *EmailNotificationService) sendSingleEmail(to, subject, htmlBody string,
 	logger.S().Infow("邮件发送成功",
 		"to", to,
 		"subject", subject,
-		"has_attachment", attachment != nil,
+		"has_attachment", len(attachments) > 0,
 	)
 
 	return nil

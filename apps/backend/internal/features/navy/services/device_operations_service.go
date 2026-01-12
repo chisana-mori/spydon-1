@@ -70,10 +70,11 @@ type NodeOperationResult struct {
 
 // DrainOptions Drain 操作选项
 type DrainOptions struct {
-	Force            bool `json:"force"`
-	IgnoreDaemonsets bool `json:"ignore_daemonsets"`
-	DeleteLocalData  bool `json:"delete_local_data"`
-	Timeout          int  `json:"timeout"` // 秒，默认 300
+	Force            bool   `json:"force"`
+	IgnoreDaemonsets bool   `json:"ignore_daemonsets"`
+	DeleteLocalData  bool   `json:"delete_local_data"`
+	Timeout          int    `json:"timeout"` // 秒，默认 300
+	CHNumber         string `json:"ch_number"`
 }
 
 // TaintOperation Taint 操作
@@ -153,7 +154,12 @@ func (s *DeviceOperationsService) UncordonNodes(ctx context.Context, ciCodes []s
 }
 
 // DrainNodes 驱逐节点上的 Pod (使用 SafeDrainService)
-func (s *DeviceOperationsService) DrainNodes(ctx context.Context, ciCodes []string, opts DrainOptions) (*BatchOperationResult, error) {
+func (s *DeviceOperationsService) DrainNodes(
+	ctx context.Context,
+	ciCodes []string,
+	opts DrainOptions,
+	userContext map[string]any,
+) (*BatchOperationResult, error) {
 	// 获取设备信息（需要集群归属）
 	devices, err := s.getDevicesByCICodes(ctx, ciCodes)
 	if err != nil {
@@ -167,6 +173,22 @@ func (s *DeviceOperationsService) DrainNodes(ctx context.Context, ciCodes []stri
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+
+	// Extract user context safely
+	getString := func(key string) string {
+		if v, ok := userContext[key]; ok {
+			if s, ok := v.(string); ok {
+				return s
+			}
+			return fmt.Sprintf("%v", v)
+		}
+		return ""
+	}
+	// User request: set all roles to the current operator (username)
+	currentUser := getString("um_operator")
+	umChecker := currentUser
+	umOperator := currentUser
+	applicant := currentUser
 
 	// 处理设备
 	for _, d := range devices {
@@ -194,6 +216,10 @@ func (s *DeviceOperationsService) DrainNodes(ctx context.Context, ciCodes []stri
 				NodeName:    nodeName,
 				Force:       opts.Force,
 				DryRun:      false,
+				UMChecker:   umChecker,
+				UMOperator:  umOperator,
+				Applicant:   applicant,
+				CHNumber:    opts.CHNumber,
 			})
 
 			mu.Lock()

@@ -3,6 +3,7 @@ package nodesync
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -17,11 +18,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // Scheme 包含 core 和 Calico CRD 类型
@@ -95,9 +99,38 @@ func (c *Controller) Start(ctx context.Context) error {
 		client:      c.mgr.GetClient(),
 	}
 
+	// 定义 Predicate 过滤掉无效的更新（如心跳更新）
+	pred := predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode, ok1 := e.ObjectOld.(*corev1.Node)
+			newNode, ok2 := e.ObjectNew.(*corev1.Node)
+			if !ok1 || !ok2 {
+				return true
+			}
+
+			// 1. 检查 IP 变化 (用于设备匹配)
+			if !reflect.DeepEqual(oldNode.Status.Addresses, newNode.Status.Addresses) {
+				return true
+			}
+
+			// 2. 检查同步所需的关键信息变化 (Role 和 Status)
+			// 注意：虽然 UpdateDeviceFromNode 目前只更新 Status，但 Role 变化可能对应其他潜在逻辑
+			// 且 ExtractNodeInfo 开销很小，作为一个整体检查是合理的
+			oldRole, oldStatus := ExtractNodeInfo(oldNode)
+			newRole, newStatus := ExtractNodeInfo(newNode)
+
+			if oldRole != newRole || oldStatus != newStatus {
+				return true
+			}
+
+			// logging unnecessary for filtered events to reduce noise
+			return false
+		},
+	}
+
 	if err := ctrl.NewControllerManagedBy(c.mgr).
 		Named(fmt.Sprintf("node-%s", strings.ToLower(c.clusterName))).
-		For(&corev1.Node{}).
+		For(&corev1.Node{}, builder.WithPredicates(pred)).
 		Complete(reconciler); err != nil {
 		return fmt.Errorf("注册 reconciler 失败: %w", err)
 	}

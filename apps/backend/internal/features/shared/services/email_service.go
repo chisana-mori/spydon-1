@@ -30,11 +30,11 @@ func NewEmailService(cfg *config.Config) *EmailService {
 // - 若未启用或关键配置缺失，将记录日志并跳过发送
 // - 简单文本邮件，避免复杂HTML依赖
 func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *models.RCARun) error {
-	if s == nil || s.cfg == nil || !s.cfg.Email.Enabled {
+	if s == nil || s.cfg == nil || !s.cfg.ExternalDependencies.Email.Enabled {
 		logger.S().Infow("跳过邮件发送", "module", "email", "reason", "disabled")
 		return nil
 	}
-	if s.cfg.Email.SMTPHost == "" || s.cfg.Email.SMTPUser == "" || s.cfg.Email.SMTPPass == "" || s.cfg.Email.From == "" {
+	if s.cfg.ExternalDependencies.Email.Host == "" || s.cfg.ExternalDependencies.Email.User == "" || s.cfg.ExternalDependencies.Email.Secret == "" || s.cfg.ExternalDependencies.Email.From == "" {
 		logger.S().Warnw("邮件配置不完整，跳过发送", "module", "email")
 		return nil
 	}
@@ -76,18 +76,18 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	body.WriteString("— 本邮件由系统自动发送 —\n")
 
 	msg := strings.Builder{}
-	msg.WriteString(fmt.Sprintf("From: %s\r\n", s.cfg.Email.From))
+	msg.WriteString(fmt.Sprintf("From: %s\r\n", s.cfg.ExternalDependencies.Email.From))
 	msg.WriteString(fmt.Sprintf("To: %s\r\n", to))
 	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 	msg.WriteString("MIME-Version: 1.0\r\n")
 	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
 	msg.WriteString(body.String())
 
-	addr := net.JoinHostPort(s.cfg.Email.SMTPHost, strconv.Itoa(s.cfg.Email.SMTPPort))
-	auth := smtp.PlainAuth("", s.cfg.Email.SMTPUser, s.cfg.Email.SMTPPass, s.cfg.Email.SMTPHost)
+	addr := net.JoinHostPort(s.cfg.ExternalDependencies.Email.Host, strconv.Itoa(s.cfg.ExternalDependencies.Email.Port))
+	auth := smtp.PlainAuth("", s.cfg.ExternalDependencies.Email.User, s.cfg.ExternalDependencies.Email.Secret, s.cfg.ExternalDependencies.Email.Host)
 
 	tlsConfig := &tls.Config{
-		ServerName:         s.cfg.Email.SMTPHost,
+		ServerName:         s.cfg.ExternalDependencies.Email.Host,
 		InsecureSkipVerify: false,            // 明确设置为false以确保安全
 		MinVersion:         tls.VersionTLS12, // 设置最低TLS版本为1.2
 	}
@@ -98,7 +98,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 	}
 	conn, err := tlsDialer.DialContext(ctx, "tcp", addr)
 	if err == nil {
-		c, cerr := smtp.NewClient(conn, s.cfg.Email.SMTPHost)
+		c, cerr := smtp.NewClient(conn, s.cfg.ExternalDependencies.Email.Host)
 		if cerr == nil {
 			defer func() {
 				if quitErr := c.Quit(); quitErr != nil {
@@ -106,7 +106,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 				}
 			}()
 			if err = c.Auth(auth); err == nil {
-				if err = c.Mail(s.cfg.Email.From); err == nil {
+				if err = c.Mail(s.cfg.ExternalDependencies.Email.From); err == nil {
 					if err = c.Rcpt(to); err == nil {
 						wc, werr := c.Data()
 						if werr == nil {
@@ -122,7 +122,7 @@ func (s *EmailService) SendRCAResultEmail(to string, alert *models.Alert, rca *m
 		}
 	}
 
-	if err := smtp.SendMail(addr, auth, s.cfg.Email.From, []string{to}, []byte(msg.String())); err != nil {
+	if err := smtp.SendMail(addr, auth, s.cfg.ExternalDependencies.Email.From, []string{to}, []byte(msg.String())); err != nil {
 		logger.S().Errorw("SendMail失败，尝试非认证兜底", "module", "email", "error", err)
 		dialer := &net.Dialer{}
 		c, dErr := dialer.DialContext(ctx, "tcp", addr)

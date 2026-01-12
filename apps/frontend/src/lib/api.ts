@@ -44,6 +44,7 @@ import type {
     PreviewEmailResponse,
     SendEmailRequest,
     AffectedResource,
+    MailGenReq,
 } from '@/types/email'
 import type { OverviewResponse, ClusterDetailResponse } from '@/types/calico'
 
@@ -575,7 +576,7 @@ export class RobustaAPI {
     }
 
     // ============ Email Sending ============
-    static async previewEmail(data: PreviewEmailRequest): Promise<PreviewEmailResponse> {
+    static async previewEmail(data: MailGenReq): Promise<PreviewEmailResponse> {
         return handleResponse(apiClient.post('/email/preview', data))
     }
 
@@ -587,10 +588,6 @@ export class RobustaAPI {
         const params: Record<string, any> = { cluster: clusterName }
         if (nodes && nodes.length > 0) params.nodes = nodes.join(',')
         return handleResponse(apiClient.get('/email/affected-resources', { params }))
-    }
-
-    static async buildEmail(data: any): Promise<any> {
-        return handleResponse(apiClient.post('/email/build', data))
     }
 
     // ============ Calico Network Observability ============

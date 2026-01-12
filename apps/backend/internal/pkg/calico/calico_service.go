@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings" // Added strings
 	"sync"
 	"time"
 
@@ -13,18 +14,24 @@ import (
 	"robusta-web/backend/pkg/wayne_api"
 
 	calicov3 "github.com/projectcalico/api/pkg/apis/projectcalico/v3"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	calicov1 "robusta-web/backend/internal/pkg/calico/v1"
+	calicov3custom "robusta-web/backend/internal/pkg/calico/v3"
 )
+
+func init() {
+	_ = calicov1.AddToScheme(nodesync.Scheme)
+	_ = calicov3custom.AddToScheme(nodesync.Scheme)
+}
 
 // Service provides Calico CRD resource query capabilities with automatic v3/v1 API adaptation
 type Service struct {
 	nodeSyncManager *nodesync.Manager
 	config          *config.Config
 	versionCache    map[string]APIVersion
-	dynamicClients  map[string]dynamic.Interface
 	cacheMu         sync.RWMutex
 }
 
@@ -34,7 +41,6 @@ func NewService(manager *nodesync.Manager, cfg *config.Config) *Service {
 		nodeSyncManager: manager,
 		config:          cfg,
 		versionCache:    make(map[string]APIVersion),
-		dynamicClients:  make(map[string]dynamic.Interface),
 	}
 }
 
@@ -117,7 +123,7 @@ func isNoMatchError(err error) bool {
 		return false
 	}
 	errStr := err.Error()
-	return containsAny(errStr, "no matches for kind", "the server could not find the requested resource")
+	return containsAny(errStr, "no matches for kind", "the server could not find the requested resource", "could not find the requested resource")
 }
 
 // containsAny checks if the string contains any of the substrings
@@ -159,21 +165,20 @@ func listWithFallback[T any](
 	clusterName string,
 	resourceType string,
 	v3ListFunc func(client.Client, context.Context, []client.ListOption) ([]T, error),
-	gvr schema.GroupVersionResource,
-	converter func(*unstructured.Unstructured) (T, error),
+	v1ListFunc func(client.Client, context.Context, []client.ListOption) ([]T, error),
 	opts listOptions,
 ) ([]T, error) {
 	version := s.getAPIVersion(clusterName)
 
 	if version == APIVersionV3 {
-		return listV3(s, clusterName, resourceType, v3ListFunc, opts)
+		return listGeneric(s, clusterName, resourceType, v3ListFunc, opts)
 	}
 
-	return listV1WithNamespace(s, clusterName, opts.namespace, gvr, converter)
+	return listGeneric(s, clusterName, resourceType, v1ListFunc, opts)
 }
 
-// listV3 lists resources using the v3 typed API
-func listV3[T any](
+// listGeneric lists resources using the provided list function
+func listGeneric[T any](
 	s *Service,
 	clusterName string,
 	resourceType string,
@@ -210,28 +215,20 @@ func getWithFallback[T any](
 	clusterName string,
 	resourceType string,
 	v3GetFunc func(client.Client, context.Context, client.ObjectKey) (T, error),
-	gvr schema.GroupVersionResource,
-	converter func(*unstructured.Unstructured) (T, error),
+	v1GetFunc func(client.Client, context.Context, client.ObjectKey) (T, error),
 	opts getOptions,
 ) (*T, error) {
 	version := s.getAPIVersion(clusterName)
 
 	if version == APIVersionV3 {
-		return getV3(s, clusterName, resourceType, v3GetFunc, opts)
+		return getGeneric(s, clusterName, resourceType, v3GetFunc, opts)
 	}
 
-	result, err := getV1WithNamespace(s, clusterName, opts.namespace, opts.name, gvr, converter)
-	if err != nil {
-		if opts.ignoreNotFound && isNoMatchError(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &result, nil
+	return getGeneric(s, clusterName, resourceType, v1GetFunc, opts)
 }
 
-// getV3 gets a single resource using the v3 typed API
-func getV3[T any](
+// getGeneric gets a single resource using the provided get function
+func getGeneric[T any](
 	s *Service,
 	clusterName string,
 	resourceType string,
@@ -254,6 +251,10 @@ func getV3[T any](
 	item, err := getFunc(k8sClient, ctx, key)
 	if err != nil {
 		if opts.ignoreNotFound && isNoMatchError(err) {
+			return nil, nil // Return nil pointer for not found if ignored
+		}
+		// If ignoreNotFound is true, we should also check for "not found" error specifically from Get
+		if opts.ignoreNotFound && client.IgnoreNotFound(err) == nil {
 			return nil, nil
 		}
 		return nil, formatError("获取", resourceType, err)
@@ -275,8 +276,21 @@ func (s *Service) ListIPPools(clusterName string) ([]calicov3.IPPool, error) {
 			}
 			return list.Items, nil
 		},
-		IPPoolGVR,
-		convertToIPPool,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.IPPool, error) {
+			var list calicov1.IPPoolList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.IPPool, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.IPPool{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -287,13 +301,20 @@ func (s *Service) GetIPPool(clusterName, name string) (*calicov3.IPPool, error) 
 		s, clusterName, "IPPool",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.IPPool, error) {
 			var item calicov3.IPPool
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		IPPoolGVR,
-		convertToIPPool,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.IPPool, error) {
+			var item calicov1.IPPool
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.IPPool{}, err
+			}
+			return calicov3.IPPool{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -311,11 +332,26 @@ func (s *Service) ListIPReservations(clusterName string) ([]calicov3.IPReservati
 			}
 			return list.Items, nil
 		},
-		IPReservationGVR,
-		convertToIPReservation,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.IPReservation, error) {
+			var list calicov1.IPReservationList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.IPReservation, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.IPReservation{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
+
+// ========== BGPConfiguration Operations ==========
 
 // ========== BGPConfiguration Operations ==========
 
@@ -330,8 +366,21 @@ func (s *Service) ListBGPConfigurations(clusterName string) ([]calicov3.BGPConfi
 			}
 			return list.Items, nil
 		},
-		BGPConfigurationGVR,
-		convertToBGPConfiguration,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.BGPConfiguration, error) {
+			var list calicov1.BGPConfigurationList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.BGPConfiguration, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.BGPConfiguration{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -342,13 +391,20 @@ func (s *Service) GetBGPConfiguration(clusterName, name string) (*calicov3.BGPCo
 		s, clusterName, "BGPConfiguration",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.BGPConfiguration, error) {
 			var item calicov3.BGPConfiguration
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		BGPConfigurationGVR,
-		convertToBGPConfiguration,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.BGPConfiguration, error) {
+			var item calicov1.BGPConfiguration
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.BGPConfiguration{}, err
+			}
+			return calicov3.BGPConfiguration{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -366,8 +422,21 @@ func (s *Service) ListBGPPeers(clusterName string) ([]calicov3.BGPPeer, error) {
 			}
 			return list.Items, nil
 		},
-		BGPPeerGVR,
-		convertToBGPPeer,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.BGPPeer, error) {
+			var list calicov1.BGPPeerList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.BGPPeer, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.BGPPeer{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -378,13 +447,20 @@ func (s *Service) GetBGPPeer(clusterName, name string) (*calicov3.BGPPeer, error
 		s, clusterName, "BGPPeer",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.BGPPeer, error) {
 			var item calicov3.BGPPeer
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		BGPPeerGVR,
-		convertToBGPPeer,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.BGPPeer, error) {
+			var item calicov1.BGPPeer
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.BGPPeer{}, err
+			}
+			return calicov3.BGPPeer{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -402,8 +478,21 @@ func (s *Service) ListGlobalNetworkPolicies(clusterName string) ([]calicov3.Glob
 			}
 			return list.Items, nil
 		},
-		GlobalNetworkPolicyGVR,
-		convertToGlobalNetworkPolicy,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.GlobalNetworkPolicy, error) {
+			var list calicov1.GlobalNetworkPolicyList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.GlobalNetworkPolicy, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.GlobalNetworkPolicy{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -414,13 +503,20 @@ func (s *Service) GetGlobalNetworkPolicy(clusterName, name string) (*calicov3.Gl
 		s, clusterName, "GlobalNetworkPolicy",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.GlobalNetworkPolicy, error) {
 			var item calicov3.GlobalNetworkPolicy
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		GlobalNetworkPolicyGVR,
-		convertToGlobalNetworkPolicy,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.GlobalNetworkPolicy, error) {
+			var item calicov1.GlobalNetworkPolicy
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.GlobalNetworkPolicy{}, err
+			}
+			return calicov3.GlobalNetworkPolicy{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -438,8 +534,21 @@ func (s *Service) ListNetworkPolicies(clusterName, namespace string) ([]calicov3
 			}
 			return list.Items, nil
 		},
-		NetworkPolicyGVR,
-		convertToNetworkPolicy,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.NetworkPolicy, error) {
+			var list calicov1.NetworkPolicyList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.NetworkPolicy, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.NetworkPolicy{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{namespace: namespace},
 	)
 }
@@ -450,13 +559,20 @@ func (s *Service) GetNetworkPolicy(clusterName, namespace, name string) (*calico
 		s, clusterName, "NetworkPolicy",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.NetworkPolicy, error) {
 			var item calicov3.NetworkPolicy
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		NetworkPolicyGVR,
-		convertToNetworkPolicy,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.NetworkPolicy, error) {
+			var item calicov1.NetworkPolicy
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.NetworkPolicy{}, err
+			}
+			return calicov3.NetworkPolicy{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{namespace: namespace, name: name},
 	)
 }
@@ -474,8 +590,21 @@ func (s *Service) ListGlobalNetworkSets(clusterName string) ([]calicov3.GlobalNe
 			}
 			return list.Items, nil
 		},
-		GlobalNetworkSetGVR,
-		convertToGlobalNetworkSet,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.GlobalNetworkSet, error) {
+			var list calicov1.GlobalNetworkSetList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.GlobalNetworkSet, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.GlobalNetworkSet{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -493,8 +622,21 @@ func (s *Service) ListNetworkSets(clusterName, namespace string) ([]calicov3.Net
 			}
 			return list.Items, nil
 		},
-		NetworkSetGVR,
-		convertToNetworkSet,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.NetworkSet, error) {
+			var list calicov1.NetworkSetList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.NetworkSet, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.NetworkSet{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{namespace: namespace},
 	)
 }
@@ -512,8 +654,21 @@ func (s *Service) ListHostEndpoints(clusterName string) ([]calicov3.HostEndpoint
 			}
 			return list.Items, nil
 		},
-		HostEndpointGVR,
-		convertToHostEndpoint,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.HostEndpoint, error) {
+			var list calicov1.HostEndpointList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.HostEndpoint, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.HostEndpoint{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -524,13 +679,20 @@ func (s *Service) GetHostEndpoint(clusterName, name string) (*calicov3.HostEndpo
 		s, clusterName, "HostEndpoint",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.HostEndpoint, error) {
 			var item calicov3.HostEndpoint
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		HostEndpointGVR,
-		convertToHostEndpoint,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.HostEndpoint, error) {
+			var item calicov1.HostEndpoint
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.HostEndpoint{}, err
+			}
+			return calicov3.HostEndpoint{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -548,8 +710,21 @@ func (s *Service) ListFelixConfigurations(clusterName string) ([]calicov3.FelixC
 			}
 			return list.Items, nil
 		},
-		FelixConfigurationGVR,
-		convertToFelixConfiguration,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.FelixConfiguration, error) {
+			var list calicov1.FelixConfigurationList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.FelixConfiguration, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.FelixConfiguration{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -560,13 +735,20 @@ func (s *Service) GetFelixConfiguration(clusterName, name string) (*calicov3.Fel
 		s, clusterName, "FelixConfiguration",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.FelixConfiguration, error) {
 			var item calicov3.FelixConfiguration
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		FelixConfigurationGVR,
-		convertToFelixConfiguration,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.FelixConfiguration, error) {
+			var item calicov1.FelixConfiguration
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.FelixConfiguration{}, err
+			}
+			return calicov3.FelixConfiguration{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -579,13 +761,20 @@ func (s *Service) GetClusterInformation(clusterName string) (*calicov3.ClusterIn
 		s, clusterName, "ClusterInformation",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.ClusterInformation, error) {
 			var item calicov3.ClusterInformation
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		ClusterInformationGVR,
-		convertToClusterInformation,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.ClusterInformation, error) {
+			var item calicov1.ClusterInformation
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.ClusterInformation{}, err
+			}
+			return calicov3.ClusterInformation{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{
 			name:           defaultClusterInfoName,
 			ignoreNotFound: true,
@@ -606,8 +795,22 @@ func (s *Service) ListKubeControllersConfigurations(clusterName string) ([]calic
 			}
 			return list.Items, nil
 		},
-		KubeControllersConfigurationGVR,
-		convertToKubeControllersConfiguration,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.KubeControllersConfiguration, error) {
+			var list calicov1.KubeControllersConfigurationList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.KubeControllersConfiguration, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.KubeControllersConfiguration{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+					Status:     item.Status,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -625,8 +828,21 @@ func (s *Service) ListTiers(clusterName string) ([]calicov3.Tier, error) {
 			}
 			return list.Items, nil
 		},
-		TierGVR,
-		convertToTier,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.Tier, error) {
+			var list calicov1.TierList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.Tier, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.Tier{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -637,13 +853,20 @@ func (s *Service) GetTier(clusterName, name string) (*calicov3.Tier, error) {
 		s, clusterName, "Tier",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.Tier, error) {
 			var item calicov3.Tier
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		TierGVR,
-		convertToTier,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.Tier, error) {
+			var item calicov1.Tier
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.Tier{}, err
+			}
+			return calicov3.Tier{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+			}, nil
+		},
 		getOptions{name: name},
 	)
 }
@@ -661,8 +884,22 @@ func (s *Service) ListCalicoNodeStatuses(clusterName string) ([]calicov3.CalicoN
 			}
 			return list.Items, nil
 		},
-		CalicoNodeStatusGVR,
-		convertToCalicoNodeStatus,
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov3.CalicoNodeStatus, error) {
+			var list calicov1.CalicoNodeStatusList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			items := make([]calicov3.CalicoNodeStatus, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = calicov3.CalicoNodeStatus{
+					TypeMeta:   item.TypeMeta,
+					ObjectMeta: item.ObjectMeta,
+					Spec:       item.Spec,
+					Status:     item.Status,
+				}
+			}
+			return items, nil
+		},
 		listOptions{},
 	)
 }
@@ -673,14 +910,217 @@ func (s *Service) GetCalicoNodeStatus(clusterName, name string) (*calicov3.Calic
 		s, clusterName, "CalicoNodeStatus",
 		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.CalicoNodeStatus, error) {
 			var item calicov3.CalicoNodeStatus
-			if err := c.Get(ctx, key, &item); err != nil {
-				return item, err
-			}
-			return item, nil
+			err := c.Get(ctx, key, &item)
+			return item, err
 		},
-		CalicoNodeStatusGVR,
-		convertToCalicoNodeStatus,
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov3.CalicoNodeStatus, error) {
+			var item calicov1.CalicoNodeStatus
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov3.CalicoNodeStatus{}, err
+			}
+			return calicov3.CalicoNodeStatus{
+				TypeMeta:   item.TypeMeta,
+				ObjectMeta: item.ObjectMeta,
+				Spec:       item.Spec,
+				Status:     item.Status,
+			}, nil
+		},
 		getOptions{name: name},
+	)
+}
+
+// ========== Node Operations ==========
+
+// ListNodes lists all Nodes in the specified cluster
+// It attempts to list Calico Nodes first. If not found, it falls back to K8s Nodes.
+// ListNodes lists all Nodes in the specified cluster
+// It attempts to list Calico Nodes first. If not found, it falls back to K8s Nodes.
+func (s *Service) ListNodes(clusterName string) ([]calicov1.Node, error) {
+	// Try Calico Nodes
+	nodes, err := listWithFallback(
+		s, clusterName, "Node",
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov1.Node, error) {
+			var list calicov3custom.V3NodeList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			// Convert calicov3custom.V3Node to calicov1.Node
+			items := make([]calicov1.Node, len(list.Items))
+			for i, item := range list.Items {
+				items[i] = convertV3NodeToV1Node(item)
+			}
+			return items, nil
+		},
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov1.Node, error) {
+			var list calicov1.NodeList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			return list.Items, nil
+		},
+		listOptions{},
+	)
+
+	if err == nil {
+		return nodes, nil
+	}
+
+	// If failed, check if it's because CRD is missing
+	if isNoMatchError(err) || strings.Contains(err.Error(), "could not find the requested resource") {
+		// Fallback to K8s Nodes
+		logger.S().Infow("Calico Node CRD not found, falling back to K8s Nodes", "cluster", clusterName)
+		return s.listK8sNodes(clusterName)
+	}
+
+	return nil, err
+}
+
+// GetNode gets a specific Node by name
+func (s *Service) GetNode(clusterName, name string) (*calicov1.Node, error) {
+	node, err := getWithFallback(
+		s, clusterName, "Node",
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov1.Node, error) {
+			var item calicov3custom.V3Node
+			if err := c.Get(ctx, key, &item); err != nil {
+				return calicov1.Node{}, err
+			}
+			return convertV3NodeToV1Node(item), nil
+		},
+		func(c client.Client, ctx context.Context, key client.ObjectKey) (calicov1.Node, error) {
+			var item calicov1.Node
+			err := c.Get(ctx, key, &item)
+			return item, err
+		},
+		getOptions{name: name},
+	)
+
+	if err == nil {
+		return node, nil
+	}
+
+	if isNoMatchError(err) || strings.Contains(err.Error(), "could not find the requested resource") {
+		return s.getK8sNode(clusterName, name)
+	}
+
+	return nil, err
+}
+
+func (s *Service) listK8sNodes(clusterName string) ([]calicov1.Node, error) {
+	k8sClient, err := s.getClient(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := defaultContext()
+	defer cancel()
+
+	var list corev1.NodeList
+	if err := k8sClient.List(ctx, &list); err != nil {
+		return nil, err
+	}
+
+	res := make([]calicov1.Node, len(list.Items))
+	for i, n := range list.Items {
+		res[i] = convertCoreNodeToNode(&n)
+	}
+	return res, nil
+}
+
+func (s *Service) getK8sNode(clusterName, name string) (*calicov1.Node, error) {
+	k8sClient, err := s.getClient(clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := defaultContext()
+	defer cancel()
+
+	var node corev1.Node
+	if err := k8sClient.Get(ctx, client.ObjectKey{Name: name}, &node); err != nil {
+		return nil, err
+	}
+
+	res := convertCoreNodeToNode(&node)
+	return &res, nil
+}
+
+func convertCoreNodeToNode(n *corev1.Node) calicov1.Node {
+	// Map K8s Node to Calico Node struct (minimal fields)
+	return calicov1.Node{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Node",
+			APIVersion: "projectcalico.org/v3", // Fake it
+		},
+		ObjectMeta: n.ObjectMeta,
+		// Spec is empty effectively, or we could try to map internalIP to BGP IPv4Address if needed?
+		// For now leave empty to indicate "No Calico Config".
+	}
+}
+
+// convertV3NodeToV1Node converts calicov3custom.V3Node to calicov1.Node
+func convertV3NodeToV1Node(v3Node calicov3custom.V3Node) calicov1.Node {
+	v1Node := calicov1.Node{
+		TypeMeta:   v3Node.TypeMeta,
+		ObjectMeta: v3Node.ObjectMeta,
+	}
+
+	// Map Spec
+	if v3Node.Spec.BGP != nil {
+		v1Node.Spec.BGP = &calicov1.NodeBGPSpec{}
+		if v3Node.Spec.BGP.ASNumber != nil {
+			v1Node.Spec.BGP.ASNumber = v3Node.Spec.BGP.ASNumber
+		}
+		v1Node.Spec.BGP.IPv4Address = v3Node.Spec.BGP.IPv4Address
+		v1Node.Spec.BGP.IPv6Address = v3Node.Spec.BGP.IPv6Address
+	}
+
+	if len(v3Node.Spec.OrchRefs) > 0 {
+		v1Node.Spec.OrchRefs = make([]calicov1.OrchRef, len(v3Node.Spec.OrchRefs))
+		for i, ref := range v3Node.Spec.OrchRefs {
+			v1Node.Spec.OrchRefs[i] = calicov1.OrchRef{
+				NodeName:     ref.NodeName,
+				Orchestrator: ref.Orchestrator,
+			}
+		}
+	}
+
+	return v1Node
+}
+
+// ========== BlockAffinity Operations ==========
+
+// ListBlockAffinities lists all BlockAffinities in the specified cluster
+func (s *Service) ListBlockAffinities(clusterName string) ([]calicov1.BlockAffinity, error) {
+	// BlockAffinity is custom. We try V1 typed list.
+	// We don't have V3 type support for this custom type usually.
+	// Use listGeneric directly with V1 logic.
+	return listGeneric(
+		s, clusterName, "BlockAffinity",
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov1.BlockAffinity, error) {
+			var list calicov1.BlockAffinityList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			return list.Items, nil
+		},
+		listOptions{},
+	)
+}
+
+// ========== IPAMBlock Operations ==========
+
+// ListIPAMBlocks lists all IPAMBlocks in the specified cluster
+func (s *Service) ListIPAMBlocks(clusterName string) ([]calicov1.IPAMBlock, error) {
+	return listGeneric(
+		s, clusterName, "IPAMBlock",
+		func(c client.Client, ctx context.Context, opts []client.ListOption) ([]calicov1.IPAMBlock, error) {
+			var list calicov1.IPAMBlockList
+			if err := c.List(ctx, &list, opts...); err != nil {
+				return nil, err
+			}
+			return list.Items, nil
+		},
+		listOptions{},
 	)
 }
 

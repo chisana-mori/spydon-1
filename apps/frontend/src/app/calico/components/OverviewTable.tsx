@@ -13,6 +13,12 @@ import { Progress } from "@/components/ui/progress"
 import { ClusterOverviewItem } from "@/types/calico"
 import { ArrowRight, CheckCircle, AlertTriangle, SearchX, RefreshCw } from "lucide-react"
 import Link from 'next/link'
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface OverviewTableProps {
     clusters: ClusterOverviewItem[]
@@ -134,25 +140,57 @@ export function OverviewTable({ clusters, isLoading }: OverviewTableProps) {
                                 </TableCell>
                                 <TableCell>
                                     <div className="space-y-2 pr-4">
-                                        <div className="flex justify-between text-xs font-medium">
-                                            <span className={
-                                                cluster.health_score > 90
-                                                    ? "text-green-600 dark:text-green-400"
-                                                    : cluster.health_score > 70
-                                                        ? "text-yellow-600 dark:text-yellow-400"
-                                                        : "text-red-600 dark:text-red-400"
-                                            }>
-                                                {cluster.health_score > 90 ? '极佳' : cluster.health_score > 70 ? '警告' : '危险'}
-                                            </span>
-                                            <span className="tabular-nums">{cluster.health_score}%</span>
-                                        </div>
-                                        <Progress
-                                            value={cluster.health_score}
-                                            className={`h-2 bg-muted/50 ${cluster.health_score > 90 ? "[&>div]:bg-green-500" :
-                                                    cluster.health_score > 70 ? "[&>div]:bg-yellow-500" :
-                                                        "[&>div]:bg-red-500"
-                                                }`}
-                                        />
+                                        <TooltipProvider>
+                                            <Tooltip delayDuration={0}>
+                                                <TooltipTrigger asChild>
+                                                    <div className="cursor-help">
+                                                        <div className="flex justify-between text-xs font-medium mb-1.5">
+                                                            <span className={
+                                                                cluster.health_score > 90
+                                                                    ? "text-green-600 dark:text-green-400"
+                                                                    : cluster.health_score > 70
+                                                                        ? "text-yellow-600 dark:text-yellow-400"
+                                                                        : "text-red-600 dark:text-red-400"
+                                                            }>
+                                                                {cluster.health_score > 90 ? '极佳' : cluster.health_score > 70 ? '警告' : '危险'}
+                                                            </span>
+                                                            <span className="tabular-nums">{cluster.health_score}%</span>
+                                                        </div>
+                                                        <Progress
+                                                            value={cluster.health_score}
+                                                            className={`h-2 bg-muted/50 ${cluster.health_score > 90 ? "[&>div]:bg-green-500" :
+                                                                cluster.health_score > 70 ? "[&>div]:bg-yellow-500" :
+                                                                    "[&>div]:bg-red-500"
+                                                                }`}
+                                                        />
+                                                    </div>
+                                                </TooltipTrigger>
+                                                {cluster.deductions && cluster.deductions.length > 0 ? (
+                                                    <TooltipContent side="left" className="max-w-[320px] p-4 bg-popover/95 backdrop-blur-sm border-border/50 shadow-xl supports-[backdrop-filter]:bg-popover/80">
+                                                        <div className="space-y-2.5">
+                                                            <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                                                                <span className="font-semibold text-xs text-foreground">健康评分详情</span>
+                                                                <span className="text-[10px] text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+                                                                    -{100 - cluster.health_score}分
+                                                                </span>
+                                                            </div>
+                                                            <ul className="space-y-2">
+                                                                {cluster.deductions.map((d, i) => (
+                                                                    <li key={i} className="text-xs text-muted-foreground flex items-start gap-2 leading-relaxed">
+                                                                        <span className="text-red-500 shrink-0 mt-0.5">•</span>
+                                                                        <span>{d}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    </TooltipContent>
+                                                ) : (
+                                                    <TooltipContent>
+                                                        <p className="text-xs">无扣分项，状态完美</p>
+                                                    </TooltipContent>
+                                                )}
+                                            </Tooltip>
+                                        </TooltipProvider>
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right">

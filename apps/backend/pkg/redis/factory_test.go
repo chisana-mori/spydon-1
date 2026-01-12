@@ -26,7 +26,7 @@ func TestFactory_SetupAndGetClient(t *testing.T) {
 	defer factory.Close()
 
 	// Setup 应该成功
-	err := factory.Setup("redis://localhost:6379", 5)
+	err := factory.Setup("redis://localhost:6379", "", 5)
 	require.NoError(t, err)
 
 	// 验证已初始化
@@ -63,11 +63,11 @@ func TestFactory_Setup_AlreadySetup(t *testing.T) {
 	defer factory.Close()
 
 	// 第一次 Setup
-	err := factory.Setup("redis://localhost:6379", 5)
+	err := factory.Setup("redis://localhost:6379", "", 5)
 	require.NoError(t, err)
 
 	// 第二次 Setup 应该失败
-	err = factory.Setup("redis://localhost:6379", 5)
+	err = factory.Setup("redis://localhost:6379", "", 5)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already setup")
 }
@@ -94,7 +94,7 @@ func TestFactory_Close_AfterSetup(t *testing.T) {
 
 	factory := &redis.Factory{}
 
-	err := factory.Setup("redis://localhost:6379", 5)
+	err := factory.Setup("redis://localhost:6379", "", 5)
 	require.NoError(t, err)
 
 	// 关闭应该成功

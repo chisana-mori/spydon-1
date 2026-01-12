@@ -9,22 +9,31 @@ import (
 type ParamType string
 
 const (
-	ParamTypeInput    ParamType = "input"    // 文本输入
-	ParamTypeSelect   ParamType = "select"   // 下拉选择（关联字典）
-	ParamTypeDatetime ParamType = "datetime" // 日期时间选择
-	ParamTypeResource ParamType = "resource" // K8s 资源选择
+	ParamTypeString    ParamType = "string"    // 文本输入
+	ParamTypeSelect    ParamType = "select"    // 下拉选择（关联字典）
+	ParamTypeDate      ParamType = "date"      // 日期选择（年月日）
+	ParamTypeDatetime  ParamType = "datetime"  // 日期时间选择（精确到秒）
+	ParamTypeComponent ParamType = "component" // 组件选择（K8s 资源）
 )
 
 // ParamDefinition 模板参数定义
 type ParamDefinition struct {
-	Name         string    `json:"name"`                   // 参数键 (原 Key)
-	Title        string    `json:"title"`                  // 显示标题 (原 Label)
-	Type         ParamType `json:"type"`                   // 参数类型
-	Value        string    `json:"value,omitempty"`        // 默认值/绑定值
-	Required     bool      `json:"required,omitempty"`     // 是否必填
-	DictCode     string    `json:"dictCode,omitempty"`     // type=select 时关联的字典编码
-	ResourceType string    `json:"resourceType,omitempty"` // type=resource 时的资源类型 (nodes/pods/deployments)
-	Placeholder  string    `json:"placeholder,omitempty"`  // 占位提示
+	Name             string        `json:"name"`                   // 参数键 (原 Key)
+	Title            string        `json:"title"`                  // 显示标题 (原 Label)
+	Type             ParamType     `json:"type"`                   // 参数类型
+	Value            string        `json:"value,omitempty"`        // 默认值（用于所有类型）
+	Required         bool          `json:"required,omitempty"`     // 是否必填
+	Options          []ParamOption `json:"options,omitempty"`      // type=select 时手动选项
+	IsValueSeparated bool          `json:"isValueSeparated"`       // 是否键值分离 (全局控制)
+	ResourceType     string        `json:"resourceType,omitempty"` // type=component 时的资源类型 (nodes/pods/deployments)
+	Placeholder      string        `json:"placeholder,omitempty"`  // 占位提示
+	DefaultTime      string        `json:"defaultTime,omitempty"`  // @deprecated: 使用 Value 代替
+}
+
+// ParamOption 手动选项定义
+type ParamOption struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 // TemplateConfig 模板配置
@@ -139,6 +148,7 @@ type PreviewEmailResponse struct {
 	HTMLBody          string             `json:"html_body"`
 	AffectedResources []AffectedResource `json:"affected_resources"`
 	AttachmentName    string             `json:"attachment_name,omitempty"` // Excel 附件文件名
+	AttachFiles       []AttachFile       `json:"attachFiles,omitempty"`     // 附件列表 (包含内容)
 }
 
 // AffectedResource 受影响的资源
@@ -158,6 +168,9 @@ type SendEmailRequest struct {
 	Nodes       []string               `json:"nodes"`
 	Params      map[string]interface{} `json:"params"`
 	Recipients  []string               `json:"recipients" binding:"required,min=1"`
+	Subject     string                 `json:"subject"`     // Optional override
+	Body        string                 `json:"body"`        // Optional override
+	AttachFiles []AttachFile           `json:"attachFiles"` // 附件列表
 }
 
 // GetAffectedResourcesRequest 获取受影响资源请求

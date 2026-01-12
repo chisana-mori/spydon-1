@@ -1,6 +1,8 @@
 package http
 
 import (
+	"robusta-web/backend/internal/pkg/calico"
+
 	calicov3 "github.com/projectcalico/api/pkg/apis/projectcalico/v3"
 )
 
@@ -18,15 +20,16 @@ type OverviewStats struct {
 
 // ClusterOverviewItem represents summary information for a single Calico cluster.
 type ClusterOverviewItem struct {
-	ClusterName    string `json:"cluster_name"`
-	IPv4PoolCount  int    `json:"ipv4_pool_count"`
-	IPv6PoolCount  int    `json:"ipv6_pool_count"`
-	ActiveBGPPeers int    `json:"active_bgp_peers"`
-	TotalBGPPeers  int    `json:"total_bgp_peers"`
-	PolicyCount    int    `json:"policy_count"`
-	IsHealthy      bool   `json:"is_healthy"`
-	HealthScore    int    `json:"health_score"`
-	ErrMsg         string `json:"err_msg,omitempty"`
+	ClusterName    string   `json:"cluster_name"`
+	IPv4PoolCount  int      `json:"ipv4_pool_count"`
+	IPv6PoolCount  int      `json:"ipv6_pool_count"`
+	ActiveBGPPeers int      `json:"active_bgp_peers"`
+	TotalBGPPeers  int      `json:"total_bgp_peers"`
+	PolicyCount    int      `json:"policy_count"`
+	IsHealthy      bool     `json:"is_healthy"`
+	HealthScore    int      `json:"health_score"`
+	Deductions     []string `json:"deductions,omitempty"`
+	ErrMsg         string   `json:"err_msg,omitempty"`
 }
 
 // OverviewResponse contains statistics and cluster list for the overview endpoint.
@@ -77,6 +80,7 @@ type ClusterDetailResponse struct {
 	ClusterName            string                       `json:"cluster_name"`
 	HealthStatus           string                       `json:"health_status"`
 	Issues                 []string                     `json:"issues"`
+	ScoreDetail            *calico.HealthScoreDetail    `json:"score_detail,omitempty"`
 	IPPoolsV4              []IPPoolDetail               `json:"ip_pools_v4"`
 	IPPoolsV6              []IPPoolDetail               `json:"ip_pools_v6"`
 	BGPConfiguration       *calicov3.BGPConfiguration   `json:"bgp_configuration"`

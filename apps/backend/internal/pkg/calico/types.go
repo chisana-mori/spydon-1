@@ -99,4 +99,28 @@ var (
 		Version:  "v1",
 		Resource: "caliconodestatuses",
 	}
+
+	NodeGVR = schema.GroupVersionResource{
+		Group:    "crd.projectcalico.org",
+		Version:  "v1",
+		Resource: "nodes",
+	}
+
+	BlockAffinityGVR = schema.GroupVersionResource{
+		Group:    "crd.projectcalico.org",
+		Version:  "v1",
+		Resource: "blockaffinities",
+	}
+
+	IPAMBlockGVR = schema.GroupVersionResource{
+		Group:    "crd.projectcalico.org",
+		Version:  "v1",
+		Resource: "ipamblocks",
+	}
+
+	K8sNodeGVR = schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "nodes",
+	}
 )

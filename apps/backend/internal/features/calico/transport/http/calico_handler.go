@@ -176,65 +176,38 @@ func (h *Handler) calculateOverviewStats(items []ClusterOverviewItem) OverviewSt
 func (h *Handler) collectClusterOverview(clusterName string) ClusterOverviewItem {
 	item := ClusterOverviewItem{
 		ClusterName: clusterName,
-		HealthScore: 100,
 		IsHealthy:   true,
 	}
 
-	if err := h.collectIPPoolsForOverview(clusterName, &item); err != nil {
-		h.updateOverviewHealth(&item, err, "IPPools")
-	}
-
-	if err := h.collectBGPPeersForOverview(clusterName, &item); err != nil {
-		h.updateOverviewHealth(&item, err, "BGPPeers")
-	}
-
-	if err := h.collectPoliciesForOverview(clusterName, &item); err != nil {
-		h.updateOverviewHealth(&item, err, "Policies")
-	}
-
-	return item
-}
-
-func (h *Handler) collectIPPoolsForOverview(clusterName string, item *ClusterOverviewItem) error {
-	pools, err := h.calicoService.ListIPPools(clusterName)
+	detail, res, err := h.calicoService.CalculateHealthScore(clusterName)
 	if err != nil {
-		return err
+		h.updateOverviewHealth(&item, err, "HealthCheck")
+		return item
 	}
 
-	for _, p := range pools {
+	item.HealthScore = detail.TotalScore
+	item.Deductions = detail.Deductions
+	if item.HealthScore < 60 {
+		item.IsHealthy = false
+	}
+
+	// Count IPPools
+	for _, p := range res.IPPools {
 		if strings.Contains(p.Spec.CIDR, ":") {
 			item.IPv6PoolCount++
 		} else {
 			item.IPv4PoolCount++
 		}
 	}
-	return nil
-}
 
-func (h *Handler) collectBGPPeersForOverview(clusterName string, item *ClusterOverviewItem) error {
-	peers, err := h.calicoService.ListBGPPeers(clusterName)
-	if err != nil {
-		return err
-	}
+	// Count Peers
+	item.TotalBGPPeers = len(res.BGPPeers)
+	item.ActiveBGPPeers = len(res.BGPPeers) // Naive assumption as before
 
-	item.TotalBGPPeers = len(peers)
-	item.ActiveBGPPeers = len(peers)
-	return nil
-}
+	// Count Policies
+	item.PolicyCount = len(res.GlobalNetworkPolicies) + len(res.NetworkPolicies)
 
-func (h *Handler) collectPoliciesForOverview(clusterName string, item *ClusterOverviewItem) error {
-	gp, err := h.calicoService.ListGlobalNetworkPolicies(clusterName)
-	if err != nil {
-		return err
-	}
-
-	np, err := h.calicoService.ListNetworkPolicies(clusterName, "")
-	if err != nil {
-		return err
-	}
-
-	item.PolicyCount = len(gp) + len(np)
-	return nil
+	return item
 }
 
 func (h *Handler) updateOverviewHealth(item *ClusterOverviewItem, err error, context string) {
@@ -290,25 +263,24 @@ func (h *Handler) buildClusterDetail(clusterName string) ClusterDetailResponse {
 		Issues:                 []string{},
 	}
 
-	h.populateIPPools(clusterName, &detail)
-	h.populateBGPConfiguration(clusterName, &detail)
-	h.populateBGPPeers(clusterName, &detail)
-	h.populatePolicies(clusterName, &detail)
-	h.populateFelixConfiguration(clusterName, &detail)
-	h.populateResourceCounts(clusterName, &detail)
-
-	return detail
-}
-
-func (h *Handler) populateIPPools(clusterName string, detail *ClusterDetailResponse) {
-	pools, err := h.calicoService.ListIPPools(clusterName)
+	scoreDetail, res, err := h.calicoService.CalculateHealthScore(clusterName)
 	if err != nil {
-		detail.Issues = append(detail.Issues, fmt.Sprintf("Failed to list IPPools: %v", err))
+		detail.Issues = append(detail.Issues, fmt.Sprintf("Failed to calculate health score: %v", err))
 		detail.HealthStatus = "warning"
-		return
+		// Fallback: try to fetch individual resources if health score failed?
+		// Or just return partial? For now return what we have.
+		return detail
 	}
 
-	for _, p := range pools {
+	detail.ScoreDetail = scoreDetail
+	if scoreDetail.TotalScore < 60 {
+		detail.HealthStatus = "critical"
+	} else if scoreDetail.TotalScore < 90 {
+		detail.HealthStatus = "warning"
+	}
+
+	// Process IPPools
+	for _, p := range res.IPPools {
 		poolDetail := h.convertToIPPoolDetail(p)
 		if poolDetail.IPVersion == 6 {
 			detail.IPPoolsV6 = append(detail.IPPoolsV6, poolDetail)
@@ -316,6 +288,35 @@ func (h *Handler) populateIPPools(clusterName string, detail *ClusterDetailRespo
 			detail.IPPoolsV4 = append(detail.IPPoolsV4, poolDetail)
 		}
 	}
+
+	// BGP Config
+	if len(res.BGPConfigurations) > 0 {
+		detail.BGPConfiguration = &res.BGPConfigurations[0]
+	}
+
+	// BGP Peers
+	for _, p := range res.BGPPeers {
+		peerDetail := h.convertToBGPPeerDetail(p)
+		detail.BGPPeers = append(detail.BGPPeers, peerDetail)
+	}
+
+	// Policies
+	for _, p := range res.GlobalNetworkPolicies {
+		policySummary := h.convertToPolicySummary(p)
+		detail.GlobalNetworkPolicies = append(detail.GlobalNetworkPolicies, policySummary)
+	}
+	for _, p := range res.NetworkPolicies {
+		detail.NamespacedPolicyCounts[p.Namespace]++
+	}
+
+	// Felix - CalculateHealthScore does NOT fetch FelixConfigs, HostEndpoints, NetworkSets.
+	// We need to fetch them separately or add them to CalculateHealthScore.
+	// Since user didn't mention them in scoring, Helper likely didn't fetch them.
+	// We can fetch them here.
+	h.populateFelixConfiguration(clusterName, &detail)
+	h.populateResourceCounts(clusterName, &detail)
+
+	return detail
 }
 
 func (h *Handler) convertToIPPoolDetail(pool calicov3.IPPool) IPPoolDetail {
@@ -350,21 +351,6 @@ func (h *Handler) convertToIPPoolDetail(pool calicov3.IPPool) IPPoolDetail {
 	}
 }
 
-func (h *Handler) populateBGPConfiguration(clusterName string, detail *ClusterDetailResponse) {
-	bgpConfigs, _ := h.calicoService.ListBGPConfigurations(clusterName)
-	if len(bgpConfigs) > 0 {
-		detail.BGPConfiguration = &bgpConfigs[0]
-	}
-}
-
-func (h *Handler) populateBGPPeers(clusterName string, detail *ClusterDetailResponse) {
-	peers, _ := h.calicoService.ListBGPPeers(clusterName)
-	for _, p := range peers {
-		peerDetail := h.convertToBGPPeerDetail(p)
-		detail.BGPPeers = append(detail.BGPPeers, peerDetail)
-	}
-}
-
 func (h *Handler) convertToBGPPeerDetail(peer calicov3.BGPPeer) BGPPeerDetail {
 	scope := "global"
 	nodeSelector := peer.Spec.NodeSelector
@@ -382,19 +368,6 @@ func (h *Handler) convertToBGPPeerDetail(peer calicov3.BGPPeer) BGPPeerDetail {
 		NodeSelector: nodeSelector,
 		Scope:        scope,
 		Uptime:       "12d 5h",
-	}
-}
-
-func (h *Handler) populatePolicies(clusterName string, detail *ClusterDetailResponse) {
-	gnps, _ := h.calicoService.ListGlobalNetworkPolicies(clusterName)
-	for _, p := range gnps {
-		policySummary := h.convertToPolicySummary(p)
-		detail.GlobalNetworkPolicies = append(detail.GlobalNetworkPolicies, policySummary)
-	}
-
-	nps, _ := h.calicoService.ListNetworkPolicies(clusterName, "")
-	for _, p := range nps {
-		detail.NamespacedPolicyCounts[p.Namespace]++
 	}
 }
 

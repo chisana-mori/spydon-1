@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	policyv1 "k8s.io/api/policy/v1"
 	policyv1beta1 "k8s.io/api/policy/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,10 +41,19 @@ type SimpleDrainService struct {
 	drainCancels        map[string]context.CancelFunc
 	normalizeProbeMutex sync.Mutex
 	lastNormalizeProbe  map[string]time.Time
+
+	// Dragonfly Integration
+	dragonflyService *DragonflyDrainService
+	dragonflyEnabled bool
 }
 
 // NewSimpleDrainService 创建 SimpleDrainService
-func NewSimpleDrainService(clientFactory sharedservices.K8sClientFactory, redisHandler sharedservices.RedisClient) *SimpleDrainService {
+func NewSimpleDrainService(
+	clientFactory sharedservices.K8sClientFactory,
+	redisHandler sharedservices.RedisClient,
+	logger *zap.Logger,
+	dragonflyEnabled bool,
+) *SimpleDrainService {
 	eventManager := NewSimpleDrainEventManager(redisHandler)
 	versionCache := sharedservices.NewClusterVersionCache(5 * time.Minute)
 
@@ -61,6 +71,8 @@ func NewSimpleDrainService(clientFactory sharedservices.K8sClientFactory, redisH
 		pdbRetryStates:     make(map[string]*pdbRetryState),
 		drainCancels:       make(map[string]context.CancelFunc),
 		lastNormalizeProbe: make(map[string]time.Time),
+		dragonflyService:   NewDragonflyDrainService(logger),
+		dragonflyEnabled:   dragonflyEnabled,
 	}
 }
 
@@ -121,6 +133,25 @@ func (sds *SimpleDrainService) StartDrain(ctx context.Context, req *SimpleDrainR
 	drainID := generateDrainID()
 	// No Redis lock required, using Lease mechanism instead
 
+	// Dragonfly Integration: Create Change Order
+	var chNumber string
+	var isLocalTicket bool
+	var chStartTime time.Time
+	if sds.dragonflyEnabled {
+		userCtx := &DragonflyUserContext{
+			UMChecker:  req.UMChecker,
+			UMOperator: req.UMOperator,
+			Applicant:  req.Applicant,
+		}
+		// Create ticket
+		var chErr error
+		chNumber, isLocalTicket, chErr = sds.dragonflyService.CreateDrainChangeOrder(req, req.ClusterName, userCtx, drainID)
+		if chErr != nil {
+			return nil, fmt.Errorf("创建变更单失败: %w", chErr)
+		}
+		chStartTime = time.Now()
+	}
+
 	drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	sds.setDrainCancel(drainID, cancel)
 
@@ -131,7 +162,10 @@ func (sds *SimpleDrainService) StartDrain(ctx context.Context, req *SimpleDrainR
 	if err != nil {
 		cancel()
 		_ = sds.popDrainCancel(drainID)
-
+		// Close ticket if created
+		if sds.dragonflyEnabled && chNumber != "" {
+			_ = sds.dragonflyService.CloseDrainChangeOrder(chNumber, drainID, sds.dragonflyService.GetExecType(false, false, 0), isLocalTicket, false, "Snapshot creation failed: "+err.Error(), chStartTime)
+		}
 		return nil, fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
@@ -144,6 +178,10 @@ func (sds *SimpleDrainService) StartDrain(ctx context.Context, req *SimpleDrainR
 	if err := sds.stateManager.SaveDrainState(drainID, &DrainState{
 		DrainID: drainID, NodeName: req.NodeName, ClusterName: req.ClusterName,
 		Status: DrainStatusRunning, StartTime: time.Now(), UserID: "system",
+		// Dragonfly info
+		CHNumber:      chNumber,
+		CHStartTime:   chStartTime,
+		IsLocalTicket: isLocalTicket,
 	}); err != nil {
 		// record non-blocking error
 		sds.eventManager.SendError(drainID, "failed to save drain state", err)
@@ -670,7 +708,40 @@ func (sds *SimpleDrainService) groupPodsForEviction(pods []DrainPodInfo) map[str
 
 // cleanup 清理 Drain 过程中的资源
 func (sds *SimpleDrainService) cleanup(drainID string) {
-	if state, _ := sds.stateManager.GetDrainState(drainID); state != nil {
+	state, _ := sds.stateManager.GetDrainState(drainID)
+
+	// Dragonfly Integration: Close Change Order
+	if sds.dragonflyEnabled && state != nil && state.CHNumber != "" {
+		isCanceled := state.Status == DrainStatusCanceled
+		success := state.Status == DrainStatusCompleted
+
+		finalFailedCount := 0
+		migrations := sds.resourceManager.GetAllMigrations(drainID)
+		for _, m := range migrations {
+			if m.Status == DrainMigrationFailed || m.Status == DrainMigrationTimeout {
+				finalFailedCount++
+			}
+		}
+
+		execType := sds.dragonflyService.GetExecType(success, isCanceled, finalFailedCount)
+
+		errMsg := state.Error
+		if errMsg == "" {
+			errMsg = state.Message
+		}
+
+		_ = sds.dragonflyService.CloseDrainChangeOrder(
+			state.CHNumber,
+			drainID,
+			execType,
+			state.IsLocalTicket,
+			success,
+			errMsg,
+			state.CHStartTime,
+		)
+	}
+
+	if state != nil {
 		if err := sds.resourceManager.CleanupPDB(context.Background(), drainID, state.ClusterName); err != nil {
 			sds.eventManager.SendError(drainID, "failed to cleanup pdb", err)
 		}
@@ -817,6 +888,11 @@ type SimpleDrainRequest struct {
 	ClusterName string `json:"clusterName" binding:"required"`
 	DryRun      bool   `json:"dryRun"`
 	Force       bool   `json:"force"`
+	// Dragonfly Integration
+	UMChecker  string `json:"umChecker,omitempty"`
+	UMOperator string `json:"umOperator,omitempty"`
+	Applicant  string `json:"applicant,omitempty"`
+	CHNumber   string `json:"chNumber,omitempty"`
 }
 
 // SimpleDrainResponse 定义简化 Drain 响应

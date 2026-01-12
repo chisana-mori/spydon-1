@@ -11,7 +11,7 @@ func ExampleFactory_Setup() {
 	factory := redis.GetFactory()
 
 	// 初始化 Redis 连接
-	err := factory.Setup("redis://localhost:6379", 10)
+	err := factory.Setup("redis://localhost:6379", "", 10)
 	if err != nil {
 		fmt.Printf("Setup failed: %v\n", err)
 		return

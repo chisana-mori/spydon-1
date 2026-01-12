@@ -37,17 +37,58 @@ type CASConfig struct {
 	RolesAttribute     string `mapstructure:"roles_attribute" json:"roles_attribute" yaml:"roles_attribute"`
 }
 
-// EmailConfig SMTP 邮件配置
+// DlinkConfig Dlink 配置
+type DlinkConfig struct {
+	Host     string `mapstructure:"host" json:"host" yaml:"host"`
+	Token    string `mapstructure:"token" json:"token" yaml:"token"`
+	Timeout  int    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	UseProxy bool   `mapstructure:"use_proxy" json:"use_proxy" yaml:"use_proxy"`
+	Proxy    string `mapstructure:"proxy" json:"proxy" yaml:"proxy"`
+	IsDebug  bool   `mapstructure:"is_debug" json:"is_debug" yaml:"is_debug"`
+}
+
+// NarwhalConfig Narwhal 配置
+type NarwhalConfig struct {
+	Host  string `mapstructure:"host" json:"host" yaml:"host"`
+	Token string `mapstructure:"token" json:"token" yaml:"token"`
+}
+
+// DragonflyConfig Dragonfly 配置
+type DragonflyConfig struct {
+	Host     string `mapstructure:"host" json:"host" yaml:"host"`
+	Token    string `mapstructure:"token" json:"token" yaml:"token"`
+	Timeout  int    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	UseProxy bool   `mapstructure:"use_proxy" json:"use_proxy" yaml:"use_proxy"`
+	Proxy    string `mapstructure:"proxy" json:"proxy" yaml:"proxy"`
+	IsDebug  bool   `mapstructure:"is_debug" json:"is_debug" yaml:"is_debug"`
+}
+
+// WayneConfig Wayne 配置
+type WayneConfig struct {
+	Host  string `mapstructure:"host" json:"host" yaml:"host"`
+	Token string `mapstructure:"token" json:"token" yaml:"token"`
+}
+
+// OrchidConfig Orchid 配置
+type OrchidConfig struct {
+	Host  string `mapstructure:"host" json:"host" yaml:"host"`
+	Token string `mapstructure:"token" json:"token" yaml:"token"`
+}
+
+// EmailConfig SMTP 邮件配置 (Updated to match external_dependencies.email)
 type EmailConfig struct {
-	SMTPHost string `mapstructure:"smtp_host" json:"smtp_host" yaml:"smtp_host"`
-	SMTPPort int    `mapstructure:"smtp_port" json:"smtp_port" yaml:"smtp_port"`
-	SMTPUser string `mapstructure:"smtp_user" json:"smtp_user" yaml:"smtp_user"`
-	SMTPPass string `mapstructure:"smtp_pass" json:"smtp_pass" yaml:"smtp_pass"`
-	From     string `mapstructure:"from" json:"from" yaml:"from"`
-	FromName string `mapstructure:"from_name" json:"from_name" yaml:"from_name"` // 发件人名称
-	UseTLS   bool   `mapstructure:"use_tls" json:"use_tls" yaml:"use_tls"`       // 是否使用 TLS
+	Host   string `mapstructure:"host" json:"host" yaml:"host"`
+	Port   int    `mapstructure:"port" json:"port" yaml:"port"`
+	User   string `mapstructure:"user" json:"user" yaml:"user"` // Optional, needed for SMTP auth if not using secret as both?
+	Secret string `mapstructure:"secret" json:"secret" yaml:"secret"`
+	From   string `mapstructure:"from" json:"from" yaml:"from"`
+	CC     string `mapstructure:"cc" json:"cc" yaml:"cc"`
+	IsSSL  bool   `mapstructure:"is-ssl" json:"is-ssl" yaml:"is-ssl"`
+
+	// Legacy fields that might be needed or derived
+	FromName string `mapstructure:"from_name" json:"from_name" yaml:"from_name"`
 	RCATo    string `mapstructure:"rca_to" json:"rca_to" yaml:"rca_to"`
-	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"` // Kept for logic compatibility
 }
 
 // MinIOConfig MinIO 存储配置
@@ -71,19 +112,31 @@ type AWXConfig struct {
 	RebootTemplateID   int    `mapstructure:"reboot_template_id" json:"reboot_template_id" yaml:"reboot_template_id"`
 }
 
-// RedisConfig Redis 配置
 type RedisConfig struct {
 	URL      string `mapstructure:"url" json:"url" yaml:"url"`
 	PoolSize int    `mapstructure:"pool_size" json:"pool_size" yaml:"pool_size"`
+	Password string `mapstructure:"password" json:"password" yaml:"password"`
 	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
 }
 
 // ChangeManagementConfig 变更管理配置
 type ChangeManagementConfig struct {
-	Enabled        bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
-	TimeoutMinutes int    `mapstructure:"timeout_minutes" json:"timeout_minutes" yaml:"timeout_minutes"`
-	ITSMBaseURL    string `mapstructure:"itsm_base_url" json:"itsm_base_url" yaml:"itsm_base_url"`
-	ITSMAPIKey     string `mapstructure:"itsm_api_key" json:"itsm_api_key" yaml:"itsm_api_key"`
+	Enabled          bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	TimeoutMinutes   int    `mapstructure:"timeout_minutes" json:"timeout_minutes" yaml:"timeout_minutes"`
+	DragonflyEnabled bool   `mapstructure:"dragonfly_enabled" json:"dragonfly_enabled" yaml:"dragonfly_enabled"`
+	ITSMBaseURL      string `mapstructure:"itsm_base_url" json:"itsm_base_url" yaml:"itsm_base_url"`
+	ITSMAPIKey       string `mapstructure:"itsm_api_key" json:"itsm_api_key" yaml:"itsm_api_key"`
+}
+
+// ExternalDependenciesConfig 外部依赖聚合配置
+type ExternalDependenciesConfig struct {
+	Dlink     DlinkConfig     `mapstructure:"dlink" json:"dlink" yaml:"dlink"`
+	Narwhal   NarwhalConfig   `mapstructure:"narwhal" json:"narwhal" yaml:"narwhal"`
+	Dragonfly DragonflyConfig `mapstructure:"dragonfly" json:"dragonfly" yaml:"dragonfly"`
+	Email     EmailConfig     `mapstructure:"email" json:"email" yaml:"email"`
+	Redis     RedisConfig     `mapstructure:"redis" json:"redis" yaml:"redis"`
+	Wayne     WayneConfig     `mapstructure:"wayne" json:"wayne" yaml:"wayne"`
+	Orchid    OrchidConfig    `mapstructure:"orchid" json:"orchid" yaml:"orchid"`
 }
 
 // Config 应用配置结构
@@ -105,11 +158,12 @@ type Config struct {
 
 	HolmesGPT        HolmesGPTConfig        `mapstructure:"holmes_gpt" json:"holmes_gpt" yaml:"holmes_gpt"`
 	CAS              CASConfig              `mapstructure:"cas" json:"cas" yaml:"cas"`
-	Email            EmailConfig            `mapstructure:"email" json:"email" yaml:"email"`
 	MinIO            MinIOConfig            `mapstructure:"minio" json:"minio" yaml:"minio"`
 	AWX              AWXConfig              `mapstructure:"awx" json:"awx" yaml:"awx"`
-	Redis            RedisConfig            `mapstructure:"redis" json:"redis" yaml:"redis"`
 	ChangeManagement ChangeManagementConfig `mapstructure:"change_management" json:"change_management" yaml:"change_management"`
+
+	// ExternalDependencies replaces top-level Email and Redis
+	ExternalDependencies ExternalDependenciesConfig `mapstructure:"external_dependencies" json:"external_dependencies" yaml:"external_dependencies"`
 
 	RateLimitRPS int    `mapstructure:"rate_limit_rps" json:"rate_limit_rps" yaml:"rate_limit_rps"`
 	LogLevel     string `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
@@ -301,13 +355,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log_level", "info")
 	v.SetDefault("log_file", "server.log")
 
-	v.SetDefault("email.smtp_host", "")
-	v.SetDefault("email.smtp_port", 587)
-	v.SetDefault("email.smtp_user", "")
-	v.SetDefault("email.smtp_pass", "")
-	v.SetDefault("email.from", "")
-	v.SetDefault("email.rca_to", "")
-	v.SetDefault("email.enabled", false)
+	// Email defaults (Updated to match external_dependencies.email)
+	// Note: We used to have top level email. Now we set defaults for external_dependencies.email
+	v.SetDefault("external_dependencies.email.host", "")
+	v.SetDefault("external_dependencies.email.port", 587)
+	v.SetDefault("external_dependencies.email.from", "")
+	v.SetDefault("external_dependencies.email.is-ssl", false)  // use_tls in old, is-ssl in new
+	v.SetDefault("external_dependencies.email.enabled", false) // Assuming there is an enabled flag or we infer it? YAML didn't show enabled, but struct has it.
 
 	v.SetDefault("kite.enabled", false)
 	v.SetDefault("kite.database_url", "")
@@ -324,14 +378,16 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("awx.shutdown_template_id", 0)
 	v.SetDefault("awx.reboot_template_id", 0)
 
-	// Redis defaults
-	v.SetDefault("redis.url", "redis://localhost:6379")
-	v.SetDefault("redis.pool_size", 10)
-	v.SetDefault("redis.enabled", false)
+	// Redis defaults (Moved to external_dependencies)
+	v.SetDefault("external_dependencies.redis.url", "redis://localhost:6379")
+	v.SetDefault("external_dependencies.redis.pool_size", 10)
+	v.SetDefault("external_dependencies.redis.password", "")
+	v.SetDefault("external_dependencies.redis.enabled", false)
 
 	// Change Management defaults
 	v.SetDefault("change_management.enabled", false)
 	v.SetDefault("change_management.timeout_minutes", 30)
+	v.SetDefault("change_management.dragonfly_enabled", false)
 	v.SetDefault("change_management.itsm_base_url", "")
 	v.SetDefault("change_management.itsm_api_key", "")
 }
