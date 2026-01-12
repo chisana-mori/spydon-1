@@ -51,6 +51,18 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 
 
+// ... existing imports
+
+// 设备状态映射
+const DEVICE_STATUS_MAP: Record<string, { label: string; className: string }> = {
+    '1': { label: '预分配', className: 'border-cyan-500/20 text-cyan-600 bg-cyan-500/10' },
+    '2': { label: '建设中', className: 'border-blue-500/20 text-blue-600 bg-blue-500/10' },
+    '3': { label: '使用中', className: 'border-green-500/20 text-green-600 bg-green-500/10' },
+    '4': { label: '维护中', className: 'border-amber-500/20 text-amber-600 bg-amber-500/10' },
+    '5': { label: '下线中', className: 'border-orange-500/20 text-orange-600 bg-orange-500/10' },
+    '6': { label: '已下线', className: 'border-slate-500/20 text-slate-500 bg-slate-500/10' },
+}
+
 interface DeviceDataTableProps {
     devices: NavyDevice[]
     isLoading: boolean
@@ -652,12 +664,26 @@ export function DeviceDataTable({ devices, isLoading, onSelect, onRefresh, selec
                                         variant="outline"
                                         className={cn(
                                             "text-[10px] h-5",
-                                            device.status === 'online' || device.status === '活跃' || device.status === 'Running' || device.status === 'READY'
-                                                ? "border-green-500/20 text-green-600 bg-green-500/10"
-                                                : "border-muted text-muted-foreground bg-muted/30"
+                                            (() => {
+                                                const statusStr = String(device.status);
+                                                if (DEVICE_STATUS_MAP[statusStr]) {
+                                                    return DEVICE_STATUS_MAP[statusStr].className;
+                                                }
+                                                // 兼容旧状态
+                                                if (['online', '活跃', 'Running', 'READY'].includes(device.status)) {
+                                                    return "border-green-500/20 text-green-600 bg-green-500/10";
+                                                }
+                                                return "border-muted text-muted-foreground bg-muted/30";
+                                            })()
                                         )}
                                     >
-                                        {device.status || '未知'}
+                                        {(() => {
+                                            const statusStr = String(device.status);
+                                            if (DEVICE_STATUS_MAP[statusStr]) {
+                                                return DEVICE_STATUS_MAP[statusStr].label;
+                                            }
+                                            return device.status || '未知';
+                                        })()}
                                     </Badge>
                                 )}
                             </TableCell>

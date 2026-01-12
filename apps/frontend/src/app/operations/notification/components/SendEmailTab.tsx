@@ -14,26 +14,21 @@ import {
     Search,
     ChevronDown,
     X,
-    Filter,
     Server,
     ListFilter,
     Download,
     Paperclip,
     Settings,
     CheckCircle,
-    Eye,
-    Edit
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RobustaAPI } from '@/lib/api';
 import {
-    PreviewEmailRequest,
     SendEmailRequest,
     AffectedResource
 } from '@/types/email';
-import { NavyDevice } from '@/types/navy';
 import { DeviceSelector } from '@/components/common/DeviceSelector';
-import { HtmlPreview } from '@/components/common/HtmlPreview';
+
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -60,22 +55,13 @@ import {
     SheetFooter,
 } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
-import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
+
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command";
 import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
+import { HtmlPreview } from '@/components/ui/html-preview';
 
 // --- Type Definitions ---
 interface ParamDef {
@@ -568,7 +554,7 @@ export function SendEmailTab() {
     const [attachFiles, setAttachFiles] = useState<any[]>([]); // Using any for simplicity as per existing usage pattern or define interface
     const [affectedResources, setAffectedResources] = useState<AffectedResource[]>([]);
     const [showPreviewDialog, setShowPreviewDialog] = useState(false);
-    const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
+
 
     // ---------------- Queries ----------------
 
@@ -774,20 +760,21 @@ export function SendEmailTab() {
         onSuccess: (data: any) => {
             setPreviewSubject(data.subject);
 
-            // Fix: Handle HTML content that might be wrapped in markdown code blocks or escaped
+            // Process HTML content - remove markdown code blocks and unescape entities
             let cleanHtml = data.content || '';
 
-            // 1. Remove Markdown code blocks if present
+            // 1. Remove Markdown code blocks if present (handle any language tag)
             if (cleanHtml.trim().startsWith('```')) {
-                cleanHtml = cleanHtml.replace(/^```(html)?\s*/i, '').replace(/\s*```$/, '');
+                cleanHtml = cleanHtml.replace(/^```\w*\s*/i, '').replace(/\s*```$/, '');
             }
 
-            // 2. Unescape HTML entities if it looks like escaped HTML (e.g. &lt;div&gt;)
-            // This prevents the HTML from being rendered as a code block of tags
-            if (cleanHtml.includes('&lt;') && cleanHtml.includes('&gt;')) {
-                const doc = new DOMParser().parseFromString(cleanHtml, 'text/html');
-                const decoded = doc.documentElement.textContent;
-                if (decoded) cleanHtml = decoded;
+            // 2. Unescape HTML entities if the content appears to be escaped
+            // Check for escaped HTML patterns like &lt;div&gt;
+            if (cleanHtml.includes('&lt;') || cleanHtml.includes('&gt;') || cleanHtml.includes('&amp;')) {
+                // Use a textarea trick to decode HTML entities
+                const textarea = document.createElement('textarea');
+                textarea.innerHTML = cleanHtml;
+                cleanHtml = textarea.value;
             }
 
             setPreviewHtml(cleanHtml);
@@ -795,19 +782,14 @@ export function SendEmailTab() {
             setPreviewVersion(v => v + 1);
 
             // Populate initial final recipients from current selection + custom
-            // Note: The preview response might contain recipients if the backend calculated them,
-            // but usually buildEmail just returns content.
-            // We'll initialize from our current selection state.
             const currentRecipients = [
                 ...selectedEmailsFromContacts,
                 ...customRecipients.split(/[,\s]+/).map(r => r.trim()).filter(Boolean)
             ];
-            // Start with unique recipients
             setFinalRecipients(Array.from(new Set(currentRecipients)));
 
             setAffectedResources([]);
             setShowPreviewDialog(true);
-            setViewMode('preview'); // Default to preview mode for perfect display
         },
         onError: (error: any) => toast.error('预览生成失败: ' + (error.response?.data?.error || error.message))
     });
@@ -1180,52 +1162,12 @@ export function SendEmailTab() {
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
                                         <label className="text-sm font-medium text-muted-foreground">邮件正文预览</label>
-                                        <div className="flex items-center p-1 bg-muted rounded-lg border">
-                                            <button
-                                                onClick={() => setViewMode('preview')}
-                                                className={cn(
-                                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                                                    viewMode === 'preview'
-                                                        ? "bg-background text-foreground shadow-sm"
-                                                        : "text-muted-foreground hover:text-foreground hover:bg-background/50"
-                                                )}
-                                            >
-                                                <Eye className="w-3.5 h-3.5" />
-                                                预览
-                                            </button>
-                                            <button
-                                                onClick={() => setViewMode('edit')}
-                                                className={cn(
-                                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                                                    viewMode === 'edit'
-                                                        ? "bg-background text-foreground shadow-sm"
-                                                        : "text-muted-foreground hover:text-foreground hover:bg-background/50"
-                                                )}
-                                            >
-                                                <Edit className="w-3.5 h-3.5" />
-                                                编辑
-                                            </button>
-                                        </div>
                                     </div>
 
-                                    <div className="border rounded-lg bg-card shadow-sm overflow-hidden min-h-[400px]">
-                                        {viewMode === 'preview' ? (
-                                            <HtmlPreview
-                                                html={previewHtml}
-                                                className="w-full min-h-[400px]"
-                                                style={{ height: '500px' }}
-                                            />
-                                        ) : (
-                                            <SimpleEditor
-                                                key={previewVersion} // Remount when version changes
-                                                initialContent={previewHtml}
-                                                onUpdate={(_, html) => setPreviewHtml(html)}
-                                                variant="embed"
-                                                embedHeight={500}
-                                                className="prose dark:prose-invert max-w-none text-sm w-full"
-                                            />
-                                        )}
-                                    </div>
+                                    <HtmlPreview
+                                        html={previewHtml}
+                                        className="border rounded-lg bg-card shadow-sm overflow-hidden"
+                                    />
                                 </div>
 
                                 {/* 4. Attachments */}

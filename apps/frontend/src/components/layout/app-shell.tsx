@@ -342,7 +342,12 @@ export function AppShell({ children }: AppShellProps) {
             )}
           </button>
 
-          {isExpanded && (
+          <div
+            className={cn(
+              'overflow-hidden transition-all duration-300 ease-in-out',
+              isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0',
+            )}
+          >
             <div className="mt-1 space-y-1">
               {item.children.map((child) => {
                 const isActive = child.href && (child.href === '/' ? normalizedPathname === '/' : normalizedPathname.startsWith(child.href))
@@ -380,7 +385,7 @@ export function AppShell({ children }: AppShellProps) {
                 )
               })}
             </div>
-          )}
+          </div>
         </div>
       )
     }
@@ -509,7 +514,7 @@ export function AppShell({ children }: AppShellProps) {
         {/* Header */}
         <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm">
           <div className="flex h-full items-center justify-between px-4 md:px-6">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
                 size="icon"

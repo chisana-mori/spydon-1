@@ -135,7 +135,7 @@ func (s *NavyDeviceService) applyKeywordSearch(db *gorm.DB, keyword string) *gor
 				continue
 			}
 			// 单行匹配逻辑: IP LIKE %kw% OR CI LIKE %kw%
-			conditions = append(conditions, "(device.ip LIKE ? OR device.ci_code LIKE ?)")
+			conditions = append(conditions, "(LOWER(device.ip) LIKE LOWER(?) OR UPPER(device.ci_code) LIKE UPPER(?))")
 			kw := "%" + line + "%"
 			args = append(args, kw, kw)
 		}
@@ -148,8 +148,9 @@ func (s *NavyDeviceService) applyKeywordSearch(db *gorm.DB, keyword string) *gor
 	}
 
 	// 单行模式：模糊匹配 (包含集群字段)
+	// 使用 LOWER/UPPER 确保大小写不敏感 (虽然 LIKE 默认通常不区分，但显式转换更安全)
 	kw := "%" + strings.TrimSpace(keyword) + "%"
-	return db.Where("device.ip LIKE ? OR device.ci_code LIKE ? OR device.cluster LIKE ?", kw, kw, kw)
+	return db.Where("LOWER(device.ip) LIKE LOWER(?) OR UPPER(device.ci_code) LIKE UPPER(?) OR LOWER(device.cluster) LIKE LOWER(?)", kw, kw, kw)
 }
 
 // QueryDevices 复杂查询 - 支持完整的12种条件类型

@@ -3,6 +3,7 @@ package nodesync
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"robusta-web/backend/internal/models"
@@ -45,6 +46,13 @@ func (m *Manager) syncCluster(ctx context.Context, clusterName string) error {
 		return err
 	}
 
+	// 健壮性检查：如果获取到的节点数为 0，可能是集群连接异常或 List 失败
+	// 此时不应进行后续的 Orphan 清理，否则会导致所有设备关联被清除
+	if len(nodes) == 0 {
+		logger.S().Warnw("获取到的集群节点数为 0，跳过同步和清理，以防止误删", "cluster", clusterName)
+		return nil
+	}
+
 	// 获取 Cluster ID
 	var cluster models.Cluster
 	if err := m.mainDB.Where("clustername = ?", clusterName).First(&cluster).Error; err != nil {
@@ -53,7 +61,7 @@ func (m *Manager) syncCluster(ctx context.Context, clusterName string) error {
 
 	activeNodeNames := make([]string, 0, len(nodes))
 	for _, node := range nodes {
-		activeNodeNames = append(activeNodeNames, node.Name)
+		activeNodeNames = append(activeNodeNames, strings.ToUpper(node.Name))
 		// 使用 nodesync 包中已有的 UpdateDeviceFromNode 函数
 		if err := UpdateDeviceFromNode(ctx, m.mainDB, clusterName, &node); err != nil {
 			// 单个失败不中断整体

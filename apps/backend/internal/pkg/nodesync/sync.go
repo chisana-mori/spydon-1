@@ -17,13 +17,13 @@ import (
 // 通过 nodename 匹配 ci_code 进行关联
 // 注意：仅更新 cluster 名称和 k8s_status，不更新 cluster_id 和 role（由其他系统管理）
 func UpdateDeviceFromNode(ctx context.Context, database *db.Database, clusterName string, node *corev1.Node) error {
-	nodeName := node.Name
+	nodeName := strings.ToUpper(node.Name)
 	_, k8sStatus := ExtractNodeInfo(node)
 
 	// 通过 ci_code 查找设备
 	var device navy.Device
 	// 1. 尝试精确匹配 ci_code (此时 nodeName 已转为大写)
-	if err := database.WithContext(ctx).Where("ci_code = ?", nodeName).First(&device).Error; err != nil {
+	if err := database.WithContext(ctx).Where("UPPER(ci_code) = ?", nodeName).First(&device).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -89,7 +89,7 @@ func UpdateDeviceFromNode(ctx context.Context, database *db.Database, clusterNam
 // 当节点从集群中删除时调用
 func ClearDeviceClusterInfo(ctx context.Context, database *db.Database, ciCode string) error {
 	result := database.WithContext(ctx).Model(&navy.Device{}).
-		Where("ci_code = ?", ciCode).
+		Where("UPPER(ci_code) = ?", ciCode).
 		Updates(map[string]interface{}{
 			"cluster":    "",
 			"cluster_id": 0,
@@ -123,7 +123,7 @@ func CleanOrphanDevices(ctx context.Context, database *db.Database, clusterID in
 
 	// 清除不在活跃节点列表中的设备
 	return database.WithContext(ctx).Model(&navy.Device{}).
-		Where("cluster_id = ? AND ci_code NOT IN ?", clusterID, activeNodeNames).
+		Where("cluster_id = ? AND UPPER(ci_code) NOT IN ?", clusterID, activeNodeNames).
 		Updates(map[string]interface{}{
 			"cluster":    "",
 			"cluster_id": 0,

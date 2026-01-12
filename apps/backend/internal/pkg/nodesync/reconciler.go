@@ -2,6 +2,7 @@ package nodesync
 
 import (
 	"context"
+	"strings"
 
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/pkg/logger"
@@ -32,7 +33,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 			logger.S().Infow("节点已删除，清除设备集群关联",
 				"cluster", r.clusterName,
 				"node", nodeName)
-			if clearErr := ClearDeviceClusterInfo(ctx, r.database, nodeName); clearErr != nil {
+			if clearErr := ClearDeviceClusterInfo(ctx, r.database, strings.ToUpper(nodeName)); clearErr != nil {
 				logger.S().Errorw("清除设备集群关联失败",
 					"cluster", r.clusterName,
 					"node", nodeName,
