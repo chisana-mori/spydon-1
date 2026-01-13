@@ -145,6 +145,9 @@ type Config struct {
 	Port        string `mapstructure:"port" json:"port" yaml:"port"`
 	BasePath    string `mapstructure:"base_path" json:"base_path" yaml:"base_path"` // 应用部署的基础路径，如 /spydon
 
+	// DevModeAuthBypass 开发模式认证绕过开关（仅在 environment=development 时生效）
+	DevModeAuthBypass bool `mapstructure:"dev_mode_auth_bypass" json:"dev_mode_auth_bypass" yaml:"dev_mode_auth_bypass"`
+
 	DatabaseURL string `mapstructure:"database_url" json:"database_url" yaml:"database_url"`
 
 	JWTSecret    string `mapstructure:"jwt_secret" json:"jwt_secret" yaml:"jwt_secret"`
@@ -316,6 +319,7 @@ func Load() (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("environment", "development")
 	v.SetDefault("port", strconv.Itoa(constants.DefaultPort))
+	v.SetDefault("dev_mode_auth_bypass", false) // 默认关闭，需显式开启
 
 	v.SetDefault("database_url", "root:password@tcp(localhost:3306)/robusta_hub?charset=utf8mb4&parseTime=True&loc=Local")
 

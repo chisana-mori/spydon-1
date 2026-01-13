@@ -62,7 +62,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
 import parse from 'html-react-parser';
-import DOMPurify from 'dompurify';
 import { TiptapEditor } from '@/components/common/TiptapEditor';
 
 
@@ -1269,7 +1268,7 @@ export function SendEmailTab() {
                                         />
                                     ) : (
                                         <div className="border rounded-lg bg-card shadow-sm overflow-hidden p-6 min-h-[200px] bg-white text-black">
-                                            {parse(DOMPurify.sanitize(previewHtml))}
+                                            {parse(previewHtml)}
                                         </div>
                                     )}
                                 </div>

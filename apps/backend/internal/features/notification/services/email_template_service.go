@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 
 	"robusta-web/backend/internal/db"
 	"robusta-web/backend/internal/models"
@@ -107,7 +108,7 @@ func (s *EmailTemplateService) CreateTemplate(req CreateEmailTemplateRequest) (*
 	template := &models.EmailTemplate{
 		Name:      req.Name,
 		Title:     req.Title,
-		Body:      req.Body,
+		Body:      html.EscapeString(req.Body), // 存储 HTML 转义后的内容
 		Params:    paramsJSON,
 		IsEnabled: isEnabled,
 	}
@@ -145,7 +146,7 @@ func (s *EmailTemplateService) UpdateTemplate(id uint64, req UpdateEmailTemplate
 		template.Title = *req.Title
 	}
 	if req.Body != nil {
-		template.Body = *req.Body
+		template.Body = html.EscapeString(*req.Body) // 存储 HTML 转义后的内容
 	}
 	if req.Params != nil {
 		data, err := json.Marshal(req.Params)
@@ -184,7 +185,7 @@ func (s *EmailTemplateService) toResponse(t models.EmailTemplate) EmailTemplateR
 		ID:        t.ID,
 		Name:      t.Name,
 		Title:     t.Title,
-		Body:      t.Body,
+		Body:      html.UnescapeString(t.Body), // 返回反转义后的 HTML 供前端使用
 		Params:    params,
 		IsEnabled: t.IsEnabled,
 		CreatedAt: t.CreatedAt.Format("2006-01-02 15:04:05"),

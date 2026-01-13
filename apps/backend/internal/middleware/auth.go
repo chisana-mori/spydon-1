@@ -14,9 +14,23 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// bypassAuthInDevMode 检查是否应该在开发模式下绕过认证
+// 需同时满足：environment=development 且 dev_mode_auth_bypass=true
+func bypassAuthInDevMode(cfg *config.Config, c *gin.Context) bool {
+	if cfg.Environment == "development" && cfg.DevModeAuthBypass {
+		setDevAdmin(c)
+		return true
+	}
+	return false
+}
+
 // AuthMiddleware JWT认证中间件
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if bypassAuthInDevMode(cfg, c) {
+			return
+		}
+
 		tokenString := extractBearerToken(c.GetHeader("Authorization"))
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -45,6 +59,10 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 // OptionalAuthMiddleware 可选认证中间件（用于某些公开接口）
 func OptionalAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if bypassAuthInDevMode(cfg, c) {
+			return
+		}
+
 		tokenString := extractBearerToken(c.GetHeader("Authorization"))
 		if tokenString == "" {
 			c.Next()
@@ -63,6 +81,10 @@ func OptionalAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 // CookieAuthMiddleware 支持通过Cookie或Authorization头验证JWT
 func CookieAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if bypassAuthInDevMode(cfg, c) {
+			return
+		}
+
 		tokenString := ""
 
 		if cookieToken, err := c.Cookie("access_token"); err == nil && strings.TrimSpace(cookieToken) != "" {
@@ -204,6 +226,15 @@ func setUserClaims(c *gin.Context, claims jwt.MapClaims) {
 	} else {
 		c.Set("is_admin", false)
 	}
+}
+
+func setDevAdmin(c *gin.Context) {
+	c.Set("user_id", uint64(1))
+	c.Set("user_email", "admin@local")
+	c.Set("user_name", "Local Admin")
+	c.Set("user_roles", []interface{}{"admin"})
+	c.Set("username", "admin")
+	c.Set("is_admin", true)
 }
 
 func shouldRedirectForCAS(cfg *config.Config, r *http.Request) bool {
