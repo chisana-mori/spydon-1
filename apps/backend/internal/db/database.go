@@ -73,6 +73,9 @@ func (d *Database) AutoMigrate() error {
 
 	// 逐表迁移，确保即使某个表的索引操作失败也不会阻止其他表创建
 	tables := []interface{}{
+		&models.User{}, // Must be first for FKs
+		&models.Dictionary{},
+		&models.DictionaryItem{},
 		&models.PipelineTemplate{},
 		&models.PipelineExecution{},
 		&models.StageRun{},
@@ -80,14 +83,11 @@ func (d *Database) AutoMigrate() error {
 		&models.Alert{},
 		&models.RCARun{},
 		&models.AuditLog{},
-		&models.User{},
 		&models.RefreshToken{},
 		&models.APIKey{},
 		&models.KnowledgeArticle{},
 		&models.KnowledgeArticleVersion{},
 		&models.SystemSetting{},
-		&models.Dictionary{},
-		&models.DictionaryItem{},
 		&models.EmailTemplate{},
 		&models.EmailContact{},
 		&navy.Device{},
@@ -102,18 +102,25 @@ func (d *Database) AutoMigrate() error {
 	}
 
 	for _, table := range tables {
-		if err := d.DB.AutoMigrate(table); err != nil {
-			errStr := err.Error()
-			// MySQL Error 1091: Can't DROP ... check that column/key exists
-			// 这在重复迁移或从 PostgreSQL 迁移后常见，索引/外键不存在时发生
-			// 这类错误是警告性的，不应阻止迁移继续
-			if strings.Contains(errStr, "Error 1091") || strings.Contains(errStr, "Can't DROP") {
-				logger.S().Warnw("忽略迁移时的索引/外键清理错误（不影响表创建）",
-					"table", fmt.Sprintf("%T", table),
-					"error", err)
-				// 继续执行下一个表
+		if !d.Migrator().HasTable(table) {
+			if err := d.Migrator().CreateTable(table); err != nil {
+				return fmt.Errorf("创建表 %T 失败: %w", table, err)
+			}
+			logger.S().Infow("创建表成功", "table", fmt.Sprintf("%T", table))
+		} else {
+			if err := d.DB.AutoMigrate(table); err != nil {
+				errStr := err.Error()
+				logger.S().Warnw("尝试迁移表时出错", "table", fmt.Sprintf("%T", table), "error", err)
+				// MySQL Error 1091: Can't DROP ... check that column/key exists
+				if strings.Contains(errStr, "Error 1091") || strings.Contains(errStr, "Can't DROP") {
+					logger.S().Warnw("忽略迁移时的索引/外键清理错误（不影响表创建）",
+						"table", fmt.Sprintf("%T", table),
+						"error", err)
+				} else {
+					return fmt.Errorf("迁移表 %T 失败: %w", table, err)
+				}
 			} else {
-				return fmt.Errorf("迁移表 %T 失败: %w", table, err)
+				logger.S().Infow("迁移表成功", "table", fmt.Sprintf("%T", table))
 			}
 		}
 	}
@@ -134,10 +141,10 @@ func (d *Database) cleanupLegacyIndexes() error {
 		table string
 		index string
 	}{
-		{"users", "uni_users_username"},
-		{"users", "uni_users_email"},
-		{"refresh_tokens", "uni_refresh_tokens_token"},
-		{"system_settings", "uni_system_settings_key"},
+		{"spydon_users", "idx_spydon_users_username"},
+		{"spydon_users", "idx_spydon_users_email"},
+		{"spydon_refresh_tokens", "idx_spydon_refresh_tokens_token"},
+		{"spydon_dictionaries", "idx_spydon_dictionaries_code"},
 	}
 
 	for _, idx := range legacyIndexes {

@@ -709,7 +709,63 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                                                         />
                                                                     </motion.div>
                                                                 )}
-                                                                {(param.type === 'date' || param.type === 'datetime') && (
+                                                                {param.type === 'datetime' && (
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0, height: 0 }}
+                                                                        animate={{ opacity: 1, height: 'auto' }}
+                                                                        exit={{ opacity: 0, height: 0 }}
+                                                                        className="overflow-hidden"
+                                                                    >
+                                                                        <div className="bg-muted/30 p-3 rounded-lg border border-border/40 space-y-3">
+                                                                            <Label className="text-[11px] font-semibold flex items-center gap-1.5 text-primary">
+                                                                                <Calendar className="w-3 h-3" />
+                                                                                默认时间 (可选)
+                                                                            </Label>
+                                                                            <div className="grid grid-cols-2 gap-3">
+                                                                                <div className="space-y-1">
+                                                                                    <Label className="text-[10px] text-muted-foreground">日期偏移 (T+N)</Label>
+                                                                                    <Input
+                                                                                        placeholder="T+0"
+                                                                                        value={(param.value || '').split(' ')[0].startsWith('T') ? (param.value || '').split(' ')[0] : 'T+0'}
+                                                                                        onChange={(e) => {
+                                                                                            const parts = (param.value || '').split(' ');
+                                                                                            const currentTimePart = parts.find(p => p.includes(':')) || '';
+
+                                                                                            const datePart = e.target.value.toUpperCase();
+                                                                                            const newVal = `${datePart} ${currentTimePart}`.trim();
+                                                                                            updateParam(index, 'value', newVal);
+                                                                                        }}
+                                                                                        className="font-mono text-xs h-8 bg-background border-input focus:border-primary transition-all"
+                                                                                    />
+                                                                                </div>
+                                                                                <div className="space-y-1">
+                                                                                    <Label className="text-[10px] text-muted-foreground">具体时间</Label>
+                                                                                    <Input
+                                                                                        type="time"
+                                                                                        step="1"
+                                                                                        value={(param.value || '').includes(':') ? ((param.value || '').split(' ').find(p => p.includes(':')) || '') : ''}
+                                                                                        onChange={(e) => {
+                                                                                            const timePart = e.target.value;
+                                                                                            const parts = (param.value || '').split(' ');
+                                                                                            const datePart = parts[0].startsWith('T') ? parts[0] : 'T+0';
+                                                                                            const newVal = `${datePart} ${timePart}`;
+                                                                                            updateParam(index, 'value', newVal.trim());
+                                                                                        }}
+                                                                                        className="font-mono text-xs h-8 bg-background border-input focus:border-primary transition-all"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-start gap-2 text-[10px] text-muted-foreground bg-background/50 p-2 rounded border border-border/20">
+                                                                                <AlertCircle className="w-3 h-3 text-primary/70 mt-0.5 shrink-0" />
+                                                                                <p>
+                                                                                    组合配置：<strong>日期偏移</strong> (T+0为当天) + <strong>具体时间</strong>。<br />
+                                                                                    例如：<code>T+1 09:00:00</code> 代表 <strong>次日早上9点</strong>。
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </motion.div>
+                                                                )}
+                                                                {param.type === 'date' && (
                                                                     <motion.div
                                                                         initial={{ opacity: 0, height: 0 }}
                                                                         animate={{ opacity: 1, height: 'auto' }}
@@ -719,20 +775,22 @@ function EmailTemplateForm({ initialData, templateId, onClose }: EmailTemplateFo
                                                                         <div className="bg-muted/30 p-3 rounded-lg border border-border/40 space-y-2">
                                                                             <Label className="text-[11px] font-semibold flex items-center gap-1.5 text-primary">
                                                                                 <Calendar className="w-3 h-3" />
-                                                                                默认值 (可选)
+                                                                                默认日期偏移 (可选)
                                                                             </Label>
                                                                             <Input
-                                                                                placeholder={param.type === 'date' ? '例如: 2024-01-15' : '例如: 2024-01-15 14:30:00'}
+                                                                                placeholder="例如: T+0, T+1"
                                                                                 value={param.value || ''}
-                                                                                onChange={(e) => updateParam(index, 'value', e.target.value)}
+                                                                                onChange={(e) => {
+                                                                                    const val = e.target.value.toUpperCase();
+                                                                                    updateParam(index, 'value', val);
+                                                                                }}
                                                                                 className="font-mono text-sm h-8 bg-background border-input focus:border-primary transition-all"
                                                                             />
                                                                             <div className="flex items-start gap-2 text-[10px] text-muted-foreground bg-background/50 p-2 rounded border border-border/20">
                                                                                 <AlertCircle className="w-3 h-3 text-primary/70 mt-0.5 shrink-0" />
                                                                                 <p>
-                                                                                    {param.type === 'date'
-                                                                                        ? '发送时将使用此默认日期（格式：YYYY-MM-DD）。'
-                                                                                        : '发送时将使用此默认日期时间（格式：YYYY-MM-DD HH:mm:ss）。'}
+                                                                                    支持 <strong>T+N</strong> 格式，其中 T 代表当天。<br />
+                                                                                    例如：<strong>T+0</strong> 代表当天，<strong>T+1</strong> 代表次日。
                                                                                 </p>
                                                                             </div>
                                                                         </div>

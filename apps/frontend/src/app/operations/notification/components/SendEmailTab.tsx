@@ -61,7 +61,11 @@ import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from "@/components/ui/calendar";
 import { Label } from "@/components/ui/label";
-import { HtmlPreview } from '@/components/ui/html-preview';
+import parse from 'html-react-parser';
+import DOMPurify from 'dompurify';
+import { TiptapEditor } from '@/components/common/TiptapEditor';
+
+
 
 // --- Type Definitions ---
 interface ParamDef {
@@ -77,6 +81,13 @@ interface ParamDef {
 }
 
 // --- Helper Components ---
+
+function formatToISODate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
 function MultiSearchableSelect<T>({
     items,
@@ -554,6 +565,7 @@ export function SendEmailTab() {
     const [attachFiles, setAttachFiles] = useState<any[]>([]); // Using any for simplicity as per existing usage pattern or define interface
     const [affectedResources, setAffectedResources] = useState<AffectedResource[]>([]);
     const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
 
 
     // ---------------- Queries ----------------
@@ -834,6 +846,8 @@ export function SendEmailTab() {
         sendMutation.mutate(payload);
     };
 
+
+
     // Toggle contact function for chips
     const toggleContactId = (id: string) => {
         const newSet = new Set(selectedContactIds);
@@ -890,15 +904,76 @@ export function SendEmailTab() {
                                         template.params.definitions.forEach((def: any) => {
                                             // Use 'value' field for default values (supports date, datetime, input, select)
                                             if (def.value) {
-                                                initialParams[def.name] = def.value;
+                                                // 1. Handle T+N logic for Date type
+                                                if (def.type === 'date' && typeof def.value === 'string' && def.value.toUpperCase().startsWith('T')) {
+                                                    const match = def.value.toUpperCase().match(/^T([+\-]?\d+)?$/);
+                                                    if (match) {
+                                                        const offset = match[1] ? parseInt(match[1], 10) : 0;
+                                                        const targetDate = new Date();
+                                                        targetDate.setDate(targetDate.getDate() + offset);
+                                                        initialParams[def.name] = formatToISODate(targetDate);
+                                                    } else {
+                                                        initialParams[def.name] = def.value;
+                                                    }
+                                                }
+                                                // 2. Handle Datetime logic (Time-only OR T+N + Time)
+                                                else if (def.type === 'datetime') {
+                                                    // Pattern: Optional "T+N" followed by Optional "HH:mm:ss"
+                                                    // Examples: "19:00:00" (implies T+0), "T+1 10:00", "T+0"
+                                                    const val = def.value.trim();
+
+                                                    // Parse Offset (T+N)
+                                                    let offset = 0;
+                                                    let timeStr = "00:00:00";
+                                                    let hasOffset = false;
+                                                    let hasTime = false;
+
+                                                    const parts = val.split(/\s+/);
+                                                    parts.forEach((p: string) => {
+                                                        if (p.toUpperCase().startsWith('T')) {
+                                                            const match = p.toUpperCase().match(/^T([+\-]?\d+)?$/);
+                                                            if (match) {
+                                                                const offsetStr = match[1];
+                                                                if (offsetStr !== undefined) {
+                                                                    const parsedOffset = parseInt(offsetStr, 10);
+                                                                    if (!isNaN(parsedOffset) && parsedOffset >= -365 && parsedOffset <= 3650) {
+                                                                        offset = parsedOffset;
+                                                                        hasOffset = true;
+                                                                    }
+                                                                } else {
+                                                                    hasOffset = true;
+                                                                }
+                                                            }
+                                                        } else if (p.includes(':')) {
+                                                            timeStr = p;
+                                                            if (timeStr.length <= 5) timeStr += ':00';
+                                                            hasTime = true;
+                                                        }
+                                                    });
+
+                                                    if (hasOffset || hasTime) {
+                                                        const targetDate = new Date();
+                                                        targetDate.setDate(targetDate.getDate() + offset);
+                                                        const dateStr = formatToISODate(targetDate);
+                                                        initialParams[def.name] = `${dateStr}T${timeStr}`;
+                                                    } else {
+                                                        // Fallback for standard ISO strings or other formats
+                                                        initialParams[def.name] = def.value;
+                                                    }
+                                                }
+                                                // 3. Standard value
+                                                else {
+                                                    initialParams[def.name] = def.value;
+                                                }
                                             }
                                             // Legacy: support defaultTime for backward compatibility
                                             else if (def.type === 'datetime' && def.defaultTime) {
-                                                const today = new Date().toISOString().split('T')[0];
+                                                const today = new Date();
+                                                const dateStr = formatToISODate(today);
                                                 // Ensure time format matches datetime-local requirements
                                                 let time = def.defaultTime;
                                                 if (time.length === 5) time += ':00'; // HH:mm -> HH:mm:ss
-                                                initialParams[def.name] = `${today}T${time}`;
+                                                initialParams[def.name] = `${dateStr}T${time}`;
                                             }
                                         });
                                     }
@@ -1068,6 +1143,7 @@ export function SendEmailTab() {
                             {/* Actions */}
                             {/* Actions */}
                             <div className="flex justify-end gap-3 sticky bottom-0 bg-background/95 backdrop-blur p-4 border-t z-40 shadow-lg rounded-t-lg">
+
                                 <Button
                                     variant="default"
                                     size="lg"
@@ -1158,16 +1234,44 @@ export function SendEmailTab() {
                                 </div>
 
 
-                                {/* 3. Content Preview */}
+
+                                {/* 3. Content Preview / Edit */}
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
                                         <label className="text-sm font-medium text-muted-foreground">邮件正文预览</label>
+                                        <div className="flex bg-muted rounded-lg p-1">
+                                            <button
+                                                className={cn(
+                                                    "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                                    !isEditing ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                                )}
+                                                onClick={() => setIsEditing(false)}
+                                            >
+                                                预览模式
+                                            </button>
+                                            <button
+                                                className={cn(
+                                                    "px-3 py-1 text-xs font-medium rounded-md transition-all",
+                                                    isEditing ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                                )}
+                                                onClick={() => setIsEditing(true)}
+                                            >
+                                                编辑模式
+                                            </button>
+                                        </div>
                                     </div>
 
-                                    <HtmlPreview
-                                        html={previewHtml}
-                                        className="border rounded-lg bg-card shadow-sm overflow-hidden"
-                                    />
+                                    {isEditing ? (
+                                        <TiptapEditor
+                                            key={`editor-${isEditing}`}
+                                            value={previewHtml}
+                                            onChange={setPreviewHtml}
+                                        />
+                                    ) : (
+                                        <div className="border rounded-lg bg-card shadow-sm overflow-hidden p-6 min-h-[200px] bg-white text-black">
+                                            {parse(DOMPurify.sanitize(previewHtml))}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* 4. Attachments */}

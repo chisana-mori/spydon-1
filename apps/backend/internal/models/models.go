@@ -180,8 +180,8 @@ type RCAStats struct {
 // User 用户模型
 type User struct {
 	BaseModel
-	Username      string     `json:"username" gorm:"type:varchar(191);uniqueIndex;not null"`
-	Email         string     `json:"email" gorm:"type:varchar(191);uniqueIndex;not null"`
+	Username      string     `json:"username" gorm:"type:varchar(191);uniqueIndex:idx_spydon_users_username;not null"`
+	Email         string     `json:"email" gorm:"type:varchar(191);uniqueIndex:idx_spydon_users_email;not null"`
 	Name          string     `json:"name" gorm:"type:varchar(255)"`
 	Picture       string     `json:"picture" gorm:"type:text"`
 	IsAdmin       bool       `json:"is_admin" gorm:"default:false"` // 是否为管理员，默认为普通用户
@@ -195,7 +195,7 @@ type User struct {
 type RefreshToken struct {
 	BaseModel
 	UserID    uint64    `json:"user_id" gorm:"type:bigint unsigned;not null"`
-	TokenHash string    `json:"-" gorm:"column:token;type:varchar(255);uniqueIndex;not null"`
+	TokenHash string    `json:"-" gorm:"column:token;type:varchar(255);uniqueIndex:idx_spydon_refresh_tokens_token;not null"`
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null"`
 	User      User      `json:"user" gorm:"foreignKey:UserID"`
 }
@@ -213,14 +213,14 @@ func (RefreshToken) TableName() string {
 type APIKey struct {
 	BaseModel
 	UserID      uint64     `json:"user_id" gorm:"type:bigint unsigned;not null"`
-	Name        string     `json:"name" gorm:"type:varchar(255);not null"`            // API Key名称/描述
-	Key         string     `json:"key" gorm:"type:varchar(255);uniqueIndex;not null"` // API Key值（加密存储）
-	KeyPrefix   string     `json:"key_prefix" gorm:"type:varchar(64);not null"`       // Key前缀（用于显示）
-	LastUsedAt  *time.Time `json:"last_used_at"`                                      // 最后使用时间
-	ExpiresAt   *time.Time `json:"expires_at"`                                        // 过期时间（可选）
-	IsActive    bool       `json:"is_active" gorm:"default:true"`                     // 是否激活
-	Permissions string     `json:"permissions" gorm:"type:varchar(32);default:read"`  // 权限范围（read/write/admin）
-	User        User       `json:"user,omitempty" gorm:"foreignKey:UserID"`           // 关联用户
+	Name        string     `json:"name" gorm:"type:varchar(255);not null"`                                    // API Key名称/描述
+	Key         string     `json:"key" gorm:"type:varchar(255);uniqueIndex:idx_spydon_api_keys_key;not null"` // API Key值（加密存储）
+	KeyPrefix   string     `json:"key_prefix" gorm:"type:varchar(64);not null"`                               // Key前缀（用于显示）
+	LastUsedAt  *time.Time `json:"last_used_at"`                                                              // 最后使用时间
+	ExpiresAt   *time.Time `json:"expires_at"`                                                                // 过期时间（可选）
+	IsActive    bool       `json:"is_active" gorm:"default:true"`                                             // 是否激活
+	Permissions string     `json:"permissions" gorm:"type:varchar(32);default:read"`                          // 权限范围（read/write/admin）
+	User        User       `json:"user,omitempty" gorm:"foreignKey:UserID"`                                   // 关联用户
 }
 
 // TableName 指定表名
@@ -231,13 +231,13 @@ func (APIKey) TableName() string {
 // Dictionary 字典表 - 用于管理枚举值、下拉选项等配置数据
 type Dictionary struct {
 	BaseModel
-	Code           string           `json:"code" gorm:"type:varchar(100);uniqueIndex;not null"` // 字典编码（唯一标识）
-	Name           string           `json:"name" gorm:"type:varchar(255);not null"`             // 字典名称
-	Module         string           `json:"module" gorm:"type:varchar(100)"`                    // 所属模块
-	Description    string           `json:"description" gorm:"type:text"`                       // 描述
-	IsEnabled      bool             `json:"is_enabled" gorm:"type:boolean;default:true"`        // 是否启用
-	KeySameAsValue bool             `json:"key_same_as_value" gorm:"type:boolean"`              // key 与 value 是否相同
-	SortOrder      int              `json:"sort_order" gorm:"type:int;default:0"`               // 排序顺序
+	Code           string           `json:"code" gorm:"type:varchar(100);uniqueIndex:idx_spydon_dictionaries_code;not null"` // 字典编码（唯一标识）
+	Name           string           `json:"name" gorm:"type:varchar(255);not null"`                                          // 字典名称
+	Module         string           `json:"module" gorm:"type:varchar(100)"`                                                 // 所属模块
+	Description    string           `json:"description" gorm:"type:text"`                                                    // 描述
+	IsEnabled      bool             `json:"is_enabled" gorm:"type:boolean;default:true"`                                     // 是否启用
+	KeySameAsValue bool             `json:"key_same_as_value" gorm:"type:boolean"`                                           // key 与 value 是否相同
+	SortOrder      int              `json:"sort_order" gorm:"type:int;default:0"`                                            // 排序顺序
 	Items          []DictionaryItem `json:"items,omitempty" gorm:"foreignKey:DictionaryID;constraint:OnDelete:CASCADE"`
 }
 
